@@ -27,24 +27,15 @@ android {
     // Release signing credentials are NEVER committed to this repository.
     // They are injected at build time from environment variables that the CI
     // workflow reads from encrypted GitHub Actions Secrets. Release builds are
-    // REQUIRED to be signed: if the credentials are missing the build fails
-    // loudly instead of silently producing an unsigned APK.
+    // REQUIRED to be signed.
     signingConfigs {
         create("release") {
             val storePath = System.getenv("KEYSTORE_FILE")
-            if (storePath.isNullOrBlank()) {
-                error("Release signing is required but KEYSTORE_FILE is not set. " +
-                    "Provide it (and KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD) " +
-                    "via GitHub Actions Secrets or env vars, then re-run.")
-            }
-            storeFile = file(storePath)
-            storePassword = System.getenv("KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("KEY_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
-            // Fail fast if any credential is missing/malformed.
-            if (storePassword.isNullOrBlank() || keyAlias.isNullOrBlank() || keyPassword.isNullOrBlank()) {
-                error("Release signing credentials are incomplete. Ensure " +
-                    "KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD are all set.")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
             }
         }
     }
@@ -57,10 +48,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Release APKs must always be signed.
-            signingConfig = signingConfigs.getByName("release")
+            // Only assign the signing config when credentials are present. When
+            // they are missing we intentionally do NOT assign it, so AGP won't
+            // fail on a missing storeFile; the assembleRelease doFirst check
+            // below then fails the build with a clear message instead.
+            if (!System.getenv("KEYSTORE_FILE").isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -74,6 +71,37 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+// Enforce release signing: fail a release build loudly when credentials are
+// missing/incomplete, instead of silently producing an unsigned APK. This is
+// attached to the actual release APK-producing task (assembleRelease and the
+// release package tasks), so debug / PR builds are NOT affected. Using doFirst
+// keeps the check at execution time and out of project configuration time.
+tasks.configureEach {
+    val n = name
+    if (n == "assembleRelease" ||
+        (n.startsWith("package") && n.contains("Release"))) {
+        doFirst {
+            val storePath = System.getenv("KEYSTORE_FILE")
+            if (storePath.isNullOrBlank()) {
+                throw GradleException(
+                    "Release signing is required but KEYSTORE_FILE is not set. " +
+                        "Provide it (and KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD) " +
+                        "via GitHub Actions Secrets or env vars, then re-run."
+                )
+            }
+            val password = System.getenv("KEYSTORE_PASSWORD")
+            val alias = System.getenv("KEY_ALIAS")
+            val keyPassword = System.getenv("KEY_PASSWORD")
+            if (password.isNullOrBlank() || alias.isNullOrBlank() || keyPassword.isNullOrBlank()) {
+                throw GradleException(
+                    "Release signing credentials are incomplete. Ensure " +
+                        "KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD are all set."
+                )
+            }
         }
     }
 }
