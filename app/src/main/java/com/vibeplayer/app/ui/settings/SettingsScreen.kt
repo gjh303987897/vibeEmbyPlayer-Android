@@ -150,10 +150,10 @@ private fun ThemeSection(state: SettingsUiState, viewModel: SettingsViewModel) {
     ) {
         Text(
             text = stringResource(R.string.settings_theme),
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f)
+            style = MaterialTheme.typography.bodyLarge
         )
-        SingleChoiceSegmentedButtonRow {
+        Spacer(Modifier.width(12.dp))
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
             val options = listOf(
                 Triple("system", R.string.settings_theme_system, 0),
                 Triple("light", R.string.settings_theme_light, 1),
@@ -163,7 +163,8 @@ private fun ThemeSection(state: SettingsUiState, viewModel: SettingsViewModel) {
                 SegmentedButton(
                     selected = state.themeMode == value,
                     onClick = { viewModel.setThemeMode(value) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Text(stringResource(labelRes))
                 }
@@ -183,10 +184,10 @@ private fun LanguageSection(state: SettingsUiState, viewModel: SettingsViewModel
     ) {
         Text(
             text = stringResource(R.string.settings_language),
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f)
+            style = MaterialTheme.typography.bodyLarge
         )
-        SingleChoiceSegmentedButtonRow {
+        Spacer(Modifier.width(12.dp))
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
             val options = listOf(
                 Triple("system", R.string.settings_language_system, 0),
                 Triple("en_US", R.string.settings_language_english, 1),
@@ -203,7 +204,8 @@ private fun LanguageSection(state: SettingsUiState, viewModel: SettingsViewModel
                             context.findActivity()?.recreate()
                         }
                     },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Text(stringResource(labelRes))
                 }

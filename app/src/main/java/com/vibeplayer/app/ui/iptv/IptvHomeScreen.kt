@@ -50,10 +50,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.db.entity.IptvChannelEntity
 import com.vibeplayer.app.ui.navigation.Routes
 import kotlinx.coroutines.launch
@@ -113,10 +115,10 @@ fun IptvHomeScreen(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("No channels imported yet", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.iptv_no_channels), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
-                    Text("Import M3U playlist")
+                    Text(stringResource(R.string.iptv_import_m3u))
                 }
             }
             return@Scaffold
@@ -148,7 +150,7 @@ private fun GroupAndFilterBar(state: IptvUiState, viewModel: IptvHomeViewModel) 
         OutlinedTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,
-            label = { Text("Search") },
+            label = { Text(stringResource(R.string.iptv_search_label)) },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
@@ -158,7 +160,7 @@ private fun GroupAndFilterBar(state: IptvUiState, viewModel: IptvHomeViewModel) 
             FilterChip(
                 selected = state.favoritesOnly,
                 onClick = { viewModel.setFavoritesOnly(!state.favoritesOnly) },
-                label = { Text("Favorites") },
+                label = { Text(stringResource(R.string.iptv_favorites_label)) },
                 leadingIcon = { Icon(if (state.favoritesOnly) Icons.Filled.Star else Icons.Outlined.FavoriteBorder, contentDescription = null) }
             )
             Spacer(Modifier.width(4.dp))
@@ -169,7 +171,7 @@ private fun GroupAndFilterBar(state: IptvUiState, viewModel: IptvHomeViewModel) 
                 FilterChip(
                     selected = state.selectedGroup == null,
                     onClick = { viewModel.setGroup(null) },
-                    label = { Text("All") }
+                    label = { Text(stringResource(R.string.iptv_all_label)) }
                 )
             }
             items(state.groups, key = { it }) { group ->
@@ -205,12 +207,12 @@ private fun ChannelRow(
             IconButton(onClick = onToggleFavorite) {
                 Icon(
                     imageVector = if (favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                    contentDescription = "Favorite",
+                    contentDescription = stringResource(R.string.iptv_favorite),
                     tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             IconButton(onClick = onPlay) {
-                Icon(Icons.Outlined.PlayArrow, contentDescription = "Play")
+                Icon(Icons.Outlined.PlayArrow, contentDescription = stringResource(R.string.play))
             }
         }
     }

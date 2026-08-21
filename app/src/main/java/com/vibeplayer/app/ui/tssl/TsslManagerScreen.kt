@@ -47,10 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.vibeplayer.app.R
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.TsslPackage
 
@@ -100,7 +102,7 @@ fun TsslManagerScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Encrypted HLS (TSSL)") },
+                title = { Text(stringResource(R.string.services_tssl)) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Go back")
@@ -149,20 +151,20 @@ fun TsslManagerScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            "TSSL packages hold encrypted-media keys. They are secrets — handle with care.",
+                            stringResource(R.string.tssl_packages_hint),
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = { importLauncher.launch(arrayOf("application/octet-stream", "*/*")) }
                             ) {
-                                Icon(Icons.Outlined.FileUpload, null); Spacer(Modifier.width(4.dp)); Text("Import/Restore")
+                                Icon(Icons.Outlined.FileUpload, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.tssl_import_restore))
                             }
                             OutlinedButton(
                                 onClick = { sourcePicker.launch(null) },
                                 enabled = !state.packagingBusy
                             ) {
-                                Icon(Icons.Outlined.Movie, null); Spacer(Modifier.width(4.dp)); Text("Package HLS folder")
+                                Icon(Icons.Outlined.Movie, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.tssl_package_hls_folder))
                             }
                         }
                     }
@@ -172,7 +174,7 @@ fun TsslManagerScreen(
             if (state.packages.isEmpty()) {
                 item {
                     Text(
-                        if (state.loading) "" else "No TSSL packages stored yet",
+                        if (state.loading) "" else stringResource(R.string.tssl_no_packages),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
@@ -257,9 +259,9 @@ private fun BackupTargetDialog(
     if (targets.isEmpty()) {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("No WebDAV target") },
-            text = { Text("Add a WebDAV service first to use it as a backup target.") },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+            title = { Text(stringResource(R.string.tssl_no_webdav_target)) },
+            text = { Text(stringResource(R.string.tssl_webdav_target_help)) },
+            confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_confirm)) } }
         )
         return
     }
@@ -267,7 +269,7 @@ private fun BackupTargetDialog(
     var selected by remember { mutableStateOf(targets.first()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Back up to WebDAV") },
+        title = { Text(stringResource(R.string.tssl_backup_to_webdav)) },
         text = {
             Column {
                 OutlinedButton(onClick = { expanded = true }) {
@@ -283,8 +285,8 @@ private fun BackupTargetDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(selected) }) { Text("Backup") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { TextButton(onClick = { onConfirm(selected) }) { Text(stringResource(R.string.tssl_backup)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -292,13 +294,10 @@ private fun BackupTargetDialog(
 private fun PackagingDialog(progress: Float) {
     AlertDialog(
         onDismissRequest = {},
-        title = { Text("Packaging HLS") },
+        title = { Text(stringResource(R.string.tssl_packaging_hls)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Encrypting media segments and building the TSSL package. " +
-                        "This can take a while for large sources."
-                )
+                Text(stringResource(R.string.tssl_encrypting))
                 androidx.compose.material3.LinearProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth()

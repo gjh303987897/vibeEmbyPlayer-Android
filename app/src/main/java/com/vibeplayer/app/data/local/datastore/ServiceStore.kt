@@ -1,9 +1,14 @@
 package com.vibeplayer.app.data.local.datastore
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import java.io.File
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -17,8 +22,6 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
-private val Context.servicesDataStore by preferencesDataStore(name = "services")
-
 /**
  * Persists the list of configured media service accounts (Emby / Jellyfin /
  * WebDAV / IPTV / Link). Only non-sensitive configuration is stored here;
@@ -26,9 +29,17 @@ private val Context.servicesDataStore by preferencesDataStore(name = "services")
  */
 @Singleton
 class ServiceStore @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @ApplicationContext context: Context,
     private val json: Json
 ) {
+    // Single DataStore instance (created once per app). A corruption handler
+    // resets a corrupt on-disk file to empty instead of throwing and crashing
+    // the app on every launch.
+    private val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
+        corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+        produceFile = { File(context.applicationContext.filesDir, "datastore/services.preferences_pb") }
+    )
+
     private object Keys {
         val SERVICES = stringPreferencesKey("services_json")
     }
@@ -45,13 +56,13 @@ class ServiceStore @Inject constructor(
         val privateMode: Boolean
     )
 
-    val services: Flow<List<ServerConfig>> = context.servicesDataStore.data
+    val services: Flow<List<ServerConfig>> = dataStore.data
         .map { prefs ->
             prefs[Keys.SERVICES]?.let { decode(it) } ?: emptyList()
         }
 
     suspend fun saveAll(configs: List<ServerConfig>) {
-        context.servicesDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             val dto = configs.map { it.toDto() }
             prefs[Keys.SERVICES] = json.encodeToString(ListSerializer(ServerConfigDto.serializer()), dto)
         }

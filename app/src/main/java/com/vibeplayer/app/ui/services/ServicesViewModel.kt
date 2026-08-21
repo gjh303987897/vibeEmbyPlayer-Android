@@ -86,7 +86,7 @@ class ServicesViewModel @Inject constructor(
     fun addServer(form: ServerForm, password: String) {        val config = ServerConfig(
             id = UUID.randomUUID().toString(),
             name = form.name.ifBlank { form.baseUrl },
-            baseUrl = form.baseUrl,
+            baseUrl = normalizeScheme(form.baseUrl),
             username = form.username,
             serviceType = form.serviceType,
             autoLogin = form.autoLogin,
@@ -95,28 +95,41 @@ class ServicesViewModel @Inject constructor(
         )
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, errorMessage = null) }
-            repository.addServer(config)
-            when (config.serviceType) {
-                ServiceType.EMBY, ServiceType.JELLYFIN -> {
-                    val loginResult = repository.login(config, password)
-                    if (loginResult.isSuccess) {
-                        activeSessionManager.setActiveSession(loginResult.getOrNull())
+            try {
+                repository.addServer(config)
+            } catch (t: Throwable) {
+                // Persisting the new account must never crash the save. Surface
+                // the error and keep the dialog so the user can retry.
+                _uiState.update { it.copy(loading = false, errorMessage = t.message) }
+                return@launch
+            }
+            try {
+                when (config.serviceType) {
+                    ServiceType.EMBY, ServiceType.JELLYFIN -> {
+                        val loginResult = repository.login(config, password)
+                        if (loginResult.isSuccess) {
+                            activeSessionManager.setActiveSession(loginResult.getOrNull())
+                        }
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                lastLoggedInServerId = config.id,
+                                errorMessage = loginResult.exceptionOrNull()?.message
+                            )
+                        }
                     }
-                    _uiState.update {
-                        it.copy(
-                            loading = false,
-                            lastLoggedInServerId = config.id,
-                            errorMessage = loginResult.exceptionOrNull()?.message
-                        )
+                    ServiceType.WEBDAV -> {
+                        webDavRepository.saveCredentials(config, password)
+                        _uiState.update { it.copy(loading = false, lastLoggedInServerId = config.id) }
+                    }
+                    else -> {
+                        _uiState.update { it.copy(loading = false, lastLoggedInServerId = config.id) }
                     }
                 }
-                ServiceType.WEBDAV -> {
-                    webDavRepository.saveCredentials(config, password)
-                    _uiState.update { it.copy(loading = false, lastLoggedInServerId = config.id) }
-                }
-                else -> {
-                    _uiState.update { it.copy(loading = false, lastLoggedInServerId = config.id) }
-                }
+            } catch (t: Throwable) {
+                // The initial login / credential step must never crash the save.
+                _uiState.update { it.copy(loading = false, errorMessage = t.message) }
+                return@launch
             }
             _showAddDialog.value = false
         }
@@ -126,16 +139,21 @@ class ServicesViewModel @Inject constructor(
     fun loginServer(server: ServerConfig, password: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, errorMessage = null) }
-            val result = repository.login(server, password)
-            if (result.isSuccess) {
-                activeSessionManager.setActiveSession(result.getOrNull())
-            }
-            _uiState.update { state ->
-                state.copy(
-                    loading = false,
-                    lastLoggedInServerId = if (result.isSuccess) server.id else null,
-                    errorMessage = result.exceptionOrNull()?.message
-                )
+            try {
+                val result = repository.login(server, password)
+                if (result.isSuccess) {
+                    activeSessionManager.setActiveSession(result.getOrNull())
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        loading = false,
+                        lastLoggedInServerId = if (result.isSuccess) server.id else null,
+                        errorMessage = result.exceptionOrNull()?.message
+                    )
+                }
+            } catch (t: Throwable) {
+                // A login failure / unexpected error must never crash the app.
+                _uiState.update { it.copy(loading = false, errorMessage = t.message) }
             }
         }
     }
@@ -169,11 +187,24 @@ class ServicesViewModel @Inject constructor(
             repository.updateServer(
                 server.copy(
                     name = form.name.ifBlank { form.baseUrl.ifBlank { server.name } },
-                    baseUrl = form.baseUrl.ifBlank { server.baseUrl },
+                    baseUrl = normalizeScheme(form.baseUrl).ifBlank { server.baseUrl },
                     username = form.username.ifBlank { server.username }
                 )
             )
         }
+    }
+
+    /**
+     * Ensures a bare LAN address (e.g. `192.168.1.5:8096`) is usable by
+     * prepending a scheme, so URL parsing does not fail during login and the
+     * server save never crashes on an invalid URL.
+     */
+    private fun normalizeScheme(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return trimmed
+        val hasScheme = trimmed.contains("://") || trimmed.startsWith("http://") ||
+            trimmed.startsWith("https://")
+        return if (hasScheme) trimmed else "http://$trimmed"
     }
 
     fun clearError() {

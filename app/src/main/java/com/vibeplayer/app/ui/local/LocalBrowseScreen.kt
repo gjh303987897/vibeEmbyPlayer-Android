@@ -41,8 +41,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.vibeplayer.app.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.data.local.db.entity.LocalMediaRootEntity
@@ -175,7 +177,7 @@ private fun RootsList(
     ) {
         item {
             Text(
-                text = "Add a local folder to browse and play videos from it.",
+                text = stringResource(R.string.local_add_folder_hint),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -183,7 +185,7 @@ private fun RootsList(
         if (state.roots.isEmpty()) {
             item {
                 Text(
-                    text = "No local folders yet.",
+                    text = stringResource(R.string.local_no_folders),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(vertical = 24.dp)
                 )
@@ -210,7 +212,7 @@ private fun RootRow(root: LocalMediaRootEntity, onOpen: () -> Unit, onRemove: ()
             Column(modifier = Modifier.weight(1f)) {
                 Text(root.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    text = if (root.available) root.path else "Unavailable - pick the folder again",
+                    text = if (root.available) root.path else stringResource(R.string.local_pick_again),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (root.available) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                     maxLines = 1,

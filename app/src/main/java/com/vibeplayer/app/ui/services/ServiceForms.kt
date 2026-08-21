@@ -51,7 +51,8 @@ fun AddServerDialog(
                         SegmentedButton(
                             selected = type == option,
                             onClick = { type = option },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = ServiceType.entries.size)
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = ServiceType.entries.size),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Text(option.displayName)
                         }
@@ -92,7 +93,7 @@ fun AddServerDialog(
                     )
                 } else {
                     Text(
-                        text = "Enter a name for this service. Further setup continues in its page.",
+                        text = stringResource(R.string.service_enter_name_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

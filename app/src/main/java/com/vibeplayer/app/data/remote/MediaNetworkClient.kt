@@ -62,6 +62,16 @@ class MediaNetworkClient @Inject constructor(
                     NetworkResult.Success(bytes, response.code)
                 }
             }
+        } catch (e: IllegalArgumentException) {
+            // Malformed / unsupported server URL (e.g. a scheme-less LAN address).
+            // This is NOT an IOException, so without this branch it would escape
+            // the coroutine and crash the app (e.g. when saving a new server).
+            NetworkResult.Failure(
+                NetworkError(
+                    kind = NetworkErrorKind.INVALID_URL,
+                    message = "Invalid server URL: ${e.message}"
+                )
+            )
         } catch (e: IOException) {
             NetworkResult.Failure(e.toNetworkError())
         }

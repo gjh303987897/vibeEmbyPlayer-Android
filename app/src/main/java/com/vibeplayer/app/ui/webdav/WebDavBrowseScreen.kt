@@ -48,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -172,7 +173,7 @@ fun WebDavBrowseScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Enter password for this server",
+                        text = context.getString(R.string.webdav_enter_password),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     OutlinedTextField(
@@ -207,12 +208,12 @@ fun WebDavBrowseScreen(
     if (showNewFolder) {
         AlertDialog(
             onDismissRequest = { showNewFolder = false },
-            title = { Text("New folder") },
+            title = { Text(context.getString(R.string.webdav_new_folder)) },
             text = {
                 OutlinedTextField(
                     value = newFolderName,
                     onValueChange = { newFolderName = it },
-                    label = { Text("Folder name") },
+                    label = { Text(context.getString(R.string.webdav_folder_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -258,7 +259,7 @@ private fun WebDavRow(item: WebDavItem, onOpen: () -> Unit, onDownload: () -> Un
         headlineContent = { Text(item.name) },
         supportingContent = {
             if (item.isDirectory) {
-                Text("Folder")
+                Text(stringResource(R.string.webdav_folder))
             } else if (item.size > 0) {
                 Text(formatBytes(item.size))
             }
@@ -268,7 +269,7 @@ private fun WebDavRow(item: WebDavItem, onOpen: () -> Unit, onDownload: () -> Un
                 IconButton(onClick = onDownload) {
                     Icon(
                         Icons.Outlined.Download,
-                        contentDescription = "Download"
+                        contentDescription = stringResource(R.string.webdav_download)
                     )
                 }
             }

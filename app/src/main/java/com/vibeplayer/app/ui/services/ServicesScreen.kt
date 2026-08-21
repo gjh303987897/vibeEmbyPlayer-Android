@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -73,13 +74,14 @@ fun ServicesScreen(
     val showAddDialog by viewModel.showAddDialog.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var loginTarget by remember { mutableStateOf<ServerConfig?>(null) }
     var editTarget by remember { mutableStateOf<ServerConfig?>(null) }
 
     LaunchedEffect(uiState.lastLoggedInServerId) {
         uiState.lastLoggedInServerId?.let {
-            snackbarHostState.showSnackbar("Signed in")
+            snackbarHostState.showSnackbar(context.getString(R.string.signed_in))
             viewModel.clearError()
         }
     }
@@ -220,11 +222,11 @@ private fun LocalPlaybackCard(onOpen: () -> Unit) {
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Local Playback",
+                    text = stringResource(R.string.services_local_playback),
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = "Browse and play video from your device",
+                    text = stringResource(R.string.services_local_playback_sub),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -258,11 +260,11 @@ private fun TsslManagerCard(onOpen: () -> Unit) {
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Encrypted HLS (TSSL)",
+                    text = stringResource(R.string.services_tssl),
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = "Manage TSSL packages and back up to WebDAV",
+                    text = stringResource(R.string.services_tssl_sub),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

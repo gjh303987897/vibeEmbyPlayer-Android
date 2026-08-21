@@ -33,10 +33,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.db.entity.LinkPlaybackHistoryEntity
 import com.vibeplayer.app.ui.navigation.Routes
 
@@ -93,7 +95,7 @@ fun LinkHomeScreen(
             if (state.history.isEmpty()) {
                 item {
                     Text(
-                        text = "No history yet",
+                        text = stringResource(R.string.link_no_history),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
@@ -102,7 +104,7 @@ fun LinkHomeScreen(
             } else {
                 item {
                     Text(
-                        text = "History",
+                        text = stringResource(R.string.link_history),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 8.dp)
                     )
@@ -147,7 +149,7 @@ private fun UrlInputCard(
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = onUrlChange,
-                label = { Text("Media or HLS URL") },
+                label = { Text(stringResource(R.string.link_media_url_label)) },
                 placeholder = { Text("https://example.com/video.m3u8") },
                 singleLine = true,
                 isError = error != null,
@@ -163,7 +165,7 @@ private fun UrlInputCard(
             ) {
                 Icon(Icons.Outlined.PlayArrow, contentDescription = null)
                 Spacer(Modifier.width(4.dp))
-                Text("Play")
+                Text(stringResource(R.string.play))
             }
         }
     }

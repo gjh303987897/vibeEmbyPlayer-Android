@@ -89,4 +89,49 @@
     <string name="settings_wrong_pin">Incorrect PIN</string>
     <string name="settings_pin_short">PIN must be 4–16 digits</string>
     <string name="settings_confirm">OK</string>
+
+    <!-- Link service -->
+    <string name="link_no_history">No history yet</string>
+    <string name="link_history">History</string>
+    <string name="link_media_url_label">Media or HLS URL</string>
+
+    <!-- IPTV -->
+    <string name="iptv_search_label">Search</string>
+    <string name="iptv_favorites_label">Favorites</string>
+    <string name="iptv_all_label">All</string>
+    <string name="iptv_favorite">Favorite</string>
+    <string name="iptv_no_channels">No channels imported yet</string>
+    <string name="iptv_import_m3u">Import M3U playlist</string>
+
+    <!-- Local media -->
+    <string name="local_folder">Local folder</string>
+    <string name="local_add_folder_hint">Add a local folder to browse and play videos from it.</string>
+    <string name="local_no_folders">No local folders yet.</string>
+    <string name="local_pick_again">Unavailable - pick the folder again</string>
+
+    <!-- Services / TSSL cards -->
+    <string name="service_enter_name_hint">Enter a name for this service. Further setup continues in its page.</string>
+    <string name="services_local_playback">Local Playback</string>
+    <string name="services_local_playback_sub">Browse and play video from your device</string>
+    <string name="services_tssl">Encrypted HLS (TSSL)</string>
+    <string name="services_tssl_sub">Manage TSSL packages and back up to WebDAV</string>
+
+    <!-- TSSL manager -->
+    <string name="tssl_packages_hint">TSSL packages hold encrypted-media keys. They are secrets — handle with care.</string>
+    <string name="tssl_no_packages">No TSSL packages stored yet</string>
+    <string name="tssl_no_webdav_target">No WebDAV target</string>
+    <string name="tssl_packaging_hls">Packaging HLS</string>
+    <string name="tssl_import_restore">Import/Restore</string>
+    <string name="tssl_package_hls_folder">Package HLS folder</string>
+    <string name="tssl_webdav_target_help">Add a WebDAV service first to use it as a backup target.</string>
+    <string name="tssl_backup_to_webdav">Back up to WebDAV</string>
+    <string name="tssl_backup">Backup</string>
+    <string name="tssl_encrypting">Encrypting media segments and building the TSSL package. This can take a while for large sources.</string>
+
+    <!-- WebDAV -->
+    <string name="webdav_enter_password">Enter password for this server</string>
+    <string name="webdav_new_folder">New folder</string>
+    <string name="webdav_folder_name">Folder name</string>
+    <string name="webdav_folder">Folder</string>
+    <string name="webdav_download">Download</string>
 </resources>

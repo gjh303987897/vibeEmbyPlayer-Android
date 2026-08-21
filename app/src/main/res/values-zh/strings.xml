@@ -89,4 +89,49 @@
     <string name="settings_wrong_pin">PIN 错误</string>
     <string name="settings_pin_short">PIN 需为 4–16 位数字</string>
     <string name="settings_confirm">确定</string>
+
+    <!-- Link 服务 -->
+    <string name="link_no_history">暂无历史</string>
+    <string name="link_history">历史</string>
+    <string name="link_media_url_label">媒体或 HLS 链接</string>
+
+    <!-- IPTV -->
+    <string name="iptv_search_label">搜索</string>
+    <string name="iptv_favorites_label">收藏</string>
+    <string name="iptv_all_label">全部</string>
+    <string name="iptv_favorite">收藏</string>
+    <string name="iptv_no_channels">尚未导入频道</string>
+    <string name="iptv_import_m3u">导入 M3U 播放列表</string>
+
+    <!-- 本地媒体 -->
+    <string name="local_folder">本地文件夹</string>
+    <string name="local_add_folder_hint">添加一个本地文件夹以浏览和播放其中的视频。</string>
+    <string name="local_no_folders">还没有本地文件夹。</string>
+    <string name="local_pick_again">不可用 - 请重新选择文件夹</string>
+
+    <!-- 服务 / TSSL 卡片 -->
+    <string name="service_enter_name_hint">为此服务输入名称。进一步设置将在其页面中继续。</string>
+    <string name="services_local_playback">本地播放</string>
+    <string name="services_local_playback_sub">浏览并播放设备上的视频</string>
+    <string name="services_tssl">加密 HLS (TSSL)</string>
+    <string name="services_tssl_sub">管理 TSSL 包并备份到 WebDAV</string>
+
+    <!-- TSSL 管理器 -->
+    <string name="tssl_packages_hint">TSSL 包包含加密媒体密钥，属于机密信息，请谨慎处理。</string>
+    <string name="tssl_no_packages">尚未存储 TSSL 包</string>
+    <string name="tssl_no_webdav_target">未配置 WebDAV 目标</string>
+    <string name="tssl_packaging_hls">正在打包 HLS</string>
+    <string name="tssl_import_restore">导入/恢复</string>
+    <string name="tssl_package_hls_folder">打包 HLS 文件夹</string>
+    <string name="tssl_webdav_target_help">请先添加 WebDAV 服务，以便用作备份目标。</string>
+    <string name="tssl_backup_to_webdav">备份到 WebDAV</string>
+    <string name="tssl_backup">备份</string>
+    <string name="tssl_encrypting">正在加密媒体分片并构建 TSSL 包。对于较大的源，这可能需要一些时间。</string>
+
+    <!-- WebDAV -->
+    <string name="webdav_enter_password">输入此服务器的密码</string>
+    <string name="webdav_new_folder">新建文件夹</string>
+    <string name="webdav_folder_name">文件夹名称</string>
+    <string name="webdav_folder">文件夹</string>
+    <string name="webdav_download">下载</string>
 </resources>
