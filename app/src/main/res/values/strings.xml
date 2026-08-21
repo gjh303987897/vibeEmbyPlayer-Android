@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VibePlayer</string>
+
+    <string name="nav_services">Services</string>
+    <string name="nav_transfers">Transfers</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="add_server">Add server</string>
+    <string name="edit_server">Edit server</string>
+    <string name="server_url">Server URL</string>
+    <string name="server_name">Server name</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="sign_in">Sign in</string>
+    <string name="signed_in">Signed in</string>
+    <string name="remove">Remove</string>
+    <string name="open">Open</string>
+    <string name="no_services">No media servers configured yet.</string>
+
+    <string name="transfer_channel_name">Transfers</string>
+    <string name="transfer_notification_title">Transfer in progress</string>
+    <string name="transfer_idle">No active transfers</string>
+    <string name="transfer_no_tasks">No transfers yet</string>
+    <string name="transfer_clear_finished">Clear finished</string>
+    <string name="transfer_retry">Retry</string>
+    <string name="transfer_status_queued">Queued</string>
+    <string name="transfer_status_running">Running</string>
+    <string name="transfer_status_paused">Paused</string>
+    <string name="transfer_status_done">Done</string>
+    <string name="transfer_status_failed">Failed</string>
+    <string name="transfer_status_canceled">Canceled</string>
+    <string name="transfer_cancel">Cancel</string>
+    <string name="transfer_download">Download</string>
+
+    <string name="back">Back</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="season">Season</string>
+
+    <string name="search">Search</string>
+    <string name="search_hint">Search movies, shows, episodes</string>
+    <string name="search_prompt">Start typing to search your media library</string>
+    <string name="no_results">No results found</string>
+
+    <string name="continue_watching">Continue watching</string>
+    <string name="suggested">Suggested for you</string>
+    <string name="libraries">Libraries</string>
+    <string name="home_empty">Nothing to play here yet.</string>
+
+    <string name="history_replay">Replay</string>
+    <string name="history_delete">Delete</string>
+    <string name="history_no_entries">No playback history yet.</string>
+    <string name="history_usage">Usage</string>
+    <string name="history_watch_time">Watch time</string>
+    <string name="history_download">Downloaded</string>
+    <string name="history_all">All sources</string>
+    <string name="history_previous">Previous</string>
+    <string name="history_next">Next</string>
+    <string name="history_page">Page %1$d of %2$d</string>
+    <string name="unavailable">Unavailable</string>
+
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_system">System</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_chinese">简体中文</string>
+    <string name="settings_dynamic_color">Dynamic color</string>
+    <string name="settings_dynamic_color_sub">Material You color from your wallpaper</string>
+    <string name="settings_page_transitions">Page transitions</string>
+    <string name="settings_privacy">Privacy</string>
+    <string name="settings_privacy_sub">Restrict access with a PIN and hide private content</string>
+    <string name="settings_set_pin">Set privacy PIN</string>
+    <string name="settings_change_pin">Change privacy PIN</string>
+    <string name="settings_enter_privacy">Enter privacy mode</string>
+    <string name="settings_exit_privacy">Exit privacy mode</string>
+    <string name="settings_privacy_active">Privacy mode active</string>
+    <string name="settings_enter_pin_dialog">Enter PIN</string>
+    <string name="settings_set_pin_dialog">Set a 4–16 digit PIN</string>
+    <string name="settings_pin_placeholder">PIN</string>
+    <string name="settings_wrong_pin">Incorrect PIN</string>
+    <string name="settings_pin_short">PIN must be 4–16 digits</string>
+    <string name="settings_confirm">OK</string>
+</resources>

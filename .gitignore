@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+local.properties
+.kotlin/
+
+# QT desktop reference (separate nested git repository, not part of the Android app)
+vibeEmbyPlayerQT/
+
+# Android / IntelliJ
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

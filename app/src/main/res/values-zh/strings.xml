@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VibePlayer</string>
+
+    <string name="nav_services">服务</string>
+    <string name="nav_transfers">传输</string>
+    <string name="nav_history">历史</string>
+    <string name="nav_settings">设置</string>
+
+    <string name="add_server">添加服务器</string>
+    <string name="edit_server">编辑服务器</string>
+    <string name="server_url">服务器地址</string>
+    <string name="server_name">服务器名称</string>
+    <string name="username">用户名</string>
+    <string name="password">密码</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="sign_in">登录</string>
+    <string name="signed_in">已登录</string>
+    <string name="remove">移除</string>
+    <string name="open">打开</string>
+    <string name="no_services">尚未配置媒体服务器。</string>
+
+    <string name="transfer_channel_name">传输</string>
+    <string name="transfer_notification_title">传输进行中</string>
+    <string name="transfer_idle">无进行中的传输</string>
+    <string name="transfer_no_tasks">暂无传输任务</string>
+    <string name="transfer_clear_finished">清除已完成</string>
+    <string name="transfer_retry">重试</string>
+    <string name="transfer_status_queued">排队中</string>
+    <string name="transfer_status_running">进行中</string>
+    <string name="transfer_status_paused">已暂停</string>
+    <string name="transfer_status_done">已完成</string>
+    <string name="transfer_status_failed">失败</string>
+    <string name="transfer_status_canceled">已取消</string>
+    <string name="transfer_cancel">取消</string>
+    <string name="transfer_download">下载</string>
+
+    <string name="back">返回</string>
+    <string name="play">播放</string>
+    <string name="pause">暂停</string>
+    <string name="resume">继续</string>
+    <string name="season">季</string>
+
+    <string name="search">搜索</string>
+    <string name="search_hint">搜索影片、剧集、单集</string>
+    <string name="search_prompt">输入关键字搜索媒体库</string>
+    <string name="no_results">未找到结果</string>
+
+    <string name="continue_watching">继续观看</string>
+    <string name="suggested">为您推荐</string>
+    <string name="libraries">媒体库</string>
+    <string name="home_empty">这里还没有内容。</string>
+
+    <string name="history_replay">重播</string>
+    <string name="history_delete">删除</string>
+    <string name="history_no_entries">暂无播放历史。</string>
+    <string name="history_usage">用量</string>
+    <string name="history_watch_time">观看时长</string>
+    <string name="history_download">已下载</string>
+    <string name="history_all">全部来源</string>
+    <string name="history_previous">上一页</string>
+    <string name="history_next">下一页</string>
+    <string name="history_page">第 %1$d 页，共 %2$d 页</string>
+    <string name="unavailable">不可用</string>
+
+    <string name="settings_appearance">外观</string>
+    <string name="settings_theme">主题</string>
+    <string name="settings_theme_system">跟随系统</string>
+    <string name="settings_theme_dark">深色</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_language">语言</string>
+    <string name="settings_language_system">跟随系统</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_chinese">简体中文</string>
+    <string name="settings_dynamic_color">动态取色</string>
+    <string name="settings_dynamic_color_sub">根据壁纸使用 Material You 取色</string>
+    <string name="settings_page_transitions">页面转场</string>
+    <string name="settings_privacy">隐私</string>
+    <string name="settings_privacy_sub">使用 PIN 限制访问并隐藏隐私内容</string>
+    <string name="settings_set_pin">设置隐私 PIN</string>
+    <string name="settings_change_pin">修改隐私 PIN</string>
+    <string name="settings_enter_privacy">进入隐私模式</string>
+    <string name="settings_exit_privacy">退出隐私模式</string>
+    <string name="settings_privacy_active">隐私模式已开启</string>
+    <string name="settings_enter_pin_dialog">输入 PIN</string>
+    <string name="settings_set_pin_dialog">设置 4–16 位数字 PIN</string>
+    <string name="settings_pin_placeholder">PIN</string>
+    <string name="settings_wrong_pin">PIN 错误</string>
+    <string name="settings_pin_short">PIN 需为 4–16 位数字</string>
+    <string name="settings_confirm">确定</string>
+</resources>
