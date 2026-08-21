@@ -20,3 +20,9 @@ captures/
 # OS
 .DS_Store
 Thumbs.db
+
+# Release signing secrets — NEVER commit the keystore or its base64.
+secret/
+*.jks
+*.keystore
+*.jks.b64

@@ -26,16 +26,25 @@ android {
 
     // Release signing credentials are NEVER committed to this repository.
     // They are injected at build time from environment variables that the CI
-    // workflow reads from encrypted GitHub Actions Secrets. Without them the
-    // release build stays unsigned (local dev / PRs keep working).
+    // workflow reads from encrypted GitHub Actions Secrets. Release builds are
+    // REQUIRED to be signed: if the credentials are missing the build fails
+    // loudly instead of silently producing an unsigned APK.
     signingConfigs {
         create("release") {
             val storePath = System.getenv("KEYSTORE_FILE")
-            if (!storePath.isNullOrBlank()) {
-                storeFile = file(storePath)
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEY_ALIAS")
-                keyPassword = System.getenv("KEY_PASSWORD")
+            if (storePath.isNullOrBlank()) {
+                error("Release signing is required but KEYSTORE_FILE is not set. " +
+                    "Provide it (and KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD) " +
+                    "via GitHub Actions Secrets or env vars, then re-run.")
+            }
+            storeFile = file(storePath)
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD")
+            // Fail fast if any credential is missing/malformed.
+            if (storePassword.isNullOrBlank() || keyAlias.isNullOrBlank() || keyPassword.isNullOrBlank()) {
+                error("Release signing credentials are incomplete. Ensure " +
+                    "KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD are all set.")
             }
         }
     }
@@ -48,11 +57,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Only sign when credentials were provided (CI secrets set the env
-            // vars); otherwise fall back to an unsigned release APK.
-            if (!System.getenv("KEYSTORE_FILE").isNullOrBlank()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // Release APKs must always be signed.
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
