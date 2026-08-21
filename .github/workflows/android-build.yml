@@ -49,22 +49,39 @@ jobs:
         run: chmod +x gradlew
 
       - name: Decode release signing keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        # NOTE: the `secrets` context is NOT usable in `if:` expressions, so we
+        # mirror the secret into an env var and gate on that instead. When the
+        # secret is absent this step is skipped and no keystore is produced,
+        # so the release build below correctly falls back to unsigned.
+        if: env.KEYSTORE_BASE64 != ''
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         shell: bash
         run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::KEYSTORE_BASE64 secret not set; release APK will be unsigned."
+            exit 0
+          fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keystore.jks"
+          test -s "$RUNNER_TEMP/keystore.jks" || { echo "::error::Keystore decode produced an empty file."; exit 1; }
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Build release APK
-        run: ./gradlew assembleRelease --stacktrace
+        # KEYSTORE_FILE is exported only when the decoded keystore exists, so
+        # build.gradle.kts only enables release signing when credentials were
+        # actually provided. Otherwise (no secrets) it falls back to unsigned.
+        run: |
+          if [ -f "$RUNNER_TEMP/keystore.jks" ]; then
+            export KEYSTORE_FILE="$RUNNER_TEMP/keystore.jks"
+            echo "Release signing enabled (keystore found)."
+          else
+            export KEYSTORE_FILE=""
+            echo "::warning::No keystore found; building unsigned release APK."
+          fi
+          ./gradlew assembleRelease --stacktrace
         env:
-          # Set only when the KEYSTORE_BASE64 secret exists; build.gradle.kts
-          # then enables release signing. Otherwise the release APK is unsigned.
-          KEYSTORE_FILE: ${{ runner.temp }}/keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
