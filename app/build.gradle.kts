@@ -24,6 +24,22 @@ android {
         }
     }
 
+    // Release signing credentials are NEVER committed to this repository.
+    // They are injected at build time from environment variables that the CI
+    // workflow reads from encrypted GitHub Actions Secrets. Without them the
+    // release build stays unsigned (local dev / PRs keep working).
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("KEYSTORE_FILE")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -32,6 +48,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Only sign when credentials were provided (CI secrets set the env
+            // vars); otherwise fall back to an unsigned release APK.
+            if (!System.getenv("KEYSTORE_FILE").isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

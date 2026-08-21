@@ -1,9 +1,18 @@
 name: Android Build
 
 # Builds the VibePlayer Android app's APKs on every push / PR and lets you
-# download the resulting artifacts. The release build is unsigned (this project
-# has no release signing config committed); publish a signed APK via your
-# distribution channel (e.g. Play Store) with your own keystore.
+# download the resulting artifacts.
+#
+# SECURE RELEASE SIGNING (optional):
+# The release APK is signed only when these encrypted repository secrets are
+# configured (Settings > Secrets > Actions):
+#   KEYSTORE_BASE64  - base64 of your .jks keystore (e.g. `base64 -w0 release.jks`)
+#   KEYSTORE_PASSWORD- keystore password
+#   KEY_ALIAS        - key alias inside the keystore
+#   KEY_PASSWORD     - private-key password
+# The keystore/passwords are NEVER committed to the repo. They are injected as
+# environment variables at build time; GitHub masks them in logs. Without these
+# secrets the release APK is produced unsigned (local dev / PRs still work).
 
 on:
   push:
@@ -39,11 +48,26 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Decode release signing keystore
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keystore.jks"
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Build release APK (unsigned)
+      - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace
+        env:
+          # Set only when the KEYSTORE_BASE64 secret exists; build.gradle.kts
+          # then enables release signing. Otherwise the release APK is unsigned.
+          KEYSTORE_FILE: ${{ runner.temp }}/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Run lint
         run: ./gradlew lintDebug
@@ -55,9 +79,9 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Upload release APK (unsigned)
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-unsigned-apk
+          name: app-release-apk
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
