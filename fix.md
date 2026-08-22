@@ -185,3 +185,12 @@
   - `adb logcat -v time *:E` 抓 `FATAL EXCEPTION`；或
   - `adb pull /sdcard/Android/data/com.vibeplayer.app/files/vibeplayer_crash_latest.log`
 - 注意：磁盘上现有 `app/build/outputs/apk/release/app-release.apk`（02:47 构建）**早于**本次修复（不含崩溃采集），请勿用旧 release 包复现。
+
+### 追加（同属 Emby 保存路径加固）
+3. **登录 token 持久化移出主线程** ✅（`MediaServerRepository.login` → `withContext(Dispatchers.IO)`）
+   - 问题：`EncryptedSharedPreferences` 首次写入会懒创建 Keystore 主密钥并做加解密 I/O；`login()` 原未派发 IO，保存 Emby 服务器成功后的 `saveSession` 落在主线程，可能卡 UI/ANR。
+   - 修改：token 持久化包进 `Dispatchers.IO`。
+4. **SecureSessionStore 全操作防御式包装** ✅（`SecureSessionStore.kt`）
+   - 问题：`androidx.security:security-crypto:1.0.0` 已废弃，已知存在「库自身后台写线程 / Keystore 懒初始化失败时不定期杀死整个进程」的缺陷——这类崩溃发生在库内部线程，调用方协程的 try/catch 无法捕获，正好契合「保存即直接退出」。
+   - 修改：`prefs` 懒初始化及所有读写/写入用 `runCatching` 包裹，失败仅退化为「未持久化会话」，自动登录下次重新要密码，绝不让进程退出。
+   - 验证：`assembleDebug` BUILD SUCCESSFUL。
