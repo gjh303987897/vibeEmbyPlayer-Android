@@ -159,3 +159,29 @@
 - **Room 迁移** ✅：新增 `data/local/db/Migrations.kt` 的 `MIGRATION_1_2`（删 `server_cards` 表、建 `transfer_task` 表及索引），在 `DatabaseModule` 注册；`fallbackToDestructiveMigration()` 仅作未知版本的兜底。
 - **`allowBackup="false"`** ✅：Manifest 已设置。
 - **PIN 哈希加固** ✅：`PrivacyManager` 从加盐 SHA-256 升级为 PBKDF2（210k 迭代），并向后兼容校验旧 SHA-256 哈希。
+
+---
+
+## 本会话：Emby 服务器保存「直接退出」排查与已落地修复
+
+> 场景：设置一个 Emby 服务器，点「保存」后应用直接退出（硬退出）。
+
+### 已排空 / 已确认的项
+- **保存/登录代码路径已全面防御**：`ServicesViewModel.addServer/loginServer` 已用 `try/catch (Throwable)` 包裹；`MediaNetworkClient` 捕获 `IllegalArgumentException`（非法 URL）与 `IOException`；`MediaServerRepository`/`ServiceStore`/`EmbyClient`/`MediaServerClientBase` 全部走 `Result`/`runCatching`，无未保护的 `!!`/`error()`/`requireNotNull`。**当前 debug 构建无法用普通 Kotlin 异常硬退出**。
+- **R8 混淆不是原因**：release 开启 `isMinifyEnabled`，但 `proguard-rules.pro` 已含 kotlinx.serialization keep 规则；抽查 release `mapping.txt` 确认保存路径序列化类 `ServiceStore$ServerConfigDto` 及其序列化器被保留，未被打包裁剪。
+
+### 已修复（含验证）
+1. **明文 HTTP 被 Android 默认阻断（真实缺陷）** ✅
+   - 问题：`targetSdk=35` 且无 `usesCleartextTraffic`/网络安全配置，Android 9+ 默认**禁止明文 http://**。因此局域网自建 Emby/Jellyfin/WebDAV（`http://192.168.x.x:8096`，正是 `normalizeScheme` 面向的场景）所有请求都会被平台静默拒绝。
+   - 修改：新增 `res/xml/network_security_config.xml`（`cleartextTrafficPermitted="true"`），并在 Manifest 的 `<application android:networkSecurityConfig="@xml/network_security_config">` 引用。
+   - 验证：`assembleDebug` BUILD SUCCESSFUL；APK 内含 `res/xml/network_security_config.xml`，合并清单含 `networkSecurityConfig` 引用。
+2. **进程级崩溃落盘采集（诊断工具）** ✅
+   - 新增 `util/CrashLogger.kt`：全局未捕获异常处理器把堆栈写入 `filesDir` 与 `getExternalFilesDir(null)`；**从不吞掉崩溃**，始终委托给原处理器。`VibePlayerApp.onCreate` 安装。
+   - 用途：下一次「保存即退出」即使没抓活 logcat，也能取到确切堆栈。
+
+### ⏳ 仍需用户提供证据才能最终定性
+- 本地无模拟器/无连接设备，无法复现该硬退出。
+- 请安装**最新 debug APK**（`app/build/outputs/apk/debug/app-debug.apk`，已含上述两处修复与崩溃采集），复现后任选其一：
+  - `adb logcat -v time *:E` 抓 `FATAL EXCEPTION`；或
+  - `adb pull /sdcard/Android/data/com.vibeplayer.app/files/vibeplayer_crash_latest.log`
+- 注意：磁盘上现有 `app/build/outputs/apk/release/app-release.apk`（02:47 构建）**早于**本次修复（不含崩溃采集），请勿用旧 release 包复现。
