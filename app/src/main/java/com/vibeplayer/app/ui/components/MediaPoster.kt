@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -19,19 +20,22 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 
 /**
- * Poster image with a rounded-corner tonal placeholder fallback, used by the
- * media grids and rails.
+ * Poster image with a rounded-corner tonal placeholder fallback, a soft shadow
+ * and a gentle crossfade when the artwork loads. Used by the media grids and
+ * rails.
  */
 @Composable
 fun MediaPoster(
     url: String?,
     modifier: Modifier = Modifier,
     placeholderIcon: ImageVector = Icons.Outlined.Movie,
-    cornerRadius: Int = 12
+    cornerRadius: Int = 12,
+    elevation: Float = 3f
 ) {
     val shape = RoundedCornerShape(cornerRadius.dp)
     Box(
         modifier = modifier
+            .shadow(elevation = elevation.dp, shape = shape, ambientColor = Color.Black.copy(alpha = 0.22f), spotColor = Color.Black.copy(alpha = 0.25f))
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {

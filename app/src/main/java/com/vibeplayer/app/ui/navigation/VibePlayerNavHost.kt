@@ -5,6 +5,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -105,16 +107,31 @@ fun VibePlayerNavHost(
             startDestination = TopLevelDestination.Services.route,
             modifier = Modifier.padding(innerPadding),
             enterTransition = {
-                if (pageTransitions) fadeIn(animationSpec = tween(220)) else EnterTransition.None
+                if (pageTransitions) {
+                    fadeIn(animationSpec = tween(240)) +
+                        scaleIn(initialScale = 0.98f, animationSpec = tween(240))
+                } else {
+                    EnterTransition.None
+                }
             },
             exitTransition = {
-                if (pageTransitions) fadeOut(animationSpec = tween(220)) else ExitTransition.None
+                if (pageTransitions) fadeOut(animationSpec = tween(200)) else ExitTransition.None
             },
             popEnterTransition = {
-                if (pageTransitions) fadeIn(animationSpec = tween(220)) else EnterTransition.None
+                if (pageTransitions) {
+                    fadeIn(animationSpec = tween(240)) +
+                        scaleIn(initialScale = 0.98f, animationSpec = tween(240))
+                } else {
+                    EnterTransition.None
+                }
             },
             popExitTransition = {
-                if (pageTransitions) fadeOut(animationSpec = tween(220)) else ExitTransition.None
+                if (pageTransitions) {
+                    fadeOut(animationSpec = tween(200)) +
+                        scaleOut(targetScale = 0.99f, animationSpec = tween(200))
+                } else {
+                    ExitTransition.None
+                }
             }
         ) {
             composable(TopLevelDestination.Services.route) {

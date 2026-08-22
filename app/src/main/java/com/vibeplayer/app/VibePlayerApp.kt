@@ -1,6 +1,8 @@
 package com.vibeplayer.app
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.vibeplayer.app.data.local.datastore.SettingsDataStore
 import com.vibeplayer.app.util.CrashLogger
 import com.vibeplayer.app.util.LocaleHelper
@@ -16,10 +18,19 @@ import kotlinx.coroutines.runBlocking
  * application-scoped components (repositories, player manager, etc.).
  */
 @HiltAndroidApp
-class VibePlayerApp : Application() {
+class VibePlayerApp : Application(), ImageLoaderFactory {
 
     @Inject
     lateinit var settingsDataStore: SettingsDataStore
+
+    /**
+     * App-wide image loader with a gentle crossfade so artwork fades in
+     * naturally instead of popping.
+     */
+    override fun newImageLoader(): ImageLoader =
+        ImageLoader.Builder(this)
+            .crossfade(true)
+            .build()
 
     override fun onCreate() {
         super.onCreate()

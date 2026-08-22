@@ -308,8 +308,9 @@ private fun ServiceCard(
             .fillMaxWidth()
             .clickable(enabled = item.hasSession, onClick = onOpenClick),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier

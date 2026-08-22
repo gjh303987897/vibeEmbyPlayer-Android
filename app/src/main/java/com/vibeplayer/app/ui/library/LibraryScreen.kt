@@ -1,7 +1,9 @@
 package com.vibeplayer.app.ui.library
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -45,6 +48,7 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.MediaPoster
+import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.navigation.Routes
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -115,12 +119,16 @@ fun LibraryScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(state.items, key = { it.id }) { item ->
-                            MediaGridItem(item = item, onClick = {
-                                navController.navigate(Routes.details(serverId, item.id))
-                            })
+                            MediaGridItem(
+                                item = item,
+                                modifier = Modifier.animateItem(),
+                                onClick = {
+                                    navController.navigate(Routes.details(serverId, item.id))
+                                }
+                            )
                         }
                         if (state.loadingMore) {
-                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
                                 Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
                                 }
@@ -134,11 +142,13 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun MediaGridItem(item: MediaItem, onClick: () -> Unit) {
+private fun MediaGridItem(item: MediaItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .pressScale(interactionSource)
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick)
     ) {
         MediaPoster(
             url = item.imageUrl,

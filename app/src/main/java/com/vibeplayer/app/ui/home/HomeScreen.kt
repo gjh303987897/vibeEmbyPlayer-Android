@@ -1,7 +1,9 @@
 package com.vibeplayer.app.ui.home
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +47,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
 import com.vibeplayer.app.ui.components.MediaPoster
+import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.navigation.Routes
 
 /** Server home: continue watching, suggested series and media libraries. */
@@ -101,6 +105,7 @@ fun HomeScreen(
                             items(state.libraries.chunked(2)) { row ->
                                 LibraryRow(
                                     libraries = row,
+                                    modifier = Modifier.animateItem(),
                                     onLibraryClick = { library ->
                                         navController.navigate(Routes.library(state.serverId, library.id))
                                     }
@@ -147,11 +152,14 @@ private fun RailHeader(title: String) {
 private fun PosterRail(items: List<MediaItem>, onItemClick: (MediaItem) -> Unit) {
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
         items(items) { item ->
+            val interactionSource = remember { MutableInteractionSource() }
             Column(
                 modifier = Modifier
-                    .width(120.dp)
+                    .animateItem()
+                    .width(140.dp)
                     .padding(end = 12.dp)
-                    .clickable { onItemClick(item) }
+                    .pressScale(interactionSource)
+                    .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onItemClick(item) }
             ) {
                 MediaPoster(
                     url = item.imageUrl,
@@ -172,22 +180,25 @@ private fun PosterRail(items: List<MediaItem>, onItemClick: (MediaItem) -> Unit)
 @Composable
 private fun LibraryRow(
     libraries: List<MediaLibrary>,
+    modifier: Modifier = Modifier,
     onLibraryClick: (MediaLibrary) -> Unit
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         libraries.forEach { library ->
+            val interactionSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .aspectRatio(1.6f)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { onLibraryClick(library) },
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .pressScale(interactionSource)
+                    .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onLibraryClick(library) },
                 contentAlignment = Alignment.BottomStart
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
