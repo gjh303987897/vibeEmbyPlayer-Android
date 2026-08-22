@@ -26,3 +26,4 @@ secret/
 *.jks
 *.keystore
 *.jks.b64
+.avd/

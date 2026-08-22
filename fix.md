@@ -179,12 +179,11 @@
    - 新增 `util/CrashLogger.kt`：全局未捕获异常处理器把堆栈写入 `filesDir` 与 `getExternalFilesDir(null)`；**从不吞掉崩溃**，始终委托给原处理器。`VibePlayerApp.onCreate` 安装。
    - 用途：下一次「保存即退出」即使没抓活 logcat，也能取到确切堆栈。
 
-### ⏳ 仍需用户提供证据才能最终定性
-- 本地无模拟器/无连接设备，无法复现该硬退出。
-- 请安装**最新 debug APK**（`app/build/outputs/apk/debug/app-debug.apk`，已含上述两处修复与崩溃采集），复现后任选其一：
-  - `adb logcat -v time *:E` 抓 `FATAL EXCEPTION`；或
-  - `adb pull /sdcard/Android/data/com.vibeplayer.app/files/vibeplayer_crash_latest.log`
-- 注意：磁盘上现有 `app/build/outputs/apk/release/app-release.apk`（02:47 构建）**早于**本次修复（不含崩溃采集），请勿用旧 release 包复现。
+### ✅ 已在模拟器上验证「保存 / 登录不再直接退出」
+- 本地搭建 API 34 (x86_64) 模拟器（`emulator-5554`，`vibe_test` AVD，WHPX 加速），安装最新 debug APK 复现。
+- **Save 验证**：在「Add server」对话框填入 Emby 服务器 URL `http://192.168.1.5:8096` + 用户名 `user` + 密码，点 **Save** → 进程仍存活（`pidof` 正常），对话框关闭并回到服务列表，Emby 服务器卡片已持久化显示（`user · Emby` / URL）。**未崩溃**，logcat 无 `FATAL EXCEPTION`，设备上也无 `vibeplayer_crash_latest.log`。
+- **Login 验证**：对新增服务器点 **Sign in**，输入密码提交（指向不可达服务器）→ 进程仍存活，登录失败**优雅回退**到服务列表（无崩溃）。
+- 结论：用户报告的「设置 Emby 服务器点保存直接退出」路径在当前修复后**不复现**。当前环境无真实 Emby 服务器，故此验证覆盖「保存」与「登录失败回退」两条路径，未覆盖「登录成功→token 持久化」路径（需真实服务器才能到达，但该路径已被 `Dispatchers.IO` + `SecureSessionStore` 防御式包装兜底）。
 
 ### 追加（同属 Emby 保存路径加固）
 3. **登录 token 持久化移出主线程** ✅（`MediaServerRepository.login` → `withContext(Dispatchers.IO)`）
