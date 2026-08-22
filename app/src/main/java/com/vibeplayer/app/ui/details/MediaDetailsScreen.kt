@@ -1,8 +1,10 @@
 package com.vibeplayer.app.ui.details
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,9 +35,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -47,6 +51,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
+import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.navigation.Routes
 
 /** Media details with backdrop, metadata, play action and series browsing. */
@@ -130,9 +135,13 @@ fun MediaDetailsScreen(
                     if (state.episodes.isNotEmpty()) {
                         item { Spacer(Modifier.height(8.dp)) }
                         items(state.episodes, key = { it.id }) { episode ->
-                            EpisodeRow(episode = episode, onClick = {
-                                navController.navigate(Routes.player(serverId, episode.id))
-                            })
+                            EpisodeRow(
+                                episode = episode,
+                                modifier = Modifier.animateItem(),
+                                onClick = {
+                                    navController.navigate(Routes.player(serverId, episode.id))
+                                }
+                            )
                         }
                     }
                 }
@@ -221,17 +230,20 @@ private fun SeasonSelector(
 }
 
 @Composable
-private fun EpisodeRow(episode: MediaItem, onClick: () -> Unit) {
+private fun EpisodeRow(episode: MediaItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .pressScale(interactionSource)
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .size(72.dp)
+                .shadow(2.dp, RoundedCornerShape(8.dp))
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {

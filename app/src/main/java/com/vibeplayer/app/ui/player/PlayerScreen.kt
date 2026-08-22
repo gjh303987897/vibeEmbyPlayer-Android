@@ -1,6 +1,12 @@
 package com.vibeplayer.app.ui.player
 
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -95,8 +101,20 @@ fun PlayerScreen(
             )
         }
 
-        if (controlsVisible) {
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(280)) + fadeIn(tween(280)),
+            exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(220)) + fadeOut(tween(220)),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
             PlayerTopBar(title = state.title, subtitle = state.subtitle, onBack = { navController.popBackStack() })
+        }
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(280)) + fadeIn(tween(280)),
+            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(220)) + fadeOut(tween(220)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
             ControlsBottom(
                 isPlaying = state.isPlaying,
                 positionMs = state.positionMs,
@@ -106,8 +124,7 @@ fun PlayerScreen(
                 onTogglePlay = viewModel::togglePlayPause,
                 onSeek = viewModel::seekTo,
                 onSpeedChange = viewModel::setPlaybackSpeed,
-                onVolumeChange = viewModel::setVolume,
-                modifier = Modifier.align(Alignment.BottomCenter)
+                onVolumeChange = viewModel::setVolume
             )
         }
     }
