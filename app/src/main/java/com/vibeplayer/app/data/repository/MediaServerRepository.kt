@@ -10,8 +10,10 @@ import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.UserSession
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 /**
  * Single data entry point for media server accounts (Emby / Jellyfin / etc.).
@@ -54,7 +56,13 @@ class MediaServerRepository @Inject constructor(
         val result = clientFor(server.serviceType).login(server, server.username, password)
         if (result.isSuccess) {
             result.getOrNull()?.let { session ->
-                secureSessionStore.saveSession(server.id, session.userId, session.accessToken)
+                // EncryptedSharedPreferences lazily creates the Keystore master key
+                // and cipher on first write. That is real crypto/disk I/O, so it
+                // must never happen on the main thread (it can stall the UI and
+                // trigger an ANR right after saving a server).
+                withContext(Dispatchers.IO) {
+                    secureSessionStore.saveSession(server.id, session.userId, session.accessToken)
+                }
             }
         }
         return result
