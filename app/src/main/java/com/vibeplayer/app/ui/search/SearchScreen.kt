@@ -1,7 +1,9 @@
 package com.vibeplayer.app.ui.search
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -52,6 +55,7 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.MediaPoster
+import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.navigation.Routes
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -151,10 +155,13 @@ fun SearchScreen(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(state.results, key = { it.id }) { item ->
+                                val interactionSource = remember { MutableInteractionSource() }
                                 Column(
                                     modifier = Modifier
+                                        .animateItem()
                                         .fillMaxWidth()
-                                        .clickable {
+                                        .pressScale(interactionSource)
+                                        .clickable(interactionSource = interactionSource, indication = LocalIndication.current) {
                                             navController.navigate(Routes.details(state.serverId, item.id))
                                         }
                                 ) {
