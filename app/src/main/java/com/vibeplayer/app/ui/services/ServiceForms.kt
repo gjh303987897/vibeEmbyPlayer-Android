@@ -152,11 +152,17 @@ fun AddServerDialog(
 fun EditServerDialog(
     server: ServerConfig,
     onDismiss: () -> Unit,
-    onSave: (ServerForm) -> Unit
+    onSave: (ServerForm, password: String, savePassword: Boolean) -> Unit
 ) {
     var name by remember { mutableStateOf(server.name) }
     var baseUrl by remember { mutableStateOf(server.baseUrl) }
     var username by remember { mutableStateOf(server.username) }
+    var password by remember { mutableStateOf("") }
+    var savePassword by remember { mutableStateOf(true) }
+
+    val isCredentialServer = server.serviceType == ServiceType.EMBY ||
+        server.serviceType == ServiceType.JELLYFIN ||
+        server.serviceType == ServiceType.WEBDAV
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -168,10 +174,7 @@ fun EditServerDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (server.serviceType == ServiceType.EMBY ||
-                    server.serviceType == ServiceType.JELLYFIN ||
-                    server.serviceType == ServiceType.WEBDAV
-                ) {
+                if (isCredentialServer) {
                     OutlinedTextField(
                         value = baseUrl,
                         onValueChange = { baseUrl = it },
@@ -187,10 +190,7 @@ fun EditServerDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                if (server.serviceType == ServiceType.EMBY ||
-                    server.serviceType == ServiceType.JELLYFIN ||
-                    server.serviceType == ServiceType.WEBDAV
-                ) {
+                if (isCredentialServer) {
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
@@ -198,6 +198,29 @@ fun EditServerDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (server.serviceType == ServiceType.EMBY || server.serviceType == ServiceType.JELLYFIN) {
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text(stringResource(R.string.password)) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = savePassword,
+                                onCheckedChange = { savePassword = it }
+                            )
+                            Text(
+                                text = stringResource(R.string.save_password_auto_enter),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -210,7 +233,9 @@ fun EditServerDialog(
                             baseUrl = baseUrl,
                             username = username,
                             serviceType = server.serviceType
-                        )
+                        ),
+                        password,
+                        savePassword
                     )
                 }
             ) {
@@ -229,9 +254,10 @@ fun EditServerDialog(
 fun LoginDialog(
     server: ServerConfig,
     onDismiss: () -> Unit,
-    onLogin: (password: String) -> Unit
+    onLogin: (password: String, savePassword: Boolean) -> Unit
 ) {
     var password by remember { mutableStateOf("") }
+    var savePassword by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -250,12 +276,27 @@ fun LoginDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (server.serviceType == ServiceType.EMBY || server.serviceType == ServiceType.JELLYFIN) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = savePassword,
+                            onCheckedChange = { savePassword = it }
+                        )
+                        Text(
+                            text = stringResource(R.string.save_password_auto_enter),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = password.isNotBlank(),
-                onClick = { onLogin(password) }
+                onClick = { onLogin(password, savePassword) }
             ) {
                 Text(stringResource(R.string.sign_in))
             }

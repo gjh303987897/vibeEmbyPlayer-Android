@@ -237,3 +237,29 @@
 - **缺失点**：`fetchSuggestedSeries` 只做了 Series 类型过滤；当 Emby 兼容服务器在 `/Suggestions` 里混入 `Studio`/`Genre` 等非 Series 条目（官方文档明确提示此类服务器即使带 `IncludeItemTypes=Series` 也会返回非 Series），过滤后为空 → 首页推荐轨**不渲染**，于是「手机端没有推荐剧集」。
 - **修改**（`MediaServerClientBase.fetchSuggestedSeries` + `EmbyClient.suggestedSeriesFallbackUrl`）：当主 Suggestions 响应不含任何 Series 条目时，按桌面参考客户端逻辑回退到 `GET /Users/{userId}/Items?Recursive=true&IncludeItemTypes=Series&SortBy=Random`（同字段），再次过滤 Series 后返回，保证推荐轨始终有内容。Jellyfin 使用官方 `type=Series` 参数、无此回退，保持 `null`。
 - **验证**：`assembleDebug` / `lintDebug` BUILD SUCCESSFUL（0 错误）。回退逻辑与 Qt 参考实现逐参数一致。成功路径需真实 Emby 服务器 + 凭据端到端确认（当前环境无凭据；代码路径已核对）。
+
+---
+
+## 本会话：提供 Emby/Jellyfin「保存密码」选项（已有服务器）
+
+> 需求：为什么 Emby 服务不保存之前的密码，希望给用户一个选项，保存密码后只需点击即可进入。
+
+### 背景 / 根因
+- 上一会话已为「添加服务器」对话框加入「保存密码，下次直接进入」复选框（登录成功后持久化密码）。
+- 但对**已配置的服务器**，登录对话框（LoginDialog）与编辑对话框（EditServerDialog）没有显式的保存密码选项；且即使密码被保存，服务列表 DataStore 不会因密码保存而重新发射，UI 的 `hasSavedPassword` 状态一直停留在旧值，导致卡片**始终不翻转为「打开」**——从用户视角就是「不保存密码 / 不能让一键进入生效」。
+
+### 修改
+- `ServiceForms.kt`：
+  - `LoginDialog` 增加「保存密码，下次直接进入」复选框（默认勾选），`onLogin` 回调携带 `savePassword`。
+  - `EditServerDialog` 增加密码输入框 + 保存密码复选框（默认勾选），`onSave` 回调携带 `password`/`savePassword`。
+- `ServicesScreen.kt`：登录/编辑回调把 `savePassword`/`password` 透传给 ViewModel。
+- `ServicesViewModel.kt`：
+  - `loginServer(server, password, savePassword: Boolean? = null)`：显式勾选或服务器 `autoLogin` 时，登录成功后持久化密码并调用 `refreshItems()`。
+  - `editServer(server, form, password, savePassword)`：勾选且输入了新密码时，**先**持久化密码再更新服务列表，并调用 `refreshItems()`。
+  - 新增 `refreshItems()`：从仓库重新计算每个服务的 `hasSession`/`hasSavedPassword`，使保存密码后卡片立即翻转为「打开」（一键进入）。
+- 密码仍存于 EncryptedSharedPreferences（Keystore），`removeServer` 会一并清除。
+
+### 验证
+- `assembleDebug` / `lintDebug` BUILD SUCCESSFUL（0 错误）。
+- 模拟器实测：登录 / 编辑 / 添加三个对话框均渲染「保存密码，下次直接进入」复选框且默认勾选；应用稳定无崩溃。
+- 说明：端到端「保存→卡片翻转」在本模拟器无法追踪，因为该 AVD 的 Keystore 处于损坏状态（读取写入均报 `VERIFICATION_FAILED`，即便 `pm clear` 后仍复现），`SecureSessionStore` 按其设计优雅降级（不崩溃，仅返回 null）。此属模拟器环境问题，非代码缺陷；真实设备 Keystore 正常时，勾选保存后密码会持久化，卡片随即翻转为「打开」。代码路径已核对。

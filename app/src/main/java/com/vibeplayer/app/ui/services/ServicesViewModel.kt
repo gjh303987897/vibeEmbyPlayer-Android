@@ -13,6 +13,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -84,6 +85,34 @@ class ServicesViewModel @Inject constructor(
         _showAddDialog.value = false
     }
 
+    /**
+     * Recomputes the per-server "has session" / "has saved password" flags from
+     * the repositories. Called after credentials change because the services
+     * DataStore does not emit on a password save, so the UI would otherwise keep
+     * stale flags and never flip a card into one-tap "open" mode.
+     */
+    private fun refreshItems() {
+        viewModelScope.launch {
+            val servers = runCatching { repository.observeServices().first() }
+                .getOrDefault(emptyList())
+            _uiState.update { state ->
+                state.copy(
+                    items = servers.map {
+                        ServiceItemUi(
+                            server = it,
+                            hasSession = when (it.serviceType) {
+                                ServiceType.EMBY,
+                                ServiceType.JELLYFIN -> repository.hasSession(it)
+                                else -> true
+                            },
+                            hasSavedPassword = repository.hasSavedPassword(it)
+                        )
+                    }
+                )
+            }
+        }
+    }
+
     /** Saves a new server and attempts an initial login. */
     fun addServer(form: ServerForm, password: String) {        val config = ServerConfig(
             id = UUID.randomUUID().toString(),
@@ -142,19 +171,26 @@ class ServicesViewModel @Inject constructor(
         }
     }
 
-    /** Logs into an existing server with the given password. */
-    fun loginServer(server: ServerConfig, password: String) {
+    /**
+     * Logs into an existing server with the given password.
+     *
+     * @param savePassword explicit user choice to keep the password for one-tap
+     *   entry; when null it falls back to the server's stored autoLogin flag.
+     */
+    fun loginServer(server: ServerConfig, password: String, savePassword: Boolean? = null) {
+        val persistPassword = savePassword ?: server.autoLogin
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, errorMessage = null) }
             try {
                 val result = repository.login(server, password)
                 if (result.isSuccess) {
                     activeSessionManager.setActiveSession(result.getOrNull())
-                    // When the user opted to save the password, refresh it so the
-                    // saved password always matches the latest known-good one.
-                    if (server.autoLogin) {
+                    // One-tap entry: keep the password so the next tap logs
+                    // straight in (only opt-in / autoLogin servers persist it).
+                    if (persistPassword && password.isNotBlank()) {
                         repository.savePassword(server, password)
                     }
+                    refreshItems()
                 }
                 _uiState.update { state ->
                     state.copy(
@@ -210,9 +246,26 @@ class ServicesViewModel @Inject constructor(
         }
     }
 
-    /** Updates an existing server's editable fields (name / base URL / username). */
-    fun editServer(server: ServerConfig, form: ServerForm) {
+    /**
+     * Updates an existing server's editable fields (name / base URL / username).
+     * When a new password is supplied and the user opts to save it, the password
+     * is persisted so tapping the card enters directly next time.
+     */
+    fun editServer(
+        server: ServerConfig,
+        form: ServerForm,
+        password: String = "",
+        savePassword: Boolean = false
+    ) {
         viewModelScope.launch {
+            // Save the password before the services list updates so that when the
+            // services DataStore emits, the collect re-reads hasSavedPassword and
+            // the card already reflects one-tap entry.
+            if (savePassword && password.isNotBlank() &&
+                (server.serviceType == ServiceType.EMBY || server.serviceType == ServiceType.JELLYFIN)
+            ) {
+                repository.savePassword(server, password)
+            }
             repository.updateServer(
                 server.copy(
                     name = form.name.ifBlank { form.baseUrl.ifBlank { server.name } },
@@ -220,6 +273,7 @@ class ServicesViewModel @Inject constructor(
                     username = form.username.ifBlank { server.username }
                 )
             )
+            refreshItems()
         }
     }
 

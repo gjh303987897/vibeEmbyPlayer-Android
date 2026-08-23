@@ -191,9 +191,9 @@ fun ServicesScreen(
         LoginDialog(
             server = server,
             onDismiss = { loginTarget = null },
-            onLogin = { password ->
+            onLogin = { password, savePassword ->
                 loginTarget = null
-                viewModel.loginServer(server, password)
+                viewModel.loginServer(server, password, savePassword)
             }
         )
     }
@@ -202,9 +202,9 @@ fun ServicesScreen(
         EditServerDialog(
             server = server,
             onDismiss = { editTarget = null },
-            onSave = { form ->
+            onSave = { form, password, savePassword ->
                 editTarget = null
-                viewModel.editServer(server, form)
+                viewModel.editServer(server, form, password, savePassword)
             }
         )
     }
