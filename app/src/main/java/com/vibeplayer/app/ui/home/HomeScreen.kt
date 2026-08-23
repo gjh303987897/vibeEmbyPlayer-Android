@@ -2,6 +2,7 @@ package com.vibeplayer.app.ui.home
 
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +24,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -111,6 +115,9 @@ fun HomeScreen(
                                     items = state.suggestedSeries,
                                     onItemClick = { item ->
                                         navController.navigate(Routes.details(state.serverId, item.id))
+                                    },
+                                    onPlay = { item ->
+                                        navController.navigate(Routes.player(state.serverId, item.id))
                                     }
                                 )
                             }
@@ -164,17 +171,22 @@ fun HomeScreen(
 
 /**
  * Cinematic featured hero for the recommended-series module, mirroring the
- * desktop client's "trendy" home: a full-width backdrop with an overlaid title,
- * overview and a dot page indicator, auto-advancing every few seconds.
+ * desktop client's "trendy" home: a full-width backdrop with overlaid title,
+ * metadata, overview, a play action and a dot page indicator. Auto-advances
+ * every few seconds and taps through to the item's details.
  */
 @Composable
 private fun SuggestedHero(
     items: List<MediaItem>,
-    onItemClick: (MediaItem) -> Unit
+    onItemClick: (MediaItem) -> Unit,
+    onPlay: (MediaItem) -> Unit
 ) {
     val count = items.size
     var index by remember { mutableIntStateOf(0) }
     val current = items.getOrNull(index % count.coerceAtLeast(1)) ?: return
+    val seriesName = current.seriesName.takeIf { it.isNotBlank() }
+    val title = seriesName ?: current.name.takeIf { it.isNotBlank() }
+    val itemName = current.name.takeIf { it.isNotBlank() && it != seriesName }
 
     LaunchedEffect(count) {
         if (count > 1) {
@@ -185,15 +197,11 @@ private fun SuggestedHero(
         }
     }
 
-    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp)
-            .pressScale(interactionSource)
-            .clickable(interactionSource = interactionSource, indication = LocalIndication.current) {
-                onItemClick(current)
-            }
+            .height(260.dp)
+            .background(Color.Black)
     ) {
         AsyncImage(
             model = current.backdropImageUrl.takeIf { it.isNotBlank() }
@@ -203,6 +211,21 @@ private fun SuggestedHero(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
+        // Left-to-right scrim + bottom-up scrim, mirroring the desktop hero's
+        // dark gradient so the overlaid text stays legible over any artwork.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.20f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -210,34 +233,70 @@ private fun SuggestedHero(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.45f),
-                            Color.Black.copy(alpha = 0.85f)
+                            Color.Black.copy(alpha = 0.35f),
+                            Color.Black.copy(alpha = 0.88f)
                         )
                     )
                 )
         )
+        // Tap the artwork to open details (mirrors desktop hero navigation).
+        // Drawn below the action column so the play button stays interactive.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                    onItemClick(current)
+                }
+        )
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 16.dp, end = 56.dp, bottom = 18.dp)
+                .padding(start = 16.dp, end = 88.dp, bottom = 20.dp)
         ) {
-            current.name.takeIf { it.isNotBlank() }?.let {
+            title?.let {
                 Text(
                     text = it,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.headlineSmall,
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            (current.overview.takeIf { it.isNotBlank() } ?: current.productionYear.takeIf { it.isNotBlank() })?.let { subtitle ->
-                Spacer(Modifier.height(4.dp))
+            itemName?.let {
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = subtitle,
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.92f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (title != null || itemName != null) {
+                Spacer(Modifier.height(8.dp))
+                HeroMetaRow(current)
+            }
+            current.overview.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = it,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.85f),
+                    color = Color.White.copy(alpha = 0.88f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            // Play action, mirroring the desktop hero's primary button.
+            Button(
+                onClick = { onPlay(current) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+            ) {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = stringResource(R.string.play),
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
         }
@@ -245,19 +304,56 @@ private fun SuggestedHero(
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(bottom = 10.dp, end = 16.dp),
+                    .padding(bottom = 16.dp, end = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 repeat(count.coerceAtMost(8)) { dot ->
                     val active = dot == (index % count)
                     Box(
                         modifier = Modifier
-                            .size(if (active) 8.dp else 6.dp)
+                            .height(7.dp)
+                            .width(if (active) 22.dp else 7.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(if (active) Color.White else Color.White.copy(alpha = 0.4f))
+                            .background(if (active) Color.White else Color.White.copy(alpha = 0.55f))
                     )
                 }
             }
+        }
+    }
+}
+
+/** Rating, year, official rating and runtime, mirroring the desktop hero meta. */
+@Composable
+private fun HeroMetaRow(item: MediaItem) {
+    val symbols = buildList {
+        item.communityRating.takeIf { it.isNotBlank() }?.let { add("★ $it") }
+        item.productionYear.takeIf { it.isNotBlank() }?.let { add(it) }
+        item.runTime.takeIf { it.isNotBlank() }?.let { add(it) }
+        val seasonEp = seasonEpisodeText(item)
+        if (seasonEp.isNotBlank()) add(seasonEp)
+    }
+    if (symbols.isEmpty()) return
+    Text(
+        text = symbols.joinToString("  ·  "),
+        style = MaterialTheme.typography.bodySmall,
+        color = Color.White.copy(alpha = 0.9f),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+    item.officialRating.takeIf { it.isNotBlank() }?.let { rating ->
+        Spacer(Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.White.copy(alpha = 0.18f))
+                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 7.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = rating,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White
+            )
         }
     }
 }

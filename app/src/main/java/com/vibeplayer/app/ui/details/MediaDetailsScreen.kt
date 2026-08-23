@@ -257,30 +257,20 @@ private fun EpisodeRow(episode: MediaItem, modifier: Modifier = Modifier, onClic
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val seText = seasonEpisodeText(episode)
-                if (seText.isNotBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = seText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
+            val seText = seasonEpisodeText(episode)
+            if (seText.isNotBlank()) {
                 Text(
-                    text = episode.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = seText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
+            Text(
+                text = episode.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             episode.overview.takeIf { it.isNotBlank() }?.let {
                 Spacer(Modifier.height(2.dp))
                 Text(
