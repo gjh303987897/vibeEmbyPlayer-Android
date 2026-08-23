@@ -86,12 +86,27 @@ fun VibePlayerNavHost(
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
-                                navController.navigate(destination.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                // Already on this tab: do nothing.
+                                if (selected) return@NavigationBarItem
+                                if (destination == TopLevelDestination.Services) {
+                                    // Services is the navigation root (start
+                                    // destination) and stays at the bottom of the
+                                    // back stack, so navigating to it with
+                                    // launchSingleTop is a no-op in Navigation
+                                    // Compose. Return to the root by popping the
+                                    // back stack instead.
+                                    navController.popBackStack(
+                                        TopLevelDestination.Services.route,
+                                        inclusive = false
+                                    )
+                                } else {
+                                    navController.navigate(destination.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
                             },
                             icon = { Icon(destination.icon, contentDescription = null) },

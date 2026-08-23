@@ -296,3 +296,34 @@
 - 点「M3U8S视频管理」→ 进入 TSSL 管理器（标题 M3U8S视频管理）。
 - 点「链接播放」→ 进入 Link home（媒体或 HLS 链接输入 + 播放 + 历史，内建可用）。
 - 点「全局历史」→ 进入全局历史页（观看时长/下载/来源筛选/分页）。
+
+---
+
+## 本会话：修复底部「服务」按钮无法跳转到服务页
+
+### 需求
+点击底部的「服务」（Services）按钮不会跳转到服务页面。
+
+### 复现
+- 从首页点「全局历史」卡片（plain `navigate("history")`，栈变为 `[services, history]`）后，再点底部「服务」按钮：不跳转，仍停留在历史页。
+- 对比：同样状态下点「传输」「历史」「设置」均可正常跳转 → 故障仅针对**起始目的地（Services）**。
+- 从干净启动后经底部导航进入 history 再点服务可正常返回（说明与具体进入方式相关，核心是起始目的地导航触发）。
+
+### 根因
+- Services 是 NavGraph 的**起始目的地（start destination）**，始终位于返回栈底部、不会被弹栈。
+- 底部栏对每个 tab 执行：
+  `navigate(route){ popUpTo(findStartDestination().id){saveState=true}; launchSingleTop=true; restoreState=true }`
+- 当目标目的地正是起始目的地（services）且栈中已存在该目的地时，`navigate` 与 `launchSingleTop` 在 Navigation Compose（2.8.5）下会判定「目的地已存在」而**成为 no-op**，既不新增 entry 也不切换页面 × popUpTo 也未生效 → 视觉上点击服务无反应。
+
+### 修复（`VibePlayerNavHost.kt`）
+- 底部 tab `onClick` 增加「已选中则提前返回」。
+- 对**起始目的地 Services** 改用 `navController.popBackStack(Services.route, inclusive=false)`（pop 回根），不再 `navigate`；因为服务页是根且始终在栈底，popBackStack 可靠返回。
+- 其余非起始 tab（传输/历史/设置）维持原有 `navigate{popUpTo(start){saveState}; launchSingleTop; restoreState}`。
+
+### 验证（模拟器 emulator-5554）
+- `assembleDebug` / `lintDebug` BUILD SUCCESSFUL，0 错误。
+- 首页卡片→历史→点「服务」：现可返回服务页。
+- 服务→设置→点「服务」：返回服务页。
+- 服务→历史→点「服务」：返回服务页。
+- 服务→传输：正常跳转（无回归）。
+- 遍历导航无 FATAL 崩溃。
