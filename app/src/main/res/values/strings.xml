@@ -24,6 +24,8 @@
 
     <string name="transfer_channel_name">Transfers</string>
     <string name="transfer_notification_title">Transfer in progress</string>
+    <string name="playback_channel_name">Playback</string>
+    <string name="playback_notification_title">Playing</string>
     <string name="transfer_idle">No active transfers</string>
     <string name="transfer_no_tasks">No transfers yet</string>
     <string name="transfer_clear_finished">Clear finished</string>

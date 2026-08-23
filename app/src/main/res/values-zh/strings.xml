@@ -24,6 +24,8 @@
 
     <string name="transfer_channel_name">传输</string>
     <string name="transfer_notification_title">传输进行中</string>
+    <string name="playback_channel_name">播放</string>
+    <string name="playback_notification_title">播放中</string>
     <string name="transfer_idle">无进行中的传输</string>
     <string name="transfer_no_tasks">暂无传输任务</string>
     <string name="transfer_clear_finished">清除已完成</string>

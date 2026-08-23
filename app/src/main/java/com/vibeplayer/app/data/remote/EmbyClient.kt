@@ -88,6 +88,25 @@ class EmbyClient @Inject constructor(
         )
     }
 
+    /**
+     * Emby-compatible servers can ignore `IncludeItemTypes=Series` on the
+     * /Suggestions endpoint and return Studio/Genre entries instead. When that
+     * leaves no Series for the home rail, fall back to a random Series query
+     * from the user item root (mirrors the desktop reference client).
+     */
+    override fun suggestedSeriesFallbackUrl(session: UserSession, limit: Int): String? =
+        makeUrl(session.server.baseUrl, "/Users/${session.userId}/Items") + query(
+            "Recursive" to "true",
+            "IncludeItemTypes" to "Series",
+            "SortBy" to "Random",
+            "Limit" to limit.coerceAtLeast(1),
+            "Fields" to "PrimaryImageAspectRatio,Overview,Genres,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,ParentId",
+            "EnableImages" to "true",
+            "ImageTypeLimit" to "2",
+            "EnableImageTypes" to "Primary,Backdrop",
+            "EnableUserData" to "true"
+        )
+
     override fun seasonsUrl(session: UserSession, seriesId: String): String {
         return makeUrl(session.server.baseUrl, "/Shows/$seriesId/Seasons") + query(
             "UserId" to session.userId,

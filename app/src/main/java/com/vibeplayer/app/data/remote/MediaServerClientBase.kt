@@ -122,10 +122,28 @@ abstract class MediaServerClientBase(
         session: UserSession,
         limit: Int
     ): Result<List<MediaItem>> {
-        val url = suggestedSeriesUrl(session, limit)
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        val page = parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate), session)
-        return page.map { it.items.filter { item -> item.itemType.equals("Series", ignoreCase = true) } }
+        val page = parseItemPage(
+            network.get(suggestedSeriesUrl(session, limit), headers, trustSelfSigned = session.server.trustSelfSignedCertificate),
+            session
+        )
+        val series = page.map { it.items.filter { item -> item.itemType.equals("Series", ignoreCase = true) } }
+        // Some Emby-compatible servers return Studio / Genre entries from
+        // /Suggestions even when IncludeItemTypes=Series is present, so the
+        // Series-only filter can render nothing. To keep recommended series on
+        // the home (matching the desktop client), fall back to a random Series
+        // query from the user item root when the primary response has none.
+        if (series.getOrDefault(emptyList()).isEmpty()) {
+            val fallbackUrl = suggestedSeriesFallbackUrl(session, limit)
+            if (fallbackUrl != null) {
+                val fallback = parseItemPage(
+                    network.get(fallbackUrl, headers, trustSelfSigned = session.server.trustSelfSignedCertificate),
+                    session
+                )
+                return fallback.map { it.items.filter { item -> item.itemType.equals("Series", ignoreCase = true) } }
+            }
+        }
+        return series
     }
 
     override suspend fun fetchSeriesSeasons(
@@ -317,6 +335,13 @@ abstract class MediaServerClientBase(
     protected abstract fun continueWatchingUrl(session: UserSession, limit: Int): String
 
     protected abstract fun suggestedSeriesUrl(session: UserSession, limit: Int): String
+
+    /**
+     * Optional fallback data source for recommended series, used when the primary
+     * suggestions response yields no Series items. Return null to disable.
+     * Only Emby provides a fallback today (matches the desktop reference client).
+     */
+    protected open fun suggestedSeriesFallbackUrl(session: UserSession, limit: Int): String? = null
 
     protected abstract fun seasonsUrl(session: UserSession, seriesId: String): String
 

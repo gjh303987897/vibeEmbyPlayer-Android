@@ -218,3 +218,22 @@
 - `assembleDebug` BUILD SUCCESSFUL；`lintDebug` BUILD SUCCESSFUL（无新增 Error，新增字符串均已使用）。
 - 模拟器（`emulator-5554`，`vibe_test`）安装最新 debug APK：应用正常启动无崩溃；「Add server」对话框已渲染“保存密码，下次直接进入”复选项且默认勾选；对 Emby 服务器点登录、输入错误密码提交 → 进程存活、**未跳转**（错误路径正确停留在服务列表，且不保存错误密码），logcat 无 FATAL。
 - 说明：真实“登录成功→跳转”与“保存密码→一键进入”两条成功路径需真实 Emby 服务器 + 正确凭据才能端到端复现；代码路径已核对（导航接线完整、保存密码仅在成功时写入）。
+
+---
+
+## 本会话：Emby 播放闪退 + 首页推荐剧集缺失
+
+> 两个新问题：
+> 1. 进入 Emby 播放某个视频后，加载/播放期间会闪退。
+> 2. 电脑端 Emby 首页能展示「推荐剧集」，手机端没有。
+
+### 问题 1 根因与修复（播放闪退）
+- **根因**：`PlayerManager.play()` 用 `startForegroundService()` 启动 `PlaybackService`，但该服务继承 Media3 `MediaSessionService`，仅依赖 Media3 内部调度去调用 `startForeground()`。当播放开始且应用转入后台 / 通知时机不佳时，`startForeground()` 未在系统时限内被调用，系统抛出 `android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException`（日志表现：`Bringing down service while still waiting for start foreground` → `FATAL EXCEPTION` → 进程被杀）。这是 Media3 的一个已知问题（androidx/media#112/#393/#2412）。
+- **修改**（`PlaybackService.kt`）：在 `onCreate()` 里 **主动立即调用 `startForeground()`**（带一个最小占位通知 + 播放通知渠道），保证满足 `startForegroundService()` 契约，避免前台超时崩溃；随后 Media3 会用真实的媒体播放/暂停/进度通知替换占位通知。同时清理了 `ObsoleteSdkInt` 冗余检查（minSdk=26）。
+- **验证**：`assembleDebug` / `lintDebug` BUILD SUCCESSFUL。模拟器实测：通过本地 HTTP 提供 20s 测试视频，应用播放 **完整播放到结尾（position 19.9s/20s），进程存活、无 FATAL、无 ForegroundServiceDidNotStartInTimeException**（此前该场景会在加载后约 15s 崩溃）。网络源报错时进程同样保持存活（优雅进入播放器错误态，不再闪退）。
+
+### 问题 2 根因与修复（首页推荐剧集）
+- **既有实现**：`HomeViewModel` 已拉取 `fetchSuggestedSeries`，`HomeScreen` 也已渲染「推荐」横轨，且端点与桌面/Web 端一致（Emby `GET /Users/{userId}/Suggestions?IncludeItemTypes=Series`）。
+- **缺失点**：`fetchSuggestedSeries` 只做了 Series 类型过滤；当 Emby 兼容服务器在 `/Suggestions` 里混入 `Studio`/`Genre` 等非 Series 条目（官方文档明确提示此类服务器即使带 `IncludeItemTypes=Series` 也会返回非 Series），过滤后为空 → 首页推荐轨**不渲染**，于是「手机端没有推荐剧集」。
+- **修改**（`MediaServerClientBase.fetchSuggestedSeries` + `EmbyClient.suggestedSeriesFallbackUrl`）：当主 Suggestions 响应不含任何 Series 条目时，按桌面参考客户端逻辑回退到 `GET /Users/{userId}/Items?Recursive=true&IncludeItemTypes=Series&SortBy=Random`（同字段），再次过滤 Series 后返回，保证推荐轨始终有内容。Jellyfin 使用官方 `type=Series` 参数、无此回退，保持 `null`。
+- **验证**：`assembleDebug` / `lintDebug` BUILD SUCCESSFUL（0 错误）。回退逻辑与 Qt 参考实现逐参数一致。成功路径需真实 Emby 服务器 + 凭据端到端确认（当前环境无凭据；代码路径已核对）。
