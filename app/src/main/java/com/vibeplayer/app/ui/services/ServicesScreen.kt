@@ -80,8 +80,19 @@ fun ServicesScreen(
     var editTarget by remember { mutableStateOf<ServerConfig?>(null) }
 
     LaunchedEffect(uiState.lastLoggedInServerId) {
-        uiState.lastLoggedInServerId?.let {
+        uiState.lastLoggedInServerId?.let { serverId ->
             snackbarHostState.showSnackbar(context.getString(R.string.signed_in))
+            // On a successful login the server session is now usable, so open the
+            // server home (previously the UI only showed a snackbar and stayed put).
+            uiState.items.firstOrNull { it.server.id == serverId }?.let { item ->
+                when (item.server.serviceType) {
+                    ServiceType.EMBY,
+                    ServiceType.JELLYFIN -> navController.navigate(Routes.home(serverId))
+                    ServiceType.WEBDAV -> navController.navigate(Routes.webdavBrowse(serverId))
+                    ServiceType.IPTV -> navController.navigate(Routes.iptvHome(serverId))
+                    ServiceType.LINK -> navController.navigate(Routes.linkHome(serverId))
+                }
+            }
             viewModel.clearError()
         }
     }
@@ -148,7 +159,9 @@ fun ServicesScreen(
                     ServiceCard(
                         item = item,
                         onOpenClick = {
-                            if (viewModel.openServer(item.server)) {
+                            // One-tap entry: an existing session (or a saved password
+                            // auto-login driven by lastLoggedInServerId) enters the server.
+                            if (viewModel.enterServer(item.server)) {
                                 when (item.server.serviceType) {
                                     ServiceType.EMBY,
                                     ServiceType.JELLYFIN -> navController.navigate(Routes.home(item.server.id))
@@ -303,10 +316,11 @@ private fun ServiceCard(
     onEditClick: () -> Unit,
     onRemoveClick: () -> Unit
 ) {
+    val canEnter = item.hasSession || item.hasSavedPassword
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = item.hasSession, onClick = onOpenClick),
+            .clickable(enabled = canEnter, onClick = onOpenClick),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
@@ -341,7 +355,7 @@ private fun ServiceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (item.hasSession) {
+            if (item.hasSession || item.hasSavedPassword) {
                 TextButton(onClick = onOpenClick) {
                     Text(stringResource(R.string.open))
                 }

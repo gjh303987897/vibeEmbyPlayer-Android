@@ -82,7 +82,22 @@ class MediaServerRepository @Inject constructor(
 
     fun hasSession(server: ServerConfig): Boolean = secureSessionStore.hasSession(server.id)
 
+    /** Persists a server password (only when the user opts to save it) for one-tap entry. */
+    fun savePassword(server: ServerConfig, password: String) {
+        if (password.isNotBlank()) {
+            secureSessionStore.savePassword(server.id, password)
+        }
+    }
+
+    /** Returns the saved password for a server, or null when none was saved. */
+    fun savedPassword(server: ServerConfig): String? = secureSessionStore.password(server.id)
+
+    /** Whether a password was saved for this server (for one-tap auto-entry). */
+    fun hasSavedPassword(server: ServerConfig): Boolean =
+        !secureSessionStore.password(server.id).isNullOrEmpty()
+
     fun logout(server: ServerConfig) {
         secureSessionStore.clearSession(server.id)
+        secureSessionStore.clearPassword(server.id)
     }
 }

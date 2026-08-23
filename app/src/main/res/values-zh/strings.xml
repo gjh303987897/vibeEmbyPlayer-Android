@@ -19,6 +19,7 @@
     <string name="signed_in">已登录</string>
     <string name="remove">移除</string>
     <string name="open">打开</string>
+    <string name="save_password_auto_enter">保存密码，下次直接进入</string>
     <string name="no_services">尚未配置媒体服务器。</string>
 
     <string name="transfer_channel_name">传输</string>

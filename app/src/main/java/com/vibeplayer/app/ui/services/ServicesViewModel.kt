@@ -20,7 +20,8 @@ import java.util.UUID
 /** A service account shown on the services home screen. */
 data class ServiceItemUi(
     val server: ServerConfig,
-    val hasSession: Boolean
+    val hasSession: Boolean,
+    val hasSavedPassword: Boolean = false
 )
 
 data class ServicesUiState(
@@ -65,7 +66,8 @@ class ServicesViewModel @Inject constructor(
                                     ServiceType.EMBY,
                                     ServiceType.JELLYFIN -> repository.hasSession(it)
                                     else -> true
-                                }
+                                },
+                                hasSavedPassword = repository.hasSavedPassword(it)
                             )
                         }
                     )
@@ -109,11 +111,16 @@ class ServicesViewModel @Inject constructor(
                         val loginResult = repository.login(config, password)
                         if (loginResult.isSuccess) {
                             activeSessionManager.setActiveSession(loginResult.getOrNull())
+                            // One-tap entry: persist the password only when the user
+                            // opted to save it.
+                            if (config.autoLogin) {
+                                repository.savePassword(config, password)
+                            }
                         }
                         _uiState.update {
                             it.copy(
                                 loading = false,
-                                lastLoggedInServerId = config.id,
+                                lastLoggedInServerId = if (loginResult.isSuccess) config.id else null,
                                 errorMessage = loginResult.exceptionOrNull()?.message
                             )
                         }
@@ -143,6 +150,11 @@ class ServicesViewModel @Inject constructor(
                 val result = repository.login(server, password)
                 if (result.isSuccess) {
                     activeSessionManager.setActiveSession(result.getOrNull())
+                    // When the user opted to save the password, refresh it so the
+                    // saved password always matches the latest known-good one.
+                    if (server.autoLogin) {
+                        repository.savePassword(server, password)
+                    }
                 }
                 _uiState.update { state ->
                     state.copy(
@@ -169,6 +181,23 @@ class ServicesViewModel @Inject constructor(
         val session = repository.restoreSession(server) ?: return false
         activeSessionManager.setActiveSession(session)
         return true
+    }
+
+    /**
+     * One-tap entry: if a usable session exists return true so the caller can
+     * navigate immediately. Otherwise, if a saved password exists, trigger an
+     * async auto-login (navigation then happens when login succeeds, driven by
+     * [lastLoggedInServerId]) and return false.
+     */
+    fun enterServer(server: ServerConfig): Boolean {
+        if (openServer(server)) return true
+        if (server.serviceType == ServiceType.EMBY || server.serviceType == ServiceType.JELLYFIN) {
+            val saved = repository.savedPassword(server)
+            if (!saved.isNullOrEmpty()) {
+                loginServer(server, saved)
+            }
+        }
+        return false
     }
 
     fun removeServer(server: ServerConfig) {

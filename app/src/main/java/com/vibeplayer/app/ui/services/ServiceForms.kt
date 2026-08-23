@@ -2,14 +2,13 @@ package com.vibeplayer.app.ui.services
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -39,6 +38,7 @@ fun AddServerDialog(
     var baseUrl by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var savePassword by remember { mutableStateOf(true) }
     var type by remember { mutableStateOf(ServiceType.EMBY) }
 
     AlertDialog(
@@ -91,6 +91,23 @@ fun AddServerDialog(
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (type == ServiceType.EMBY || type == ServiceType.JELLYFIN) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = savePassword,
+                                onCheckedChange = { savePassword = it }
+                            )
+                            Text(
+                                text = stringResource(R.string.save_password_auto_enter),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
                 } else {
                     Text(
                         text = stringResource(R.string.service_enter_name_hint),
@@ -113,7 +130,8 @@ fun AddServerDialog(
                             name = name,
                             baseUrl = baseUrl,
                             username = username,
-                            serviceType = type
+                            serviceType = type,
+                            autoLogin = savePassword
                         ),
                         password
                     )

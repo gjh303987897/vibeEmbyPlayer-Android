@@ -19,6 +19,7 @@
     <string name="signed_in">Signed in</string>
     <string name="remove">Remove</string>
     <string name="open">Open</string>
+    <string name="save_password_auto_enter">Save password and enter directly next time</string>
     <string name="no_services">No media servers configured yet.</string>
 
     <string name="transfer_channel_name">Transfers</string>

@@ -193,3 +193,28 @@
    - 问题：`androidx.security:security-crypto:1.0.0` 已废弃，已知存在「库自身后台写线程 / Keystore 懒初始化失败时不定期杀死整个进程」的缺陷——这类崩溃发生在库内部线程，调用方协程的 try/catch 无法捕获，正好契合「保存即直接退出」。
    - 修改：`prefs` 懒初始化及所有读写/写入用 `runCatching` 包裹，失败仅退化为「未持久化会话」，自动登录下次重新要密码，绝不让进程退出。
    - 验证：`assembleDebug` BUILD SUCCESSFUL。
+
+---
+
+## 本会话：保存密码一键进入 + 登录后跳转 Emby 页面
+
+> 两个需求：
+> 1. 提供一个选项，让用户保存 Emby/Jellyfin 服务的密码，之后直接点击就可进入。
+> 2. 排查为何输入密码登录 Emby 后不跳转到实际 Emby 页面，而停留在主页。
+
+### 问题 2 根因（登录后不跳转）
+- 成功登录后，`ServicesViewModel` 只设置了 `lastLoggedInServerId`，UI 层 `ServicesScreen` 仅在 `LaunchedEffect` 里弹一个「已登录」snackbar，**从未执行导航**（缺少 `navController.navigate(Routes.home(serverId))`）。
+- 修复：`ServicesScreen` 在 `lastLoggedInServerId` 变化时，按服务类型导航到对应首页（Emby/Jellyfin → `home`、WebDAV → `webdavBrowse`、IPTV → `iptvHome`、Link → `linkHome`）。
+- 同时修正：`addServer` 仅在 **登录成功** 时才置 `lastLoggedInServerId`（登录失败不再导航，停留在服务列表并显示错误 snackbar，避免失败还跳进空首页）。
+
+### 问题 1 实现（保存密码 / 一键进入）
+- `AddServerDialog` 新增“保存密码，下次直接进入”复选项（默认勾选，`ServerForm.autoLogin`）。
+- 登录成功后按选项调用 `MediaServerRepository.savePassword`（通过 `SecureSessionStore` 的 `savePassword` 加密存储，key 为 `${serverId}_password`）。**仅在登录成功后才存密码**，避免存错密码；登录失败或未勾选时不存。
+- 服务卡片：`ServiceItemUi` 增加 `hasSavedPassword`；无会话但有保存密码时卡片仍可点击 / 显示「打开」，点击走 `ServicesViewModel.enterServer`（有会话立即进入；只有保存密码则用保存的密码自动登录，成功后由 `lastLoggedInServerId` 驱动跳转）。
+- `removeServer` 同时清除 token 与保存的密码。
+- 安全：密码仅存于 `EncryptedSharedPreferences`（Keystore 加密），明文不落盘 log。
+
+### 验证
+- `assembleDebug` BUILD SUCCESSFUL；`lintDebug` BUILD SUCCESSFUL（无新增 Error，新增字符串均已使用）。
+- 模拟器（`emulator-5554`，`vibe_test`）安装最新 debug APK：应用正常启动无崩溃；「Add server」对话框已渲染“保存密码，下次直接进入”复选项且默认勾选；对 Emby 服务器点登录、输入错误密码提交 → 进程存活、**未跳转**（错误路径正确停留在服务列表，且不保存错误密码），logcat 无 FATAL。
+- 说明：真实“登录成功→跳转”与“保存密码→一键进入”两条成功路径需真实 Emby 服务器 + 正确凭据才能端到端复现；代码路径已核对（导航接线完整、保存密码仅在成功时写入）。
