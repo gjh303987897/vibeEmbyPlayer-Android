@@ -263,3 +263,36 @@
 - `assembleDebug` / `lintDebug` BUILD SUCCESSFUL（0 错误）。
 - 模拟器实测：登录 / 编辑 / 添加三个对话框均渲染「保存密码，下次直接进入」复选框且默认勾选；应用稳定无崩溃。
 - 说明：端到端「保存→卡片翻转」在本模拟器无法追踪，因为该 AVD 的 Keystore 处于损坏状态（读取写入均报 `VERIFICATION_FAILED`，即便 `pm clear` 后仍复现），`SecureSessionStore` 按其设计优雅降级（不崩溃，仅返回 null）。此属模拟器环境问题，非代码缺陷；真实设备 Keystore 正常时，勾选保存后密码会持久化，卡片随即翻转为「打开」。代码路径已核对。
+
+---
+
+## 本会话：首页补充「链接播放 / 全局历史」并重命名「M3U8S视频管理」+ 自动保存密码日志排查
+
+### 需求
+1. 自动保存密码似乎存在问题，读取日志排查。
+2. 首页有本地播放、加密HLS，但缺少「链接播放」和「全局历史」。
+3. 将「加密 HLS」改名为「M3U8S视频管理」。
+
+### 1) 自动保存密码日志排查（读取 logcat）
+- 日志显示 `SecureSessionStore` 的 EncryptedSharedPreferences 在**读路径**上报 Keystore 主密钥校验失败：
+  `KeyStoreException: Signature/MAC verification failed`（`VERIFICATION_FAILED`），
+  发生在服务列表 `StateFlow` collect 阶段（`hasSession`/`hasSavedPassword` → `secureSessionStore.password/accessToken`）。
+- 说明：这是 Keystore/加密偏好存储的主密钥校验失败（模拟器环境 Keystore 损坏，或真实设备在系统备份/恢复后 Keystore 被重置），并非应用逻辑缺陷。
+- 现有代码已用 `runCatching` 包裹 `SecureSessionStore` 全部操作：失败时优雅降级为「未保存/无会话」，不会崩溃，仅一键进入回退为再次询问密码。这与用户“自动保存密码读不回/一键进入失效”的症状一致，属于系统级 Keystore 状态导致，代码已做容错。
+
+### 2) 首页补充「链接播放」与「全局历史」+ 重命名
+- `ServicesScreen.kt` 头部新增：
+  - `LinkPlaybackCard`（链接播放）：导航到 Link home（优先已配置的 Link 服务 id，否则用稳定内建 id `builtin-link-playback`，与 Qt 参考的 `builtin-link-playback` 一致，纯内建入口无需配置服务器）。
+  - `GlobalHistoryCard`（全局历史）：导航到 `history` 顶层路由（多来源统一历史）。
+- 将原本的 `TsslManagerCard` 重命名为 `M3u8sManagerCard`，图标与标题随字符串更新。
+- 字符串资源（en `values/strings.xml` 与 zh `values-zh/strings.xml`）：
+  - 新增 `services_link_playback` / `services_link_playback_sub`、`services_global_history` / `services_global_history_sub`。
+  - `services_tssl` 由「加密 HLS (TSSL) / Encrypted HLS (TSSL)」改为 **「M3U8S视频管理」**（含子标题）。
+- 对齐 Qt 参考 `MediaServices.md`：服务页内置「Local Playback / Link Playback / Global History / M3U8S Video Manager」入口，外加已保存的服务卡片。
+
+### 验证（模拟器 emulator-5554，zh 区域）
+- `assembleDebug` / `lintDebug` BUILD SUCCESSFUL，0 错误。
+- 首页渲染：本地播放 / 链接播放 / 全局历史 / M3U8S视频管理 四张卡片。
+- 点「M3U8S视频管理」→ 进入 TSSL 管理器（标题 M3U8S视频管理）。
+- 点「链接播放」→ 进入 Link home（媒体或 HLS 链接输入 + 播放 + 历史，内建可用）。
+- 点「全局历史」→ 进入全局历史页（观看时长/下载/来源筛选/分页）。

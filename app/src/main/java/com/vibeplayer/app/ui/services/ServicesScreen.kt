@@ -20,6 +20,8 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Card
@@ -151,7 +153,19 @@ fun ServicesScreen(
                         Column {
                             LocalPlaybackCard(onOpen = { navController.navigate(Routes.localHome()) })
                             Spacer(Modifier.height(12.dp))
-                            TsslManagerCard(onOpen = { navController.navigate(Routes.tsslHome()) })
+                            LinkPlaybackCard(onOpen = {
+                                // Link Playback is a built-in source entry, so it always
+                                // works even without a saved Link server. Prefer an existing
+                                // configured Link service, otherwise use its stable built-in id.
+                                val linkId = uiState.items
+                                    .firstOrNull { it.server.serviceType == ServiceType.LINK }
+                                    ?.server?.id ?: "builtin-link-playback"
+                                navController.navigate(Routes.linkHome(linkId))
+                            })
+                            Spacer(Modifier.height(12.dp))
+                            GlobalHistoryCard(onOpen = { navController.navigate("history") })
+                            Spacer(Modifier.height(12.dp))
+                            M3u8sManagerCard(onOpen = { navController.navigate(Routes.tsslHome()) })
                         }
                     },
                     onReorder = viewModel::reorder
@@ -249,7 +263,83 @@ private fun LocalPlaybackCard(onOpen: () -> Unit) {
 }
 
 @Composable
-private fun TsslManagerCard(onOpen: () -> Unit) {
+private fun LinkPlaybackCard(onOpen: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Link,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(40.dp)
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.services_link_playback),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = stringResource(R.string.services_link_playback_sub),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlobalHistoryCard(onOpen: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.History,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(40.dp)
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.services_global_history),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = stringResource(R.string.services_global_history_sub),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun M3u8sManagerCard(onOpen: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()

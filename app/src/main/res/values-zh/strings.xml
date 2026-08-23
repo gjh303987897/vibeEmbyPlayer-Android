@@ -116,8 +116,12 @@
     <string name="service_enter_name_hint">为此服务输入名称。进一步设置将在其页面中继续。</string>
     <string name="services_local_playback">本地播放</string>
     <string name="services_local_playback_sub">浏览并播放设备上的视频</string>
-    <string name="services_tssl">加密 HLS (TSSL)</string>
-    <string name="services_tssl_sub">管理 TSSL 包并备份到 WebDAV</string>
+    <string name="services_link_playback">链接播放</string>
+    <string name="services_link_playback_sub">播放 HTTP/HTTPS 媒体或 HLS 链接</string>
+    <string name="services_global_history">全局历史</string>
+    <string name="services_global_history_sub">所有来源的统一播放历史</string>
+    <string name="services_tssl">M3U8S视频管理</string>
+    <string name="services_tssl_sub">管理 TSSL / M3U8S 包并备份到 WebDAV</string>
 
     <!-- TSSL 管理器 -->
     <string name="tssl_packages_hint">TSSL 包包含加密媒体密钥，属于机密信息，请谨慎处理。</string>

@@ -116,8 +116,12 @@
     <string name="service_enter_name_hint">Enter a name for this service. Further setup continues in its page.</string>
     <string name="services_local_playback">Local Playback</string>
     <string name="services_local_playback_sub">Browse and play video from your device</string>
-    <string name="services_tssl">Encrypted HLS (TSSL)</string>
-    <string name="services_tssl_sub">Manage TSSL packages and back up to WebDAV</string>
+    <string name="services_link_playback">Link Playback</string>
+    <string name="services_link_playback_sub">Play HTTP/HTTPS media or HLS links</string>
+    <string name="services_global_history">Global History</string>
+    <string name="services_global_history_sub">Unified playback history across all sources</string>
+    <string name="services_tssl">M3U8S视频管理</string>
+    <string name="services_tssl_sub">Manage TSSL / M3U8S packages and back up to WebDAV</string>
 
     <!-- TSSL manager -->
     <string name="tssl_packages_hint">TSSL packages hold encrypted-media keys. They are secrets — handle with care.</string>
