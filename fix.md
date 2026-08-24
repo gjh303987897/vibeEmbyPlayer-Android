@@ -461,3 +461,47 @@ protected fun makeUrl(baseUrl: String, path: String): String {
 - 已重新打包签名 release APK：`app/build/outputs/apk/release/app-release.apk`
   （含本修复；注：本机临时构建用的是调试证书签名，正式发版需在 CI 用真实 release.jks 重新签名）。
 - 请用**包含本修复的新包**安装；若手动重输地址，务必带 `https://`（或不带 scheme 由应用自动补全）。
+
+---
+
+## 本会话：播放本地视频进入播放器后一直「加载中」的根因与修复
+
+### 用户问题
+播放本地视频时，进入播放器后一直处于加载中（不开始播放）。
+
+### 根因（代码级确认）
+`PlayerManager` 构建 ExoPlayer 时：
+```kotlin
+.setMediaSourceFactory(
+    DefaultMediaSourceFactory(context).setDataSourceFactory(headerFactory)
+)
+```
+其中 `headerFactory`（`AuthHeaderDataSourceFactory`）的 `createDataSource()` **只返回 `DefaultHttpDataSource`（仅 HTTP）**。
+把整个数据源栈替换成了「仅 HTTP」的实现。而本地媒体使用 SAF，文件 URI 是 `content://...`，
+HTTP 专用 factory 根本无法读取 → ExoPlayer 一直停留在 `STATE_BUFFERING`（无限加载）。
+
+这正是「进入播放器后一直加载中」的**决定性根因**：在线 http(s) 流能放（有 header 注入），
+本地 `content://` 却永远读不了。
+
+### 修复（`PlayerManager.kt`）
+用 `DefaultDataSource.Factory(context, headerFactory)` 包裹 `headerFactory`：
+```kotlin
+DefaultMediaSourceFactory(context).setDataSourceFactory(
+    DefaultDataSource.Factory(context, headerFactory)
+)
+```
+Media3 的 `DefaultDataSource` 会把非 HTTP scheme（`content://`、`file://`、`asset://`…）
+路由到内置的 ContentDataSource / FileDataSource（从而能读本地 SAF 文件），
+而 `http(s)://` 仍委托给 `headerFactory`（保留 WebDAV/Emby 认证头注入）。
+在线路径行为不变，只新增了本地路径的支持。
+
+### 验证
+- ✅ `assembleDebug` / `assembleRelease` 编译通过（`DefaultDataSource.Factory` 为 Media3
+  DataSource API，`androidx.media3:media3-exoplayer` 1.5.0 已包含；无需新增依赖）。
+- ✅ 在线路径不变：`DefaultDataSource` 对 http(s) 委托给 `headerFactory`（代码核对）。
+- ⚠️ **未在本模拟器完成端到端实播验证**：尝试走「本地播放 → SAF 选目录 → 进入播放器」时，
+  该模拟器上**本地媒体根列表不渲染**（Room DB 中根已持久化 `available=1`，但 Compose 列表空白，
+  uiautomator 也看不到任何列表项）。这是与本次修复无关的、独立的模拟器/自动化环境问题；
+  用户在本机可正常进入播放器（只是卡加载），说明其根列表正常。此环境限制挡住了实播覆盖，
+  但修复本身是 Media3 播放 `content://` 的标准且必需的机制（修复前「仅 HTTP」factory 必然失败）。
+- 修复已提交：`15a0778`。
