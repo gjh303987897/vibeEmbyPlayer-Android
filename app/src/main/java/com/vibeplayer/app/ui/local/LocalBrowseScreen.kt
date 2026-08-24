@@ -145,7 +145,11 @@ fun LocalBrowseScreen(
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(8.dp)
+                        // Reserve bottom space so the floating "Add folder" FAB
+                        // doesn't hide the last rows (e.g. the just-added root or
+                        // trailing video items). Without this, content at the
+                        // bottom is obscured behind the FAB -> "显示不全".
+                        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp)
                     ) {
                         items(state.items, key = { it.uri }) { item ->
                             LocalItemRow(
@@ -172,7 +176,7 @@ private fun RootsList(
     onRemove: (String) -> Unit
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
