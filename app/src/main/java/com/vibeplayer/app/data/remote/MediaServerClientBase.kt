@@ -354,8 +354,22 @@ abstract class MediaServerClientBase(
 
     /* ---- url helpers ---- */
 
-    protected fun makeUrl(baseUrl: String, path: String): String =
-        baseUrl.trim().trimEnd('/') + path
+    protected fun makeUrl(baseUrl: String, path: String): String {
+        // Normalize a bare host / LAN address (e.g. `192.168.1.5:8096` or
+        // `emby.bangumi.ca`) to an http(s) URL before building the request.
+        // Without this, a scheme-less base URL passed to OkHttp's
+        // `Request.Builder.url()` throws IllegalArgumentException, which the
+        // caller surfaces as a misleading "Invalid server URL" even though the
+        // address itself is fine. addServer/editServer normalize on save, but a
+        // stored value from an older build may already be scheme-less, so the
+        // safe single chokepoint for every request URL is here. An empty base
+        // is left untouched so callers that guard on it behave as before.
+        var base = baseUrl.trim().trimEnd('/')
+        if (base.isNotEmpty() && !base.contains("://")) {
+            base = "http://$base"
+        }
+        return base + path
+    }
 
     protected fun query(vararg pairs: Pair<String, Any?>): String {
         val sb = StringBuilder()

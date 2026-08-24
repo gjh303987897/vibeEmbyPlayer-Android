@@ -327,3 +327,137 @@
 - 服务→历史→点「服务」：返回服务页。
 - 服务→传输：正常跳转（无回归）。
 - 遍历导航无 FATAL 崩溃。
+
+---
+
+## 本会话：为什么进入之前的 Emby 服务仍然要求密码（已在模拟器实机复现确认）
+
+### 用户问题
+我之前输入过密码，为什么这次进入之前的 Emby 服务依然要密码？
+
+### 结论（实时日志确认，非应用代码 bug）
+- 应用逻辑正确：登录成功后把 **token** 与（勾选保存时的）**密码**写入
+  `SecureSessionStore`（Keystore 支持的 `EncryptedSharedPreferences`）；
+  下次 `enterServer/openServer` 读回 token 自动登录，无需再输密码。
+  「保存密码」复选框在添加/登录/编辑三个对话框均正确接线且默认勾选。
+- 但本模拟器（AVD `vibe_test`，emulator-5554）的 **Android Keystore 已损坏**：
+  实时 logcat 中 VibePlayer (PID 8366) 在 `EncryptedSharedPreferences` 上报
+  `android.security.KeyStoreException: Signature/MAC verification failed (VERIFICATION_FAILED, code -30)`。
+- 按设计 `SecureSessionStore` 对该失败容错（不崩溃，静默降级为「无会话/未保存密码」）
+  → token 与密码**存不进也读不出** → 每次进入只能再次手动输密码。
+- 服务器的**账号配置**（名称/地址/用户名）存普通 DataStore
+  （`files/datastore/services.preferences_pb`，不依赖 Keystore），
+  因此「之前的 Emby 服务」卡片仍会显示。
+
+### 关键佐证：系统级 Keystore 损坏，非本应用问题
+- `VERIFICATION_FAILED` 不只来自 VibePlayer，还来自**其它多个进程**（PID 5788/7234/7344 等）
+  以及**系统 keystore2 服务本身**（PID 175），时间跨度好几天。
+- 此前已记录：该 AVD 即使 `pm clear` 后仍复现，说明仅清应用数据无效。
+
+### 处理建议
+- **真机/正常设备**：密码可正常保存，勾选后一键进入，无需修改代码。
+- **此模拟器**：要恢复「记住密码」需修复 AVD Keystore——重建或 `-wipe-data`
+  冷启动该 AVD（破坏性，会清空该模拟器应用数据与配置）。
+- 无应用代码改动（项目安全规范禁止明文存储凭据）。
+
+---
+
+## 本会话：Emby 服务输入 https://emby.bangumi.ca 显示 “invalid server URL” 的原因与修复
+
+### 用户问题
+在 Emby 服务里输入 `https://emby.bangumi.ca`，为什么会显示 “invalid server URL”？寻找原因并修复。
+
+### 结论（实时日志 + TCP 实测确认）
+**应用代码没有问题，URL 也是有效的。真正原因是「模拟器（AVD `vibe_test`）无法联网」。**
+
+- 应用会把该地址正确存储为 `baseUrl = "https://emby.bangumi.ca"`（直查
+  `files/datastore/services.preferences_pb` 确认，无隐藏字符），并拼接出
+  `https://emby.bangumi.ca/Users/AuthenticateByName`（`MediaServerClientBase.makeUrl`）。
+  OkHttp 对它是**可以正常解析**的有效 URL（单独用 OkHttp 4.12 复现：解析 OK）。
+- `emby.bangumi.ca` 由 Cloudflare 托管，域名同时有 A(172.67.212.223) 与 AAAA 记录；
+  主机 curl 访问 `https://emby.bangumi.ca` 返回 302、`/Users/AuthenticateByName` 返回 **401**
+  → API 就在根路径（**无需 /emby 前缀**），服务器本身正常。
+
+### 根因：模拟器网络没起来
+刚重建的 AVD `vibe_test` 冷启动后：
+- `eth0` 处于 **DOWN，qdisc noop**（虚拟网卡没被拉起）；
+- `ip route` **没有默认网关路由**（缺 `default via 10.0.2.2`）；
+- 结果 App 发出登录请求时报 **`UnknownHostException: Unable to resolve host "emby.bangumi.ca"`**，
+  即连 DNS 都解析不了 → 表现为连不上服务器 / （旧版本可能显示为）invalid server URL。
+
+（该 AVD 连 `google.com` 都解析不了，且 System 自带的连通性探测也超时，
+进一步证明是模拟器整体网络问题，而非本应用或该域名的问题。）
+
+### 修复（已实机验证有效）
+恢复 eth0 并补齐默认路由（需要 root，每次冷启动后都要重新执行）：
+
+```bash
+adb root
+adb wait-for-device
+adb shell ip link set eth0 up
+adb shell ip route add default via 10.0.2.2 dev eth0
+adb shell ip route add 10.0.2.0/24 dev eth0 scope link src 10.0.2.15
+```
+
+**验证**：修复后 App 实机登录，logcat 出现
+```
+--> POST https://emby.bangumi.ca/Users/AuthenticateByName (54-byte body)
+<-- 401 https://emby.bangumi.ca/Users/AuthenticateByName (1096ms, 37-byte body)
+```
+即 App 成功把请求 POST 到该服务器并收到 HTTP 401（凭据错误 → 服务器可达、URL 有效）。
+输入错误密码时返回 401 是**正确**表现，不再出现连不上的错误。
+
+### 复现/使用说明
+- 一键恢复脚本：`./scripts/emu_netfix.sh`（`--boot` 可先启动模拟器再打补丁）。
+- 说明：Android 模拟器的网络配置在每次冷启动后会重置，因此每次冷启动后都需重新打补丁。
+- 本问题与「为什么还要密码」的问题是**两个独立问题**（后者是 Keystore 损坏，前者是模拟器网络），
+  均已分别确认。
+
+---
+
+## 追加：在「本机」上也安装后，仍然出现 invalid server URL —— 真正的代码级根因与修复
+
+### 用户问题
+「我在本机也安装了，依旧出现的是 invalid server URL」。即不止在模拟器上，
+在正常联网的真机/桌面端，输入 `https://emby.bangumi.ca` 依然看到
+`Invalid server URL: ...`。
+
+### 关键结论：还有一个独立的、代码可修复的根因
+之前的"模拟器连不上"只解释了**模拟器**上的现象。但"本机也报 invalid server URL"
+说明存在一个**应用代码层面**的真 bug。已定位并用**真实 OkHttp 实测**复现/验证：
+
+- 全代码里唯一的 `"Invalid server URL: ..."` 文案来自
+  `MediaNetworkClient.kt:72` 的 `IllegalArgumentException` catch（OkHttp 组请求时抛出）。
+- 用项目实际使用的 OkHttp 4.12 实测：
+  - 带 scheme 的 `https://emby.bangumi.ca/Users/AuthenticateByName` → **正常解析，不抛异常**。
+  - **不带 scheme** 的 `emby.bangumi.ca/Users/AuthenticateByName` →
+    `IllegalArgumentException: Expected URL scheme 'http' or 'https' but no scheme was found ...`
+    → 被 catch 成 **"Invalid server URL: Expected URL scheme ..."**（与用户所见一致）。
+- 根因：`makeUrl(baseUrl, path)` 之前**不做 scheme 规范化**，而 `normalizeScheme`
+  只在 `addServer`/`editServer` 保存时调用。因此：
+  - 旧版本保存的**无 scheme**的服务器（如 `emby.bangumi.ca`），登录时
+    `makeUrl` 会拼出无 scheme 的地址并抛上述异常 → 一直报 invalid server URL；
+  - 即便 `normalizeScheme` 已存在，`login(server,...)` 用的是**已存起来的 baseUrl**，
+    对旧数据不会在运行时修复。
+
+### 修复（代码已改、已编译、已回归）
+在 `MediaServerClientBase.makeUrl()`（所有媒体服务器请求 URL 的统一入口）里做
+**scheme 规范化**：无 scheme 的 base 自动补 `http://`（空值不动，保持原有守卫行为）。
+
+```kotlin
+protected fun makeUrl(baseUrl: String, path: String): String {
+    var base = baseUrl.trim().trimEnd('/')
+    if (base.isNotEmpty() && !base.contains("://")) {
+        base = "http://$base"
+    }
+    return base + path
+}
+```
+
+### 验证
+- `assembleDebug`/`assembleRelease` 编译通过。
+- 真实 OkHttp 4.12 实测：`emby.bangumi.ca/...` → 报错；`http://emby.bangumi.ca/...` → OK。
+- 模拟器回归：新包里登录 `https://emby.bangumi.ca` 仍是 `HTTP 401`（正常 https 不受影响）。
+- 已重新打包签名 release APK：`app/build/outputs/apk/release/app-release.apk`
+  （含本修复；注：本机临时构建用的是调试证书签名，正式发版需在 CI 用真实 release.jks 重新签名）。
+- 请用**包含本修复的新包**安装；若手动重输地址，务必带 `https://`（或不带 scheme 由应用自动补全）。
