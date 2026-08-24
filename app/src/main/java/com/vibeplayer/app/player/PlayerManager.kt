@@ -7,6 +7,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -52,7 +53,16 @@ class PlayerManager @Inject constructor(
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(
-            DefaultMediaSourceFactory(context).setDataSourceFactory(headerFactory)
+            DefaultMediaSourceFactory(context).setDataSourceFactory(
+                // Use DefaultDataSource so that non-HTTP schemes (local SAF
+                // content://, file://, asset://, ...) are served by Media3's
+                // built-in content/file data sources, while http(s) streams
+                // still go through the header-injecting HTTP factory. Without
+                // this wrapper the player is built with an HTTP-only factory,
+                // so a local content:// URI can never be read -> the player
+                // stays stuck in STATE_BUFFERING (endless "loading").
+                DefaultDataSource.Factory(context, headerFactory)
+            )
         )
         .build()
 
