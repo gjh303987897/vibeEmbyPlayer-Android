@@ -24,9 +24,10 @@ class AuthHeaderDataSourceFactory(
     }
 
     override fun createDataSource(): DataSource {
-        if (headers.isNotEmpty()) {
-            base.setDefaultRequestProperties(headers)
-        }
+        // Always (re)apply: DefaultHttpDataSource.Factory#setDefaultRequestProperties
+        // replaces the previous set, so calling it with an empty map clears stale
+        // auth headers of a previous source instead of leaking them into this one.
+        base.setDefaultRequestProperties(headers)
         return base.createDataSource()
     }
 }

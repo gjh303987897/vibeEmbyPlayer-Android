@@ -76,8 +76,8 @@ class PlaybackHistoryRepository @Inject constructor(
             replayTarget = identity.second
         )
         val now = System.currentTimeMillis()
-        val playedAtMs = existing?.playedAtMs ?: now
-        val playedDate = existing?.playedDate ?: todayUtc()
+        val playedAtMs = now
+        val playedDate = todayUtc()
 
         val entry = PlaybackHistoryEntity(
             id = existing?.id ?: UUID.randomUUID().toString(),

@@ -36,6 +36,9 @@ interface TransferTaskDao {
     @Query("UPDATE transfer_task SET transferred_bytes = :bytes WHERE id = :id")
     suspend fun updateProgress(id: String, bytes: Long)
 
+    @Query("UPDATE transfer_task SET status = 'RUNNING', error = NULL WHERE id = :id AND status = 'QUEUED'")
+    suspend fun claimQueued(id: String): Int
+
     @Query("DELETE FROM transfer_task WHERE id = :id")
     suspend fun deleteById(id: String)
 

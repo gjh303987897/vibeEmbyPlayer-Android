@@ -1,34 +1,101 @@
 package com.vibeplayer.app.ui.services
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Service-type chooser for the "add server" dialog: one fixed-size, icon-only
+ * tile per [ServiceType] (equal width via `weight(1f)`, identical height), with
+ * the selected type spelled out in a single caption below. Text inside the tiles
+ * is what made the previous segmented row render at different heights per type.
+ */
+@Composable
+private fun ServiceTypePicker(
+    selected: ServiceType,
+    onSelect: (ServiceType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val options = ServiceType.entries
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            options.forEach { option ->
+                val isSelected = option == selected
+                val shape = RoundedCornerShape(14.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp)
+                        .clip(shape)
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.secondaryContainer
+                            else MaterialTheme.colorScheme.surfaceContainerHighest
+                        )
+                        .selectable(
+                            selected = isSelected,
+                            onClick = { onSelect(option) },
+                            role = Role.RadioButton
+                        ),
+                    content = {
+                        Icon(
+                            imageVector = option.pickerIcon,
+                            contentDescription = option.displayName,
+                            tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .align(Alignment.Center)
+                        )
+                    }
+                )
+            }
+        }
+        Text(
+            text = selected.displayName,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp)
+        )
+    }
+}
+
 @Composable
 fun AddServerDialog(
     onDismiss: () -> Unit,
@@ -45,19 +112,11 @@ fun AddServerDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.add_server)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    ServiceType.entries.forEachIndexed { index, option ->
-                        SegmentedButton(
-                            selected = type == option,
-                            onClick = { type = option },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = ServiceType.entries.size),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(option.displayName)
-                        }
-                    }
-                }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                ServiceTypePicker(selected = type, onSelect = { type = it })
                 if (type == ServiceType.EMBY || type == ServiceType.JELLYFIN || type == ServiceType.WEBDAV) {
                     OutlinedTextField(
                         value = baseUrl,
@@ -96,7 +155,7 @@ fun AddServerDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 4.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
                                 checked = savePassword,
@@ -158,7 +217,9 @@ fun EditServerDialog(
     var baseUrl by remember { mutableStateOf(server.baseUrl) }
     var username by remember { mutableStateOf(server.username) }
     var password by remember { mutableStateOf("") }
-    var savePassword by remember { mutableStateOf(true) }
+    // Start from what this server actually does today, so opening the dialog and
+    // pressing Save never silently changes the user's stored-password choice.
+    var savePassword by remember { mutableStateOf(server.autoLogin) }
 
     val isCredentialServer = server.serviceType == ServiceType.EMBY ||
         server.serviceType == ServiceType.JELLYFIN ||
@@ -168,12 +229,24 @@ fun EditServerDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.edit_server)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = server.serviceType.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = server.serviceType.pickerIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = server.serviceType.displayName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
                 if (isCredentialServer) {
                     OutlinedTextField(
                         value = baseUrl,
@@ -209,7 +282,7 @@ fun EditServerDialog(
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
                                 checked = savePassword,
@@ -257,17 +330,29 @@ fun LoginDialog(
     onLogin: (password: String, savePassword: Boolean) -> Unit
 ) {
     var password by remember { mutableStateOf("") }
-    var savePassword by remember { mutableStateOf(true) }
+    var savePassword by remember { mutableStateOf(server.autoLogin) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(server.name) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = server.username,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = server.serviceType.pickerIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = server.username,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
@@ -279,7 +364,7 @@ fun LoginDialog(
                 if (server.serviceType == ServiceType.EMBY || server.serviceType == ServiceType.JELLYFIN) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
                             checked = savePassword,

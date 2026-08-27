@@ -8,6 +8,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -64,6 +65,13 @@ class PlayerManager @Inject constructor(
                 DefaultDataSource.Factory(context, headerFactory)
             )
         )
+        // When a device has no hardware decoder for a stream (HEVC/10-bit/unusual
+        // profile), ExoPlayer otherwise fails to initialize the decoder and the UI
+        // looks like it is buffering forever. Falling back to a software decoder is
+        // what makes those local files actually start.
+        .setRenderersFactory(
+            DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        )
         .build()
 
     private val _state = MutableStateFlow(PlayerState())
@@ -78,19 +86,45 @@ class PlayerManager @Inject constructor(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 updateDerived()
                 when (playbackState) {
-                    Player.STATE_ENDED -> stopPositionTicker()
+                    Player.STATE_ENDED -> {
+                        _state.update { it.copy(buffering = false) }
+                        stopPositionTicker()
+                    }
+                    // Preparing / seeking.
                     Player.STATE_BUFFERING -> _state.update { it.copy(buffering = true) }
                     Player.STATE_READY -> _state.update { it.copy(buffering = false, isPrepared = true) }
+                    // STATE_IDLE is where a failed load lands (bad/missing storage
+                    // permission, unsupported container, released player, ...). If we
+                    // did not clear `buffering` here, the spinner would keep spinning
+                    // forever while the player is actually dead — that is the
+                    // "local video stuck on loading" symptom.
+                    Player.STATE_IDLE -> _state.update { it.copy(buffering = false, isPrepared = false) }
                 }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _state.update { it.copy(isPlaying = isPlaying) }
-                if (isPlaying) startPositionTicker() else stopPositionTicker()
+                if (isPlaying) {
+                    // Playing means the source opened successfully.
+                    _state.update { it.copy(buffering = false) }
+                    startPositionTicker()
+                } else {
+                    stopPositionTicker()
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                _state.update { it.copy(error = error.errorCodeName) }
+                // The UI must stop showing "loading" and say what went wrong. Only the
+                // error *code* is published (never the exception message, which can
+                // contain a stream URL with credentials).
+                _state.update {
+                    it.copy(
+                        error = error.errorCodeName,
+                        buffering = false,
+                        isPrepared = false
+                    )
+                }
+                stopPositionTicker()
             }
         })
     }
@@ -98,6 +132,15 @@ class PlayerManager @Inject constructor(
     /** Sets the request headers to inject into subsequent HTTP requests (e.g. WebDAV auth). */
     fun setPlaybackHeaders(headers: Map<String, String>) {
         headerFactory.setHeaders(headers)
+    }
+
+    /**
+     * Drops the last reported playback error. Called when a screen starts a new
+     * playback attempt, so an error left over from a previous source is never shown
+     * for a file that has not been attempted yet.
+     */
+    fun clearError() {
+        _state.update { it.copy(error = null) }
     }
 
     /** Prepares and plays the given stream URL with optional HTTP request headers. */

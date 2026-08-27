@@ -62,6 +62,9 @@ class LinkPlayerViewModel @Inject constructor(
     }
 
     fun play(encodedUrl: String) {
+        // A new attempt must never inherit the previous source's failure;
+        // otherwise the status overlay shows an error before anything was tried.
+        playerManager.clearError()
         val url = Routes.decodeLinkUrl(encodedUrl)
         if (url.isNullOrBlank()) {
             _uiState.update { it.copy(error = "Invalid playback address") }
@@ -71,6 +74,7 @@ class LinkPlayerViewModel @Inject constructor(
             is LinkPlaybackService.Result.Success -> {
                 resolvedUrl = resolved.playbackUrl
                 displayName = resolved.displayName
+                lastUsageSeconds = 0L
                 playerManager.play(
                     url = resolved.playbackUrl,
                     title = resolved.displayName,

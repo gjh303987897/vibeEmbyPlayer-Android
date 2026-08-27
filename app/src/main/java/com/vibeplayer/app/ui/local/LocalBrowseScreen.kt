@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.vibeplayer.app.R
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -109,20 +110,20 @@ fun LocalBrowseScreen(
                 )
             )
         }
-    ) { padding ->
+    ) { innerPadding ->
         if (state.browsingDirectory) {
             val browseError = state.error
             when {
                 state.loading && state.items.isEmpty() -> {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(padding),
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) { CircularProgressIndicator() }
                 }
                 browseError != null && state.items.isEmpty() -> {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                        modifier = Modifier.fillMaxSize().padding(innerPadding).padding(24.dp),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -135,21 +136,30 @@ fun LocalBrowseScreen(
                 }
                 state.items.isEmpty() -> {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                        modifier = Modifier.fillMaxSize().padding(innerPadding).padding(24.dp),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("No media in this folder", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = stringResource(R.string.local_no_media),
+                            style = MaterialTheme.typography.titleMedium
+                        )
                     }
                 }
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        // Reserve bottom space so the floating "Add folder" FAB
-                        // doesn't hide the last rows (e.g. the just-added root or
-                        // trailing video items). Without this, content at the
-                        // bottom is obscured behind the FAB -> "显示不全".
-                        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp)
+                        // Inset the list with the Scaffold paddings: the app draws
+                        // edge-to-edge (enableEdgeToEdge), so without the top inset the
+                        // first rows are rendered *behind* the top bar / status bar and
+                        // look cut off at the top. The bottom keeps room for the
+                        // "Add folder" FAB and the navigation bar.
+                        contentPadding = PaddingValues(
+                            start = 8.dp,
+                            end = 8.dp,
+                            top = innerPadding.calculateTopPadding() + 8.dp,
+                            bottom = innerPadding.calculateBottomPadding() + 96.dp
+                        )
                     ) {
                         items(state.items, key = { it.uri }) { item ->
                             LocalItemRow(
@@ -164,7 +174,13 @@ fun LocalBrowseScreen(
                 }
             }
         } else {
-            RootsList(state = state, onOpen = viewModel::openRoot, onRemove = viewModel::removeRoot)
+            RootsList(
+                state = state,
+                topPadding = innerPadding.calculateTopPadding(),
+                bottomPadding = innerPadding.calculateBottomPadding(),
+                onOpen = viewModel::openRoot,
+                onRemove = viewModel::removeRoot
+            )
         }
     }
 }
@@ -172,11 +188,22 @@ fun LocalBrowseScreen(
 @Composable
 private fun RootsList(
     state: LocalBrowseUiState,
+    topPadding: Dp,
+    bottomPadding: Dp,
     onOpen: (LocalMediaRootEntity) -> Unit,
     onRemove: (String) -> Unit
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
+        modifier = Modifier.fillMaxSize(),
+        // Same rule as above: reserve the top-bar / system-bar inset via
+        // contentPadding, otherwise the folder cards stick out over the top of the
+        // visible area ("文件夹在顶部超出显示区域").
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = topPadding + 16.dp,
+            bottom = bottomPadding + 96.dp
+        ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {

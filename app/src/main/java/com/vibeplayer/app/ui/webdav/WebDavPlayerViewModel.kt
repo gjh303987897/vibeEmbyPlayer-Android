@@ -66,6 +66,9 @@ class WebDavPlayerViewModel @Inject constructor(
     }
 
     fun play(serverId: String, encodedPath: String) {
+        // A new attempt must never inherit the previous source's failure;
+        // otherwise the status overlay shows an error before anything was tried.
+        playerManager.clearError()
         this.serverId = serverId
         val path = com.vibeplayer.app.ui.navigation.Routes.decodeWebDavPath(encodedPath)
         if (path.isNullOrBlank()) {

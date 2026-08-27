@@ -58,15 +58,33 @@ class LocalMediaRepository @Inject constructor(
 
     suspend fun removeRoot(id: String) = rootDao.deleteById(id)
 
-    /** Lists the immediate children of a SAF tree/document URI. */
+    /**
+     * Lists the immediate children of a SAF tree **or** sub-document URI.
+     *
+     * A subfolder that the user tapped is a document URI
+     * (`…/tree/<treeId>/document/<docId>`); `getTreeDocumentId()` on it returns
+     * the *root* id, which is why entering a subfolder used to re-list the root
+     * folder again. The tree id and the requested document id are therefore read
+     * from the path segments separately here.
+     */
     suspend fun listChildren(parentUri: String): Result<List<LocalMediaItem>> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val uri = Uri.parse(parentUri)
-                val treeDocumentId = DocumentsContract.getTreeDocumentId(uri)
+                val segments = uri.pathSegments
+                require(segments.size >= 2 && segments[0] == "tree") {
+                    "Not a local folder address"
+                }
+                val treeDocumentId = segments[1]
+                val isDocumentUri = segments.size >= 4 && segments[2] == "document"
+                val parentDocumentId = if (isDocumentUri) segments[3] else treeDocumentId
+                val treeUri = DocumentsContract.buildTreeDocumentUri(
+                    uri.authority ?: "",
+                    treeDocumentId
+                )
                 val childrenUri =
-                    DocumentsContract.buildChildDocumentsUriUsingTree(uri, treeDocumentId)
-                enumerate(uri, childrenUri)
+                    DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+                enumerate(treeUri, childrenUri)
             }
         }
 

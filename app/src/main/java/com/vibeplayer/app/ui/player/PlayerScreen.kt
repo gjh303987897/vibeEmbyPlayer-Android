@@ -26,7 +26,6 @@ import androidx.compose.material.icons.automirrored.outlined.VolumeDown
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +51,7 @@ import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import java.util.concurrent.TimeUnit
+import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 
 @Composable
 fun PlayerScreen(
@@ -92,14 +92,16 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        if (state.buffering) {
-            CircularProgressIndicator(
-                color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .graphicsLayer { alpha = if (controlsVisible) 1f else 0.5f }
-            )
-        }
+        // Loading + failure feedback: a playback error must never look like an
+        // endless spinner.
+        PlaybackStatusOverlay(
+            buffering = state.buffering,
+            error = state.error,
+            onBack = { navController.popBackStack() },
+            modifier = Modifier
+                .align(Alignment.Center)
+                .graphicsLayer { alpha = if (controlsVisible) 1f else 0.5f }
+        )
 
         AnimatedVisibility(
             visible = controlsVisible,

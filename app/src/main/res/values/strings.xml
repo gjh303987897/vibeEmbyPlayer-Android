@@ -141,4 +141,24 @@
     <string name="webdav_folder_name">Folder name</string>
     <string name="webdav_folder">Folder</string>
     <string name="webdav_download">Download</string>
+
+    <!-- Playback feedback -->
+    <string name="player_loading">Loading…</string>
+    <string name="player_still_loading">Still loading… check the network or the file</string>
+    <string name="player_load_failed">Playback failed</string>
+    <string name="player_invalid_url">Invalid playback address</string>
+
+    <!-- Local playback errors -->
+    <string name="local_no_media">No media in this folder</string>
+    <string name="local_file_missing">This file cannot be found. It may have been moved or deleted.</string>
+    <string name="local_permission_lost">No permission to read this folder. Please add the folder again.</string>
+    <string name="local_file_unreadable">This file cannot be read.</string>
+    <string name="local_unsupported_location">This storage location is not supported.</string>
+
+    <string name="player_error_network">Cannot reach the server. Check your network and the server address.</string>
+    <string name="player_error_server">The server refused playback. Please sign in again or check the link.</string>
+    <string name="player_error_cleartext">This address requires HTTPS (secure) playback.</string>
+    <string name="player_error_format">This video format or codec is not supported on this device.</string>
+    <string name="player_error_timeout">Loading timed out. Please try again.</string>
+    <string name="save_password_failed">Password could not be saved securely, so it will be asked again.</string>
 </resources>

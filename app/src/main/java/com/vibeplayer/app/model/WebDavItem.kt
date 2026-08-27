@@ -15,15 +15,18 @@ data class WebDavItem(
     val modifiedAt: String = ""
 ) {
     val isVideo: Boolean
-        get() = VIDEO_EXTENSIONS.any { name.endsWith(it, ignoreCase = true) }
+        get() = contentType.startsWith("video/", ignoreCase = true) ||
+            VIDEO_EXTENSIONS.any { name.endsWith(it, ignoreCase = true) }
 
     val isAudio: Boolean
-        get() = AUDIO_EXTENSIONS.any { name.endsWith(it, ignoreCase = true) }
+        get() = contentType.startsWith("audio/", ignoreCase = true) ||
+            AUDIO_EXTENSIONS.any { name.endsWith(it, ignoreCase = true) }
 
     companion object {
         val VIDEO_EXTENSIONS = listOf(
             ".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".ts", ".m2ts", ".mts",
-            ".mpg", ".mpeg", ".wmv", ".flv", ".ogv", ".3gp", ".3g2", ".asf", ".vob"
+            ".mpg", ".mpeg", ".wmv", ".flv", ".ogv", ".3gp", ".3g2", ".asf", ".vob",
+            ".rm", ".rmvb", ".ogm", ".m3u8s"
         )
         val AUDIO_EXTENSIONS = listOf(".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wav", ".wma")
 

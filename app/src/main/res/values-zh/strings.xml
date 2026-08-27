@@ -141,4 +141,24 @@
     <string name="webdav_folder_name">文件夹名称</string>
     <string name="webdav_folder">文件夹</string>
     <string name="webdav_download">下载</string>
+
+    <!-- 播放反馈 -->
+    <string name="player_loading">加载中…</string>
+    <string name="player_still_loading">仍在加载，请检查网络或文件…</string>
+    <string name="player_load_failed">播放失败</string>
+    <string name="player_invalid_url">播放地址无效</string>
+
+    <!-- 本地播放错误 -->
+    <string name="local_no_media">该文件夹没有可播放的媒体</string>
+    <string name="local_file_missing">找不到该文件，可能已被移动或删除。</string>
+    <string name="local_permission_lost">没有读取该文件夹的权限，请重新添加文件夹。</string>
+    <string name="local_file_unreadable">无法读取该文件。</string>
+    <string name="local_unsupported_location">不支持该存储位置。</string>
+
+    <string name="player_error_network">无法连接服务器，请检查网络与服务器地址。</string>
+    <string name="player_error_server">服务器拒绝播放，请重新登录或检查链接。</string>
+    <string name="player_error_cleartext">该地址需要使用 HTTPS（安全）播放。</string>
+    <string name="player_error_format">本机不支持该视频格式或编码。</string>
+    <string name="player_error_timeout">加载超时，请重试。</string>
+    <string name="save_password_failed">无法安全保存密码，下次进入仍需输入。</string>
 </resources>

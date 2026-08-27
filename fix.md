@@ -505,3 +505,123 @@ Media3 的 `DefaultDataSource` 会把非 HTTP scheme（`content://`、`file://`�
   用户在本机可正常进入播放器（只是卡加载），说明其根列表正常。此环境限制挡住了实播覆盖，
   但修复本身是 Media3 播放 `content://` 的标准且必需的机制（修复前「仅 HTTP」factory 必然失败）。
 - 修复已提交：`15a0778`。
+
+---
+
+## 本会话：修复用户复测提出的 5 个问题
+
+> 用户反馈（复测后仍存在）：
+> 1. 「添加服务器」顶部类型选择框大小不一致、不美观，希望用图标代替文字；
+> 2. 服务页的「本地播放 / 链接播放 / 全局历史 / M3U8S视频管理」四个固定卡片，在没有添加任何外部服务时不显示；
+> 3. 添加 Emby 服务并输入密码保存后，再次进入该服务仍然要求输入密码；
+> 4. 本地播放页添加文件夹后，文件夹卡片在顶部超出实际显示区域；
+> 5. 播放本地视频进入播放器后一直卡在「加载中」。
+
+### 1. 类型选择框改为等尺寸纯图标选择器
+- 原因：`SingleChoiceSegmentedButtonRow` + `SegmentedButton { Text(displayName) }`，5 个按钮宽度按权重等分，
+  但「Jellyfin / WebDAV」等文字在窄按钮里换行数不同 → 各按钮高度不一致（用户所见的“大小不一致”）。
+- 修改：`ui/services/ServiceForms.kt`
+  - 新增 `ServiceTypePicker`：每个 `ServiceType` 一个 `weight(1f)` + 固定 `height(52.dp)` 的圆角图标块，
+    内部只放 24dp 图标（`Modifier.selectable(..., Role.RadioButton)` 保留可访问性），
+    选中态用 `secondaryContainer`，未选中用 `surfaceContainerHighest`；
+  - 图标统一由新文件 `ui/services/ServiceTypeIcons.kt` 提供（`ServiceType.pickerIcon`）：
+    Emby=PlayCircle、Jellyfin=WaterDrop、WebDAV=Cloud、IPTV=LiveTv、Link=Link；
+  - 选中类型名以一行小字（`labelMedium`）显示在图标行下方，服务卡片也改用同一套图标；
+  - 三个对话框（添加/编辑/登录）内容列改为 `verticalScroll`，小屏不再被裁切。
+
+### 2. 固定卡片始终显示
+- 原因：`ServicesScreen` 用 `when { items.isEmpty() -> EmptyServices(...) else -> 列表(带 header) }`，
+  而 4 个固定卡片写在列表的 `header` 里 → 没有任何服务器时整个列表（含 header）不渲染。
+- 修改：`ui/services/ServicesScreen.kt` 去掉空态分支，**始终**渲染 `ReorderableLazyColumn`（固定卡片在 header），
+  无服务器时在 header 内追加 `EmptyServicesHint`（提示 + “添加服务器”按钮）；
+  `contentPadding` 同时补上 `innerPadding.calculateBottomPadding()`，不再被底部导航遮挡。
+
+### 3. 保存密码后仍要求输入密码（两处真实缺陷）
+**(a) 会话/密码读取路径整体失效且不自治**
+- `SecureSessionStore` 原本基于已废弃的 `EncryptedSharedPreferences` + `MasterKeys`：
+  创建时会一次性解密全部条目，只要 Keystore 主密钥不可用（AVD/部分机型常见 `VERIFICATION_FAILED`），
+  `create()` 抛异常 → `prefs by lazy { ... }.getOrNull()` **把 null 永久缓存**，
+  于是本进程内所有 token/密码「写入无效、读取恒空」，用户表现为「保存了却每次还要输入密码」，
+  并且没有任何提示（旧版模拟器数据里连 `vibeplayer_secure_sessions.xml` 都未生成，即此原因）。
+- 修改：新增 `security/KeystoreSecretStore.kt`，直接基于 AndroidKeyStore：
+  - 非导出 AES-256-GCM 密钥（`KeyGenParameterSpec`，不绑定锁屏/生物识别），
+    值以 `v1:base64(iv||密文)` 存入普通 SharedPreferences，明文与密钥均不落日志；
+  - **逐条容错**：某条解密失败只丢弃该条，不影响其他服务；
+  - **自愈**：密钥存在但无法读取时删除并重建条目（旧实现永远不会恢复）；
+  - Keystore 暂时不可用时只做退避重试（15s），不永久缓存失败状态；
+  - `SecureSessionStore` 改为使用该 store，并保留一次性、best-effort 的旧数据迁移
+    （旧文件存在且能解密时搬入新存储，随后删除旧文件；失败则下次再试，绝不抛异常）。
+  - 现在密码/token 读取失败不再静默：`MediaServerRepository.savePassword` 返回 `Boolean`，
+    写入被拒时 `ServicesUiState.passwordWarning` → 服务页 Snackbar 提示「无法安全保存密码…」（`save_password_failed`）。
+
+**(b) 卡片状态标记过期（即使存储正常也会“还要输密码”）**
+- `hasSession/hasSavedPassword` 只在 services DataStore 发射时计算；而 DataStore 只在**添加服务器**时发射一次，
+  此时登录与密码写入还没完成 → 卡片永远停在“登录”图标，点进去当然还要输密码。
+- 修改：`ServicesViewModel`
+  - 抽出 `publishItems()/refreshItems()`，并在 `Dispatchers.Default` 上计算这些标记（避免主线程做解密）；
+  - `addServer` 成功后、`loginServer` 成功后、`editServer`、`removeServer` 之后均调用 `refreshItems()`；
+  - 新增 `refresh()`，`ServicesScreen` 进入时 `LaunchedEffect(Unit) { viewModel.refresh() }`；
+  - 勾选/取消「保存密码」会同步回写 `ServerConfig.autoLogin`，取消勾选时清除已存密码
+    （`MediaServerRepository.clearSavedPassword`），编辑/登录对话框的复选框初值取服务器实际 `autoLogin`，
+    不再默认勾上（避免“点了保存其实没保存”的错觉）。
+
+### 4. 本地播放列表顶部超出显示区域
+- 原因：`MainActivity` 调用 `enableEdgeToEdge()`，Material3 `Scaffold` 只把 `innerPadding` 作为参数交给内容，
+  **不会自动应用**；`LocalBrowseScreen` 的根目录列表 `RootsList` 完全忽略了它（`fillMaxSize().padding(16.dp)`），
+  目录卡片因此从屏幕顶端（状态栏/顶栏之下）开始绘制，看起来“超出实际显示区域”；
+  进入目录后的列表同样只加了 8dp，也没吃 top inset。
+- 修改：`ui/local/LocalBrowseScreen.kt`
+  - `RootsList` 接收 `topPadding/bottomPadding`，改用 `contentPadding = top + 16 / bottom + 96`；
+  - 目录浏览 `LazyColumn` 同样用 `innerPadding.calculateTopPadding()/calculateBottomPadding()`；
+  - 空态/加载/错误分支保留 `padding(innerPadding)`；无媒体文案改用 `local_no_media` 资源（中英文）。
+
+### 5. 本地视频「一直加载中」
+排除过程与根因（三处叠加）：
+1. `content://` 数据源栈（上一提交已修：`DefaultDataSource.Factory(context, headerFactory)` 包裹，
+   保留 http(s) 认证头注入的同时让 Media3 内置 ContentDataSource 生效）——但**报错时界面仍不可见**；
+2. **失败被当成“加载中”**：`PlayerManager` 只在 READY/ENDED 清 `buffering`，
+   出错时 ExoPlayer 进入 `STATE_IDLE`（旧代码没有该分支）→ `buffering` 永远为 true；
+   而 5 个播放页只画了一个 `CircularProgressIndicator`，从不显示 `state.error`
+   → 任何失败（权限丢失、文件不存在、容器/编码不支持）在用户眼里都是「一直卡顿在加载中」；
+3. 无硬件解码器时（HEVC/10bit 等）解码器初始化失败同样落在上述静默路径。
+
+修改：
+- `player/PlayerManager.kt`
+  - `STATE_IDLE` → `buffering = false, isPrepared = false`；`STATE_ENDED`/`onIsPlayingChanged(true)` 也清 `buffering`；
+  - `onPlayerError` → 发布 `errorCodeName`（**只发错误码，不发 exception.message**，避免把带凭据的流地址显示到界面上），
+    并清 buffering；
+  - `DefaultRenderersFactory(context).setEnableDecoderFallback(true)`：硬解失败自动回落软解；
+  - 新增 `clearError()`，播放页 `play()` 开头调用，避免上一个源的错误残留；
+  - `AuthHeaderDataSourceFactory.createDataSource()` 改为无条件 `setDefaultRequestProperties(headers)`
+    （空 map 也会清空），彻底杜绝上次 WebDAV Basic 头被带到无关请求。
+- `ui/components/PlaybackStatus.kt`（新）：`PlaybackStatusOverlay(buffering, error, onBack)`
+  - 加载：转圈 + 12 秒后追加「仍在加载，请检查网络或文件…」，不再出现无解释的转圈；
+  - 失败：标题「播放失败」+ 错误码对应的可读文案（`playbackErrorText`：文件不存在 / 无权限 /
+    连不上 / 服务器拒绝 / 需要 HTTPS / 格式不支持 / 超时）+「返回」按钮；
+  - 已替换 PlayerScreen、LocalPlayerScreen、WebDavPlayerScreen、LinkPlayerScreen、IptvPlayerScreen
+    五处旧的「仅转圈」实现。
+- `ui/local/LocalPlayerViewModel.kt`
+  - 播放前在 `Dispatchers.IO` 做一次 SAF 可读性预检（仅 `openAssetFileDescriptor` 取句柄，不读数据）：
+    `FileNotFoundException / SecurityException / IOException` 分别给出
+    `local_file_missing / local_permission_lost / local_file_unreadable`；
+    权限丢失时先尝试对所属 tree 重新 `takePersistableUriPermission` 并复检；
+  - 加密 HLS 分支错误文案资源化（`local_unsupported_location`）。
+- `data/repository/LocalMediaRepository.kt`：修复进入子目录时列错内容的缺陷——
+  子文件夹 URI 是 `…/tree/<treeId>/document/<docId>`，`getTreeDocumentId()` 返回的是**根**目录 id，
+  所以进子目录看到的还是根目录内容（也解释了本地浏览“UI 不对”的观感）。
+  现按 path 分段分别取 tree id 与 document id 再构造 children URI。
+
+### 验证
+- `./gradlew :app:assembleDebug` ✅（`:app:assembleRelease` 仍只因缺少签名 `KEYSTORE_FILE` 环境变量而失败，非代码问题）。
+- 模拟器（emulator-5554 / vibe_test）实测：
+  - 服务页在无服务器/有服务器两种数据下均显示 4 个固定卡片（uiautomator：本地播放/链接播放/全局历史/M3U8S视频管理 均在树中）；
+  - 「添加服务器」对话框 5 个类型图标块 bounds 完全等尺寸（132x143，间距 22px），切换 WebDAV 后尺寸不变，
+    选中类型名以单行小字显示，对话框可滚动；
+  - 旧数据的 `shared_prefs/` 中只有 `_androidx_security_master_key_.xml`，
+    印证了「EncryptedSharedPreferences 从未创建成功 → 密码根本没被保存」这一 #3 根因；新存储路径不再依赖该库。
+- #5 的端到端实播（真正播起来）由用户在设备/真机上复测确认；若仍不播放，现在界面会直接显示原因
+  （例如「没有读取该文件夹的权限」「本机不支持该视频格式或编码」），可据此继续定位。
+
+### 遗留说明
+- `PrivacyManager` 仍使用 `EncryptedSharedPreferences`（PIN 哈希）。未一并改动，避免让用户已设置的隐私 PIN 失效；
+  若后续要求，可按同样方式迁移（需要 PIN 迁移策略）。

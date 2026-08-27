@@ -1,22 +1,22 @@
 package com.vibeplayer.app.ui.services
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.VideoLibrary
@@ -34,7 +34,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -45,11 +44,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -60,7 +59,6 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.ui.navigation.Routes
-import kotlinx.coroutines.launch
 
 /**
  * Services home screen: lists configured media service accounts (Emby /
@@ -75,34 +73,53 @@ fun ServicesScreen(
     val uiState by viewModel.uiState.collectAsState()
     val showAddDialog by viewModel.showAddDialog.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // Session / saved-password flags live outside the services DataStore, so
+    // re-read them whenever this screen is shown (otherwise a card can keep
+    // asking for a password that was already saved).
+    LaunchedEffect(Unit) { viewModel.refresh() }
 
     var loginTarget by remember { mutableStateOf<ServerConfig?>(null) }
     var editTarget by remember { mutableStateOf<ServerConfig?>(null) }
 
     LaunchedEffect(uiState.lastLoggedInServerId) {
-        uiState.lastLoggedInServerId?.let { serverId ->
+        if (uiState.lastLoggedInServerId != null) {
             snackbarHostState.showSnackbar(context.getString(R.string.signed_in))
-            // On a successful login the server session is now usable, so open the
-            // server home (previously the UI only showed a snackbar and stayed put).
-            uiState.items.firstOrNull { it.server.id == serverId }?.let { item ->
-                when (item.server.serviceType) {
-                    ServiceType.EMBY,
-                    ServiceType.JELLYFIN -> navController.navigate(Routes.home(serverId))
-                    ServiceType.WEBDAV -> navController.navigate(Routes.webdavBrowse(serverId))
-                    ServiceType.IPTV -> navController.navigate(Routes.iptvHome(serverId))
-                    ServiceType.LINK -> navController.navigate(Routes.linkHome(serverId))
-                }
-            }
-            viewModel.clearError()
+            viewModel.acknowledgeLoginSuccess()
         }
+    }
+
+    // Navigation is a one-shot event produced only by an explicit service-card
+    // action. A successful login alone is deliberately not enough to enter a
+    // service, otherwise a retained ViewModel event can reopen Emby when the
+    // user returns from Settings.
+    LaunchedEffect(uiState.navigationServerId) {
+        val serverId = uiState.navigationServerId ?: return@LaunchedEffect
+        val item = uiState.items.firstOrNull { it.server.id == serverId }
+        if (item != null) {
+            when (item.server.serviceType) {
+                ServiceType.EMBY,
+                ServiceType.JELLYFIN -> navController.navigate(Routes.home(serverId))
+                ServiceType.WEBDAV -> navController.navigate(Routes.webdavBrowse(serverId))
+                ServiceType.IPTV -> navController.navigate(Routes.iptvHome(serverId))
+                ServiceType.LINK -> navController.navigate(Routes.linkHome(serverId))
+            }
+        }
+        viewModel.consumeNavigation()
     }
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearError()
+        }
+    }
+
+    LaunchedEffect(uiState.passwordWarning) {
+        if (uiState.passwordWarning) {
+            snackbarHostState.showSnackbar(context.getString(R.string.save_password_failed))
+            viewModel.acknowledgePasswordWarning()
         }
     }
 
@@ -122,75 +139,52 @@ fun ServicesScreen(
             }
         }
     ) { innerPadding ->
-        when {
-            uiState.loading && uiState.items.isEmpty() -> {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(innerPadding),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator()
+        // The four built-in entries (Local Playback / Link Playback / Global
+        // History / M3U8S) are part of the page header and therefore always
+        // present, also before any external server has been added.
+        ReorderableLazyColumn(
+            items = uiState.items,
+            key = { it.server.id },
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding() + 16.dp,
+                start = 16.dp,
+                end = 16.dp,
+                bottom = innerPadding.calculateBottomPadding() + 96.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            header = {
+                Column {
+                    LocalPlaybackCard(onOpen = { navController.navigate(Routes.localHome()) })
+                    Spacer(Modifier.height(12.dp))
+                    LinkPlaybackCard(onOpen = {
+                        // Link Playback is a built-in source entry, so it always
+                        // works even without a saved Link server. Prefer an existing
+                        // configured Link service, otherwise use its stable built-in id.
+                        val linkId = uiState.items
+                            .firstOrNull { it.server.serviceType == ServiceType.LINK }
+                            ?.server?.id ?: "builtin-link-playback"
+                        navController.navigate(Routes.linkHome(linkId))
+                    })
+                    Spacer(Modifier.height(12.dp))
+                    GlobalHistoryCard(onOpen = { navController.navigate("history") })
+                    Spacer(Modifier.height(12.dp))
+                    M3u8sManagerCard(onOpen = { navController.navigate(Routes.tsslHome()) })
+                    if (uiState.items.isEmpty()) {
+                        Spacer(Modifier.height(24.dp))
+                        EmptyServicesHint(onAdd = viewModel::openAddDialog)
+                    }
                 }
-            }
-            uiState.items.isEmpty() -> {
-                EmptyServices(
-                    onAdd = viewModel::openAddDialog,
-                    modifier = Modifier.fillMaxSize().padding(innerPadding)
-                )
-            }
-            else -> {
-                ReorderableLazyColumn(
-                    items = uiState.items,
-                    key = { it.server.id },
-                    contentPadding = PaddingValues(
-                        top = innerPadding.calculateTopPadding() + 16.dp,
-                        start = 16.dp,
-                        end = 16.dp,
-                        bottom = 96.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    header = {
-                        Column {
-                            LocalPlaybackCard(onOpen = { navController.navigate(Routes.localHome()) })
-                            Spacer(Modifier.height(12.dp))
-                            LinkPlaybackCard(onOpen = {
-                                // Link Playback is a built-in source entry, so it always
-                                // works even without a saved Link server. Prefer an existing
-                                // configured Link service, otherwise use its stable built-in id.
-                                val linkId = uiState.items
-                                    .firstOrNull { it.server.serviceType == ServiceType.LINK }
-                                    ?.server?.id ?: "builtin-link-playback"
-                                navController.navigate(Routes.linkHome(linkId))
-                            })
-                            Spacer(Modifier.height(12.dp))
-                            GlobalHistoryCard(onOpen = { navController.navigate("history") })
-                            Spacer(Modifier.height(12.dp))
-                            M3u8sManagerCard(onOpen = { navController.navigate(Routes.tsslHome()) })
-                        }
-                    },
-                    onReorder = viewModel::reorder
-                ) { item ->
-                    ServiceCard(
-                        item = item,
-                        onOpenClick = {
-                            // One-tap entry: an existing session (or a saved password
-                            // auto-login driven by lastLoggedInServerId) enters the server.
-                            if (viewModel.enterServer(item.server)) {
-                                when (item.server.serviceType) {
-                                    ServiceType.EMBY,
-                                    ServiceType.JELLYFIN -> navController.navigate(Routes.home(item.server.id))
-                                    ServiceType.WEBDAV -> navController.navigate(Routes.webdavBrowse(item.server.id))
-                                    ServiceType.IPTV -> navController.navigate(Routes.iptvHome(item.server.id))
-                                    ServiceType.LINK -> navController.navigate(Routes.linkHome(item.server.id))
-                                }
-                            }
-                        },
-                        onLoginClick = { loginTarget = item.server },
-                        onEditClick = { editTarget = item.server },
-                        onRemoveClick = { viewModel.removeServer(item.server) }
-                    )
-                }
-            }
+            },
+            onReorder = viewModel::reorder
+        ) { item ->
+            ServiceCard(
+                item = item,
+                onOpenClick = { viewModel.enterServer(item.server) },
+                onLoginClick = { loginTarget = item.server },
+                onEditClick = { editTarget = item.server },
+                onRemoveClick = { viewModel.removeServer(item.server) },
+                isEntering = uiState.enteringServerId == item.server.id
+            )
         }
     }
 
@@ -377,21 +371,20 @@ private fun M3u8sManagerCard(onOpen: () -> Unit) {
 }
 
 @Composable
-private fun EmptyServices(
-    onAdd: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+private fun EmptyServicesHint(onAdd: () -> Unit) {
     Column(
-        modifier = modifier.padding(32.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = stringResource(R.string.no_services),
-            style = MaterialTheme.typography.titleMedium,
-            textAlign = TextAlign.Center
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.size(16.dp))
         TextButton(onClick = onAdd) {
             Text(stringResource(R.string.add_server))
         }
@@ -404,12 +397,18 @@ private fun ServiceCard(
     onOpenClick: () -> Unit,
     onLoginClick: () -> Unit,
     onEditClick: () -> Unit,
-    onRemoveClick: () -> Unit
+    onRemoveClick: () -> Unit,
+    isEntering: Boolean
 ) {
-    val canEnter = item.hasSession || item.hasSavedPassword
+    val canEnter = (item.hasSession || item.hasSavedPassword) && !isEntering
+    val cardScale by animateFloatAsState(
+        targetValue = if (isEntering) 0.98f else 1f,
+        label = "serviceEnterScale"
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .scale(cardScale)
             .clickable(enabled = canEnter, onClick = onOpenClick),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -423,7 +422,7 @@ private fun ServiceCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Outlined.Cloud,
+                imageVector = item.server.serviceType.pickerIcon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(40.dp)
@@ -445,11 +444,23 @@ private fun ServiceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (item.hasSession || item.hasSavedPassword) {
+            AnimatedVisibility(
+                visible = isEntering,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .size(24.dp),
+                    strokeWidth = 2.5.dp
+                )
+            }
+            if (!isEntering && (item.hasSession || item.hasSavedPassword)) {
                 TextButton(onClick = onOpenClick) {
                     Text(stringResource(R.string.open))
                 }
-            } else {
+            } else if (!isEntering) {
                 IconButton(onClick = onLoginClick) {
                     Icon(Icons.AutoMirrored.Outlined.Login, contentDescription = stringResource(R.string.sign_in))
                 }

@@ -43,6 +43,9 @@ class TransferRepository @Inject constructor(
     /** Task ids the user has asked to cancel; checked by running workers. */
     private val cancelledIds = ConcurrentHashMap.newKeySet<String>()
 
+    /** Task ids paused by the user; unlike cancellation, paused downloads keep their target. */
+    private val pausedIds = ConcurrentHashMap.newKeySet<String>()
+
     /** Used to dispatch (non-blocking) progress updates that touch Room DAOs. */
     private val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -111,6 +114,7 @@ class TransferRepository @Inject constructor(
                 createdAtMs = System.currentTimeMillis()
             )
         )
+        TransferService.start(context)
         return id
     }
 
@@ -136,38 +140,42 @@ class TransferRepository @Inject constructor(
     }
 
     suspend fun cancel(id: String) {
+        pausedIds.remove(id)
         cancelledIds.add(id)
         dao.updateStatus(id, TransferStatus.CANCELED, null)
     }
 
     suspend fun retry(id: String) {
+        pausedIds.remove(id)
         cancelledIds.remove(id)
         dao.updateStatus(id, TransferStatus.QUEUED, null)
         TransferService.start(context)
     }
 
     suspend fun pause(id: String) {
-        cancelledIds.add(id)
+        cancelledIds.remove(id)
+        pausedIds.add(id)
         dao.updateStatus(id, TransferStatus.PAUSED, null)
     }
 
     suspend fun resume(id: String) {
+        pausedIds.remove(id)
         cancelledIds.remove(id)
         dao.updateStatus(id, TransferStatus.QUEUED, null)
         TransferService.start(context)
     }
 
     suspend fun remove(id: String) {
+        pausedIds.remove(id)
         cancelledIds.remove(id)
         dao.deleteById(id)
     }
 
     suspend fun clearFinished() = dao.clearFinished()
 
-    /** Executes one queued task, updating progress/status until terminal. */
+    /** Executes one task after the service has atomically claimed it. */
     suspend fun runTask(task: TransferTaskEntity) = try {
         val updated = task.copy(status = TransferStatus.RUNNING, error = null, transferredBytes = 0L)
-        dao.updateStatus(task.id, TransferStatus.RUNNING, null)
         when (task.type) {
             TransferType.DOWNLOAD -> runDownload(updated)
             TransferType.UPLOAD -> runUpload(updated)
@@ -175,6 +183,8 @@ class TransferRepository @Inject constructor(
     } catch (e: Exception) {
         if (task.id in cancelledIds) {
             dao.updateStatus(task.id, TransferStatus.CANCELED, null)
+        } else if (task.id in pausedIds) {
+            dao.updateStatus(task.id, TransferStatus.PAUSED, null)
         } else {
             dao.updateStatus(task.id, TransferStatus.FAILED, e.message ?: "Transfer failed")
         }
@@ -198,7 +208,7 @@ class TransferRepository @Inject constructor(
             )
         }
         if (result.isFailure) {
-            deleteDocument(uri)
+            if (task.id !in pausedIds) deleteDocument(uri)
             throw result.exceptionOrNull() ?: IOException("Download failed")
         }
         if (task.id in cancelledIds) {

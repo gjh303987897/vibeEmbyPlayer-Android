@@ -64,6 +64,9 @@ class IptvPlayerViewModel @Inject constructor(
     }
 
     fun play(serverId: String, encodedUrl: String, encodedName: String) {
+        // A new attempt must never inherit the previous source's failure;
+        // otherwise the status overlay shows an error before anything was tried.
+        playerManager.clearError()
         val decodedUrl = Routes.decodeIptvUrl(encodedUrl)
         if (decodedUrl.isNullOrBlank()) {
             _uiState.update { it.copy(error = "Invalid stream address") }
@@ -78,6 +81,7 @@ class IptvPlayerViewModel @Inject constructor(
             server = s
             playerManager.play(url = url, title = name, subtitle = s?.name)
             if (s != null) {
+                lastUsageSeconds = 0L
                 historyRepository.recordPlayback(
                     source = PlaybackSource.IPTV,
                     service = s,
@@ -138,6 +142,7 @@ class IptvPlayerViewModel @Inject constructor(
 
     private fun startReporter(server: ServerConfig?) {
         stopReporter()
+        lastUsageSeconds = 0L
         reporterJob = viewModelScope.launch {
             while (isActive) {
                 delay(10_000)

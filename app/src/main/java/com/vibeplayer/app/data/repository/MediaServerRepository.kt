@@ -56,8 +56,7 @@ class MediaServerRepository @Inject constructor(
         val result = clientFor(server.serviceType).login(server, server.username, password)
         if (result.isSuccess) {
             result.getOrNull()?.let { session ->
-                // EncryptedSharedPreferences lazily creates the Keystore master key
-                // and cipher on first write. That is real crypto/disk I/O, so it
+                // Keystore key / cipher work is real crypto + disk I/O, so it
                 // must never happen on the main thread (it can stall the UI and
                 // trigger an ANR right after saving a server).
                 withContext(Dispatchers.IO) {
@@ -82,11 +81,14 @@ class MediaServerRepository @Inject constructor(
 
     fun hasSession(server: ServerConfig): Boolean = secureSessionStore.hasSession(server.id)
 
-    /** Persists a server password (only when the user opts to save it) for one-tap entry. */
-    fun savePassword(server: ServerConfig, password: String) {
-        if (password.isNotBlank()) {
-            secureSessionStore.savePassword(server.id, password)
-        }
+    /**
+     * Persists a server password (only when the user opts to save it) for one-tap
+     * entry. Returns false when the value could not be written securely.
+     */
+    suspend fun savePassword(server: ServerConfig, password: String): Boolean {
+        if (password.isBlank()) return false
+        // Keystore cipher work must not run on the composition / main thread.
+        return withContext(Dispatchers.IO) { secureSessionStore.savePassword(server.id, password) }
     }
 
     /** Returns the saved password for a server, or null when none was saved. */
@@ -95,6 +97,11 @@ class MediaServerRepository @Inject constructor(
     /** Whether a password was saved for this server (for one-tap auto-entry). */
     fun hasSavedPassword(server: ServerConfig): Boolean =
         !secureSessionStore.password(server.id).isNullOrEmpty()
+
+    /** Drops a previously saved password (user opted out of one-tap entry). */
+    suspend fun clearSavedPassword(server: ServerConfig) {
+        withContext(Dispatchers.IO) { secureSessionStore.clearPassword(server.id) }
+    }
 
     fun logout(server: ServerConfig) {
         secureSessionStore.clearSession(server.id)

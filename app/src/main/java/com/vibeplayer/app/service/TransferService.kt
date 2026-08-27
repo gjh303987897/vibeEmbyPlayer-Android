@@ -71,7 +71,11 @@ class TransferService : Service() {
             updateNotification(activeCount = queued.size)
             queued.forEach { task ->
                 launch {
-                    semaphore.withPermit { transferRepository.runTask(task) }
+                    semaphore.withPermit {
+                        if (taskDao.claimQueued(task.id) == 1) {
+                            transferRepository.runTask(task)
+                        }
+                    }
                 }
             }
             delay(POLL_BUSY_MS)
