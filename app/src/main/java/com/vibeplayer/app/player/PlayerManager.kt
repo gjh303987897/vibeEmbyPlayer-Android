@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.vibeplayer.app.di.OkHttpClientFactory
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -41,9 +42,12 @@ data class PlayerState(
 
 @OptIn(UnstableApi::class)
 @Singleton
-class PlayerManager @Inject constructor(@ApplicationContext private val context: Context) {
+class PlayerManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    clientFactory: OkHttpClientFactory
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val headerFactory = AuthHeaderDataSourceFactory()
+    private val headerFactory = AuthHeaderDataSourceFactory(clientFactory)
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(DefaultDataSource.Factory(context, headerFactory)))
         .setRenderersFactory(DefaultRenderersFactory(context).setEnableDecoderFallback(true)).build()
@@ -84,14 +88,21 @@ class PlayerManager @Inject constructor(@ApplicationContext private val context:
         })
     }
 
-    fun setPlaybackHeaders(headers: Map<String, String>) = headerFactory.setHeaders(headers)
+    fun setPlaybackHeaders(headers: Map<String, String>) = headerFactory.configure(headers, false)
     fun clearError() { _state.update { it.copy(error = null) } }
     fun beginLoading(title: String? = null, subtitle: String? = null) {
         player.pause(); player.stop(); player.clearMediaItems()
         _state.value = PlayerState(title = title, subtitle = subtitle, playbackSpeed = lastSpeed)
     }
-    fun play(url: String, title: String?, subtitle: String?, startPositionMs: Long = 0L, headers: Map<String, String> = emptyMap()) {
-        headerFactory.setHeaders(headers); player.stop(); player.clearMediaItems()
+    fun play(
+        url: String,
+        title: String?,
+        subtitle: String?,
+        startPositionMs: Long = 0L,
+        headers: Map<String, String> = emptyMap(),
+        trustSelfSignedCertificate: Boolean = false
+    ) {
+        headerFactory.configure(headers, trustSelfSignedCertificate); player.stop(); player.clearMediaItems()
         autoSubtitleSelected = false
         _state.value = PlayerState(title = title, subtitle = subtitle, positionMs = startPositionMs, playbackSpeed = lastSpeed)
         // A new source must not inherit a previous subtitle-off selection.

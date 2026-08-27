@@ -48,7 +48,8 @@ data class ServerForm(
     val baseUrl: String = "",
     val username: String = "",
     val serviceType: ServiceType = ServiceType.EMBY,
-    val autoLogin: Boolean = true
+    val autoLogin: Boolean = true,
+    val trustSelfSignedCertificate: Boolean = false
 )
 
 @HiltViewModel
@@ -138,7 +139,7 @@ class ServicesViewModel @Inject constructor(
             username = form.username,
             serviceType = form.serviceType,
             autoLogin = form.autoLogin,
-            trustSelfSignedCertificate = false,
+            trustSelfSignedCertificate = form.trustSelfSignedCertificate,
             privateMode = false
         )
         viewModelScope.launch {
@@ -334,7 +335,8 @@ class ServicesViewModel @Inject constructor(
                     name = form.name.ifBlank { form.baseUrl.ifBlank { server.name } },
                     baseUrl = normalizeScheme(form.baseUrl).ifBlank { server.baseUrl },
                     username = form.username.ifBlank { server.username },
-                    autoLogin = if (credentialServer) savePassword else server.autoLogin
+                    autoLogin = if (credentialServer) savePassword else server.autoLogin,
+                    trustSelfSignedCertificate = form.trustSelfSignedCertificate
                 )
             )
             refreshItems()

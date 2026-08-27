@@ -42,10 +42,11 @@ class OkHttpClientFactory @Inject constructor() {
             .addInterceptor(IdempotentRetryInterceptor())
 
         if (trustSelfSigned) {
-            builder.sslSocketFactory(
-                SelfSignedTls.sslContext().socketFactory,
-                SelfSignedTls.trustManager()
-            )
+            val tls = SelfSignedTls.configuration
+            builder.sslSocketFactory(tls.sslContext.socketFactory, tls.trustManager)
+            // Opt-in semantics match the desktop client: certificate-chain and
+            // host-name errors are accepted for this server only. The UI warns
+            // that this permits interception and leaves the option off by default.
             builder.hostnameVerifier { _, _ -> true }
         }
         return builder.build()

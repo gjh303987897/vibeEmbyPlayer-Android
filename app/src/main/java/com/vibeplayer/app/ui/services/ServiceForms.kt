@@ -106,6 +106,7 @@ fun AddServerDialog(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var savePassword by remember { mutableStateOf(true) }
+    var trustSelfSignedCertificate by remember { mutableStateOf(false) }
     var type by remember { mutableStateOf(ServiceType.EMBY) }
 
     AlertDialog(
@@ -167,6 +168,10 @@ fun AddServerDialog(
                             )
                         }
                     }
+                    SelfSignedCertificateOption(
+                        checked = trustSelfSignedCertificate,
+                        onCheckedChange = { trustSelfSignedCertificate = it }
+                    )
                 } else {
                     Text(
                         text = stringResource(R.string.service_enter_name_hint),
@@ -190,7 +195,8 @@ fun AddServerDialog(
                             baseUrl = baseUrl,
                             username = username,
                             serviceType = type,
-                            autoLogin = savePassword
+                            autoLogin = savePassword,
+                            trustSelfSignedCertificate = trustSelfSignedCertificate
                         ),
                         password
                     )
@@ -220,6 +226,9 @@ fun EditServerDialog(
     // Start from what this server actually does today, so opening the dialog and
     // pressing Save never silently changes the user's stored-password choice.
     var savePassword by remember { mutableStateOf(server.autoLogin) }
+    var trustSelfSignedCertificate by remember {
+        mutableStateOf(server.trustSelfSignedCertificate)
+    }
 
     val isCredentialServer = server.serviceType == ServiceType.EMBY ||
         server.serviceType == ServiceType.JELLYFIN ||
@@ -294,6 +303,10 @@ fun EditServerDialog(
                             )
                         }
                     }
+                    SelfSignedCertificateOption(
+                        checked = trustSelfSignedCertificate,
+                        onCheckedChange = { trustSelfSignedCertificate = it }
+                    )
                 }
             }
         },
@@ -305,7 +318,8 @@ fun EditServerDialog(
                             name = name,
                             baseUrl = baseUrl,
                             username = username,
-                            serviceType = server.serviceType
+                            serviceType = server.serviceType,
+                            trustSelfSignedCertificate = trustSelfSignedCertificate
                         ),
                         password,
                         savePassword
@@ -321,6 +335,31 @@ fun EditServerDialog(
             }
         }
     )
+}
+
+@Composable
+private fun SelfSignedCertificateOption(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+            Text(
+                text = stringResource(R.string.trust_self_signed_certificate),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        Text(
+            text = stringResource(R.string.trust_self_signed_certificate_warning),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(start = 48.dp)
+        )
+    }
 }
 
 @Composable

@@ -101,7 +101,8 @@ class PlayerViewModel @Inject constructor(
                 url = target.url,
                 title = item.name,
                 subtitle = episodeSubtitle(item),
-                startPositionMs = startMs
+                startPositionMs = startMs,
+                trustSelfSignedCertificate = s.server.trustSelfSignedCertificate
             )
             report = PlaybackReport(
                 itemId = item.id,

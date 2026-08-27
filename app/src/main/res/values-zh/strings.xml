@@ -20,6 +20,8 @@
     <string name="remove">移除</string>
     <string name="open">打开</string>
     <string name="save_password_auto_enter">保存密码，下次直接进入</string>
+    <string name="trust_self_signed_certificate">信任自签发证书</string>
+    <string name="trust_self_signed_certificate_warning">仅对您控制的服务器启用。此选项会关闭证书及主机名验证，可能使连接遭到中间人拦截。</string>
     <string name="no_services">尚未配置媒体服务器。</string>
 
     <string name="transfer_channel_name">传输</string>

@@ -20,6 +20,8 @@
     <string name="remove">Remove</string>
     <string name="open">Open</string>
     <string name="save_password_auto_enter">Save password and enter directly next time</string>
+    <string name="trust_self_signed_certificate">Trust self-signed certificate</string>
+    <string name="trust_self_signed_certificate_warning">Only enable this for a server you control. Certificate and host verification will be disabled, which can allow interception.</string>
     <string name="no_services">No media servers configured yet.</string>
 
     <string name="transfer_channel_name">Transfers</string>

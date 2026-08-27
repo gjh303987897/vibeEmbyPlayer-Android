@@ -3,31 +3,37 @@ package com.vibeplayer.app.player
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.vibeplayer.app.di.OkHttpClientFactory
 
 /**
- * Http data source factory that injects a mutable set of request headers on
- * every request. Used to send Authorization headers (e.g. WebDAV Basic auth)
- * to ExoPlayer without exposing credentials in the play URL or logs.
+ * Media3 HTTP factory that applies request headers and the current server's
+ * explicit TLS policy to playback requests. A self-signed opt-in selects the
+ * isolated permissive OkHttp client; all other playback keeps platform TLS
+ * verification. This is mutable because the app owns one shared ExoPlayer.
  */
 @OptIn(UnstableApi::class)
 class AuthHeaderDataSourceFactory(
-    userAgent: String = "VibePlayer"
+    private val clientFactory: OkHttpClientFactory,
+    private val userAgent: String = "VibePlayer"
 ) : DataSource.Factory {
 
-    private val base = DefaultHttpDataSource.Factory().setUserAgent(userAgent)
-    private val headers = mutableMapOf<String, String>()
+    private var headers: Map<String, String> = emptyMap()
+    private var trustSelfSignedCertificate: Boolean = false
 
-    fun setHeaders(newHeaders: Map<String, String>) {
-        headers.clear()
-        headers.putAll(newHeaders)
+    @Synchronized
+    fun configure(
+        newHeaders: Map<String, String>,
+        trustSelfSignedCertificate: Boolean
+    ) {
+        headers = newHeaders.toMap()
+        this.trustSelfSignedCertificate = trustSelfSignedCertificate
     }
 
-    override fun createDataSource(): DataSource {
-        // Always (re)apply: DefaultHttpDataSource.Factory#setDefaultRequestProperties
-        // replaces the previous set, so calling it with an empty map clears stale
-        // auth headers of a previous source instead of leaking them into this one.
-        base.setDefaultRequestProperties(headers)
-        return base.createDataSource()
-    }
+    @Synchronized
+    override fun createDataSource(): DataSource =
+        OkHttpDataSource.Factory(clientFactory.client(trustSelfSignedCertificate))
+            .setUserAgent(userAgent)
+            .setDefaultRequestProperties(headers)
+            .createDataSource()
 }

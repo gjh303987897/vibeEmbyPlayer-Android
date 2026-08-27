@@ -51,7 +51,9 @@ class ServiceStore @Inject constructor(
         val baseUrl: String,
         val username: String,
         val serviceType: String,
-        val trustSelfSignedCertificate: Boolean,
+        // Default preserves compatibility with service JSON written before this
+        // option existed; upgrading must never silently weaken TLS verification.
+        val trustSelfSignedCertificate: Boolean = false,
         val autoLogin: Boolean,
         val privateMode: Boolean
     )

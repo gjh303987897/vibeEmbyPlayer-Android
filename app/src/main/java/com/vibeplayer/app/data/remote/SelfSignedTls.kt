@@ -15,16 +15,24 @@ import javax.net.ssl.X509TrustManager
  */
 internal object SelfSignedTls {
 
+    data class Configuration(
+        val sslContext: SSLContext,
+        val trustManager: X509TrustManager
+    )
+
+    /** One shared manager/context pair, as required by OkHttp's TLS configuration API. */
+    val configuration: Configuration by lazy {
+        val manager = trustManager()
+        val context = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf<TrustManager>(manager), SecureRandom())
+        }
+        Configuration(context, manager)
+    }
+
     /** A [X509TrustManager] that accepts every presented certificate. */
-    fun trustManager(): X509TrustManager = object : X509TrustManager {
+    private fun trustManager(): X509TrustManager = object : X509TrustManager {
         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
         override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
         override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
     }
-
-    /** An SSLContext initialised with the trust-all trust manager. */
-    fun sslContext(): SSLContext =
-        SSLContext.getInstance("TLS").apply {
-            init(null, arrayOf<TrustManager>(trustManager()), SecureRandom())
-        }
 }
