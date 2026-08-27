@@ -276,8 +276,14 @@ abstract class MediaServerClientBase(
         val mediaSourceId = source.sourceId
         val url = makeUrl(session.server.baseUrl, "/Videos/${item.id}/stream")
             .plus("?static=true&MediaSourceId=$mediaSourceId&PlaySessionId=$playSessionId&api_key=${session.accessToken}")
+        val subtitleStreamIndex = selectSubtitleStream(source)
+        val subtitleQuery = if (subtitleStreamIndex >= 0) {
+            "&EnableSubtitles=true&SubtitleStreamIndex=$subtitleStreamIndex"
+        } else {
+            ""
+        }
         return PlaybackTarget(
-            url = url,
+            url = url + subtitleQuery,
             startSeconds = item.playbackPositionSeconds,
             mediaSourceId = mediaSourceId,
             playSessionId = playSessionId,

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -79,9 +80,7 @@ fun HomeScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text(state.serverName) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 navigationIcon = {
                     // Return to the service (main) page.
                     IconButton(onClick = { navController.popBackStack() }) {

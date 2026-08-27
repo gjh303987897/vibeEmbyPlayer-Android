@@ -26,11 +26,15 @@ import androidx.compose.material.icons.automirrored.outlined.VolumeDown
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
+import com.vibeplayer.app.player.SubtitleTrack
 import java.util.concurrent.TimeUnit
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 
@@ -126,7 +131,10 @@ fun PlayerScreen(
                 onTogglePlay = viewModel::togglePlayPause,
                 onSeek = viewModel::seekTo,
                 onSpeedChange = viewModel::setPlaybackSpeed,
-                onVolumeChange = viewModel::setVolume
+                onVolumeChange = viewModel::setVolume,
+                onSubtitleChange = viewModel::selectSubtitle,
+                subtitleTracks = state.subtitleTracks,
+                selectedSubtitleKey = state.selectedSubtitleKey
             )
         }
     }
@@ -165,6 +173,9 @@ private fun ControlsBottom(
     onSeek: (Long) -> Unit,
     onSpeedChange: (Float) -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onSubtitleChange: (SubtitleTrack?) -> Unit,
+    subtitleTracks: List<SubtitleTrack>,
+    selectedSubtitleKey: String?,
     modifier: Modifier = Modifier
 ) {
     var sliderPosition by remember { mutableStateOf(0f) }
@@ -206,11 +217,44 @@ private fun ControlsBottom(
         }
         SpeedSelector(current = playbackSpeed, onSpeedChange = onSpeedChange)
         VolumeControl(volume = volume, onVolumeChange = onVolumeChange)
-        Spacer(Modifier.height(8.dp))
+        if (subtitleTracks.isNotEmpty()) {
+            SubtitleSelector(subtitleTracks, selectedSubtitleKey, onSubtitleChange)
+        }
     }
 }
 
 private val speedOptions = listOf(0.5f, 1f, 1.25f, 1.5f, 2f)
+
+@Composable
+private fun SubtitleSelector(
+    tracks: List<SubtitleTrack>,
+    selectedKey: String?,
+    onSelect: (SubtitleTrack?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Button(onClick = { expanded = true }) {
+        Icon(Icons.Outlined.Subtitles, contentDescription = null)
+        Spacer(Modifier.width(6.dp))
+        Text(tracks.firstOrNull { it.key == selectedKey }?.label ?: "Subtitles")
+    }
+    if (expanded) {
+        AlertDialog(
+            onDismissRequest = { expanded = false },
+            title = { Text("Subtitles") },
+            text = {
+                Column {
+                    TextButton(onClick = { onSelect(null); expanded = false }) { Text("Off") }
+                    tracks.forEach { track ->
+                        TextButton(onClick = { onSelect(track); expanded = false }) {
+                            Text(if (track.key == selectedKey) "✓ ${track.label}" else track.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { expanded = false }) { Text("Cancel") } }
+        )
+    }
+}
 
 @Composable
 private fun SpeedSelector(current: Float, onSpeedChange: (Float) -> Unit) {
