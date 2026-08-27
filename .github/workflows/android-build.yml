@@ -3,6 +3,9 @@ name: Android Build
 # Builds the VibePlayer Android app's APKs on every push / PR and lets you
 # download the resulting artifacts.
 #
+# The debug APK is intentionally signed by AGP with the standard Android Debug
+# test certificate and is uploaded for internal/testing use only.
+#
 # SECURE RELEASE SIGNING (REQUIRED):
 # The release APK is ALWAYS signed using these encrypted repository secrets
 # (Settings > Secrets > Actions). They are REQUIRED — any release build fails
@@ -81,6 +84,30 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Verify debug APK uses Android Debug test certificate
+        # assembleDebug is signed automatically by the Android Gradle Plugin with
+        # the standard ~/.android/debug.keystore. Verify both the signature and
+        # the certificate identity before uploading the test artifact.
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/app-debug.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            echo "::error::No debug APK produced by the build."
+            exit 1
+          fi
+          BT=$(ls "$ANDROID_SDK_ROOT/build-tools" | sort -V | tail -1)
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/$BT/apksigner"
+          if ! "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/debug-signature.txt" 2>&1; then
+            cat "$RUNNER_TEMP/debug-signature.txt"
+            echo "::error::Debug APK signature verification failed."
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/debug-signature.txt"
+          if ! grep -Fq 'Signer #1 certificate DN: C=US, O=Android, CN=Android Debug' "$RUNNER_TEMP/debug-signature.txt"; then
+            echo "::error::Debug APK is not signed with the Android Debug test certificate."
+            exit 1
+          fi
+          echo "ANDROID DEBUG TEST-SIGNED APK VERIFIED: $APK"
+
       - name: Verify release APK signature
         # Confirms the produced release APK is actually signed; fails the build
         # otherwise so an unsigned release artifact is never uploaded.
@@ -100,11 +127,11 @@ jobs:
       - name: Run lint
         run: ./gradlew lintDebug
 
-      - name: Upload debug APK
+      - name: Upload debug APK (Android Debug test-signed)
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: app-debug-apk-android-test-signed
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       - name: Upload release APK
