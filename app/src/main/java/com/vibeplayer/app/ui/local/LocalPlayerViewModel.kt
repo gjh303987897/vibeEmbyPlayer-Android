@@ -77,8 +77,9 @@ class LocalPlayerViewModel @Inject constructor(
     }
 
     fun play(encodedUri: String) {
-        // A new attempt must never inherit the previous source's failure;
-        // otherwise the status overlay shows an error before anything was tried.
+        // Clear the previous source before the asynchronous SAF / HLS preparation.
+        // Local and Emby screens share the application-scoped player instance.
+        playerManager.beginLoading(title = "Local video", subtitle = "Local")
         playerManager.clearError()
         val uri = Routes.decodeLocalUrl(encodedUri)
         if (uri.isNullOrBlank()) {

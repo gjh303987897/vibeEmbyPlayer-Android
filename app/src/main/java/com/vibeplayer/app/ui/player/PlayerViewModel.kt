@@ -79,8 +79,7 @@ class PlayerViewModel @Inject constructor(
 
     /** Fetches the stream URL and starts playback, reporting start/progress. */
     fun play(itemId: String) {
-        // A new attempt must never inherit the previous source's failure;
-        // otherwise the status overlay shows an error before anything was tried.
+        playerManager.beginLoading()
         playerManager.clearError()
         session = activeSessionManager.activeSession.value
         val s = session ?: return

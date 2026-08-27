@@ -143,6 +143,23 @@ class PlayerManager @Inject constructor(
         _state.update { it.copy(error = null) }
     }
 
+    /**
+     * Clears the currently rendered frame before an asynchronous source lookup.
+     * This is important because all screens share one ExoPlayer: otherwise the
+     * previous local video can remain visible while an Emby URL is being fetched.
+     */
+    fun beginLoading(title: String? = null, subtitle: String? = null) {
+        player.pause()
+        player.stop()
+        player.clearMediaItems()
+        _state.value = PlayerState(
+            isPrepared = false,
+            title = title,
+            subtitle = subtitle,
+            playbackSpeed = lastSpeed
+        )
+    }
+
     /** Prepares and plays the given stream URL with optional HTTP request headers. */
     fun play(
         url: String,
@@ -154,6 +171,10 @@ class PlayerManager @Inject constructor(
         // Always reset headers so stale auth headers from a previous source are
         // never carried over to an unrelated (or unauthenticated) stream.
         headerFactory.setHeaders(headers)
+        // Clear again at the hand-off point in case another source was rendered
+        // while the asynchronous URL lookup was in progress.
+        player.stop()
+        player.clearMediaItems()
         _state.value = PlayerState(
             isPrepared = false,
             title = title,
