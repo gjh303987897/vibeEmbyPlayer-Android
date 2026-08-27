@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,7 +34,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,7 +61,6 @@ import coil.compose.AsyncImage
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
-import com.vibeplayer.app.ui.components.MediaPoster
 import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.navigation.Routes
 import com.vibeplayer.app.util.seasonEpisodeText
@@ -374,51 +374,91 @@ private fun RailHeader(title: String) {
  */
 @Composable
 private fun ContinueWatchingRail(items: List<MediaItem>, onItemClick: (MediaItem) -> Unit) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp)) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         items(items) { item ->
             val interactionSource = remember { MutableInteractionSource() }
+            val progress = (item.playedPercentage.coerceIn(0.0, 100.0) / 100.0).toFloat()
             Column(
                 modifier = Modifier
                     .animateItem()
-                    .width(200.dp)
-                    .padding(end = 12.dp)
+                    .width(268.dp)
                     .pressScale(interactionSource)
                     .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onItemClick(item) }
             ) {
-                Box {
-                    MediaPoster(
-                        url = item.seriesImageUrl.takeIf { it.isNotBlank() } ?: item.imageUrl,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(2f / 3f),
-                        cornerRadius = 12
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                ) {
+                    AsyncImage(
+                        model = item.backdropImageUrl.takeIf { it.isNotBlank() }
+                            ?: item.seriesImageUrl.takeIf { it.isNotBlank() }
+                            ?: item.imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
-                    if (item.playedPercentage > 0.0) {
-                        LinearProgressIndicator(
-                            progress = { (item.playedPercentage.coerceIn(0.0, 100.0) / 100.0).toFloat() },
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(58.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
+                                )
+                            )
+                    )
+                    if (progress > 0f) {
+                        Box(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
-                                .height(3.dp)
-                        )
+                                .padding(horizontal = 10.dp, vertical = 9.dp)
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(Color.White.copy(alpha = 0.34f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(progress)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = continueWatchingTitle(item),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (seasonEpisodeText(item).isNotBlank()) {
-                    Spacer(Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = seasonEpisodeText(item),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+                    if (progress > 0f) {
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }
