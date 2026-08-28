@@ -95,7 +95,12 @@ class PlayerManager @Inject constructor(
     fun clearError() { _state.update { it.copy(error = null) } }
     fun beginLoading(title: String? = null, subtitle: String? = null) {
         player.pause(); player.stop(); player.clearMediaItems()
-        _state.value = PlayerState(title = title, subtitle = subtitle, playbackSpeed = lastSpeed)
+        _state.value = PlayerState(
+            title = title,
+            subtitle = subtitle,
+            playbackSpeed = lastSpeed,
+            volume = player.volume
+        )
     }
     fun play(
         url: String,
@@ -107,7 +112,13 @@ class PlayerManager @Inject constructor(
     ) {
         headerFactory.configure(headers, trustSelfSignedCertificate); player.stop(); player.clearMediaItems()
         autoSubtitleSelected = false
-        _state.value = PlayerState(title = title, subtitle = subtitle, positionMs = startPositionMs, playbackSpeed = lastSpeed)
+        _state.value = PlayerState(
+            title = title,
+            subtitle = subtitle,
+            positionMs = startPositionMs,
+            playbackSpeed = lastSpeed,
+            volume = player.volume
+        )
         // A new source must not inherit a previous subtitle-off selection.
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)

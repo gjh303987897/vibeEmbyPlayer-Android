@@ -60,6 +60,10 @@ class WebDavPlayerViewModel @Inject constructor(
                         durationMs = p.durationMs,
                         buffering = p.buffering,
                         error = p.error,
+                        playbackSpeed = p.playbackSpeed,
+                        volume = p.volume,
+                        subtitleTracks = p.subtitleTracks,
+                        selectedSubtitleKey = p.selectedSubtitleKey,
                         audioTracks = p.audioTracks,
                         selectedAudioTrackKey = p.selectedAudioTrackKey
                     )
@@ -154,6 +158,12 @@ class WebDavPlayerViewModel @Inject constructor(
         filePath.substringAfterLast('.').lowercase() in setOf("m3u8s", "m3u8sp")
 
     fun togglePlayPause() = playerManager.togglePlayPause()
+
+    fun setPlaybackSpeed(speed: Float) = playerManager.setPlaybackSpeed(speed)
+
+    fun setVolume(volume: Float) = playerManager.setVolume(volume)
+
+    fun selectSubtitle(track: com.vibeplayer.app.player.SubtitleTrack?) = playerManager.selectSubtitle(track)
 
     fun selectAudioTrack(track: AudioTrack) = playerManager.selectAudioTrack(track)
 
