@@ -32,12 +32,15 @@ import kotlinx.coroutines.launch
 
 data class SubtitleTrack(val key: String, val label: String, val language: String?, val selected: Boolean)
 
+data class AudioTrack(val key: String, val label: String, val language: String?, val selected: Boolean)
+
 data class PlayerState(
     val isPlaying: Boolean = false, val positionMs: Long = 0L, val durationMs: Long = 0L,
     val isPrepared: Boolean = false, val buffering: Boolean = false, val title: String? = null,
     val subtitle: String? = null, val error: String? = null, val playbackSpeed: Float = 1f,
     val volume: Float = 1f, val subtitleTracks: List<SubtitleTrack> = emptyList(),
-    val selectedSubtitleKey: String? = null
+    val selectedSubtitleKey: String? = null, val audioTracks: List<AudioTrack> = emptyList(),
+    val selectedAudioTrackKey: String? = null
 )
 
 @OptIn(UnstableApi::class)
@@ -60,7 +63,7 @@ class PlayerManager @Inject constructor(
     init {
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
-                updateSubtitleTracks(tracks)
+                updateTracks(tracks)
                 if (!autoSubtitleSelected) {
                     subtitleTracks(tracks).firstOrNull()?.let {
                         autoSubtitleSelected = true
@@ -109,6 +112,7 @@ class PlayerManager @Inject constructor(
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
             .build()
         player.setMediaItem(PlayerMediaItem.Builder().setUri(url).setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(subtitle).build()).build())
         runCatching { context.startForegroundService(android.content.Intent(context, com.vibeplayer.app.service.PlaybackService::class.java)) }
@@ -132,14 +136,31 @@ class PlayerManager @Inject constructor(
                 }
             }
         }
-        player.trackSelectionParameters = b.build(); updateSubtitleTracks(player.currentTracks)
+        player.trackSelectionParameters = b.build(); updateTracks(player.currentTracks)
+    }
+    fun selectAudioTrack(track: AudioTrack) {
+        val (groupIndex, trackIndex) = parseTrackKey(track.key) ?: return
+        val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .addOverride(TrackSelectionOverride(group.mediaTrackGroup, listOf(trackIndex)))
+            .build()
+        updateTracks(player.currentTracks)
     }
     fun release() { positionTicker?.cancel(); player.release(); scope.cancel() }
     private fun startPositionTicker() { if (positionTicker != null) return; positionTicker = scope.launch { while (true) { updateDerived(); delay(500) } } }
     private fun stopPositionTicker() { updateDerived(); positionTicker?.cancel(); positionTicker = null }
-    private fun updateSubtitleTracks(tracks: Tracks) {
+    private fun updateTracks(tracks: Tracks) {
         val subtitles = subtitleTracks(tracks)
-        _state.update { it.copy(subtitleTracks = subtitles, selectedSubtitleKey = subtitles.firstOrNull { x -> x.selected }?.key) }
+        val audio = audioTracks(tracks)
+        _state.update {
+            it.copy(
+                subtitleTracks = subtitles,
+                selectedSubtitleKey = subtitles.firstOrNull { track -> track.selected }?.key,
+                audioTracks = audio,
+                selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key
+            )
+        }
     }
     private fun subtitleTracks(tracks: Tracks): List<SubtitleTrack> = tracks.groups.mapIndexedNotNull { gi, group ->
         if (group.type != C.TRACK_TYPE_TEXT) return@mapIndexedNotNull null
@@ -150,5 +171,41 @@ class PlayerManager @Inject constructor(
                 SubtitleTrack("$gi:$ti", label, f.language, group.isTrackSelected(ti))
             }
     }.flatten()
-    private fun updateDerived() { _state.update { it.copy(isPlaying = player.isPlaying, isPrepared = player.playbackState != Player.STATE_IDLE, positionMs = player.currentPosition, durationMs = player.duration.takeIf { d -> d > 0 } ?: it.durationMs, subtitleTracks = subtitleTracks(player.currentTracks), selectedSubtitleKey = subtitleTracks(player.currentTracks).firstOrNull { x -> x.selected }?.key) } }
+    private fun audioTracks(tracks: Tracks): List<AudioTrack> = tracks.groups.mapIndexedNotNull { gi, group ->
+        if (group.type != C.TRACK_TYPE_AUDIO) return@mapIndexedNotNull null
+        (0 until group.length).mapNotNull { ti ->
+            val format = group.getTrackFormat(ti)
+            if (!group.isTrackSupported(ti)) return@mapNotNull null
+            val label = format.label?.takeIf { it.isNotBlank() }
+                ?: format.language?.takeIf { it.isNotBlank() }
+                ?: "Audio ${ti + 1}"
+            AudioTrack("$gi:$ti", label, format.language, group.isTrackSelected(ti))
+        }
+    }.flatten()
+    private fun updateDerived() {
+        val tracks = player.currentTracks
+        val subtitles = subtitleTracks(tracks)
+        val audio = audioTracks(tracks)
+        _state.update {
+            it.copy(
+                isPlaying = player.isPlaying,
+                isPrepared = player.playbackState != Player.STATE_IDLE,
+                positionMs = player.currentPosition,
+                durationMs = player.duration.takeIf { duration -> duration > 0 } ?: it.durationMs,
+                subtitleTracks = subtitles,
+                selectedSubtitleKey = subtitles.firstOrNull { track -> track.selected }?.key,
+                audioTracks = audio,
+                selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key
+            )
+        }
+    }
+}
+
+internal fun parseTrackKey(key: String): Pair<Int, Int>? {
+    val parts = key.split(":")
+    if (parts.size != 2) return null
+    val groupIndex = parts[0].toIntOrNull() ?: return null
+    val trackIndex = parts[1].toIntOrNull() ?: return null
+    if (groupIndex < 0 || trackIndex < 0) return null
+    return groupIndex to trackIndex
 }

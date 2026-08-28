@@ -4,128 +4,148 @@ import android.content.Context
 import android.net.Uri
 import com.vibeplayer.app.data.local.tssl.TsslStore
 import com.vibeplayer.app.data.repository.WebDavRepository
+import com.vibeplayer.app.domain.tssl.TsslCrypto
+import com.vibeplayer.app.domain.tssl.TsslDocument
 import com.vibeplayer.app.model.ServerConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
-/**
- * Coordinates playback of an encrypted-HLS `.m3u8s` package, for both local
- * (SAF) and WebDAV sources, against a locally stored TSSL package.
- *
- * The flow mirrors the Qt EncryptedHlsPlaybackProxy contract:
- *  1. load the root manifest entity bytes,
- *  2. read its `#M3U8S-IDENTIFIER:<id>` metadata and find the local TSSL
- *     package with the same identifier,
- *  3. require the root-manifest digest to match `rootManifestSha256`,
- *  4. start a loopback [EncryptedHlsServer] backed by the right [HlsByteSource],
- *  5. return the playable `http://127.0.0.1:port/<rootManifestName>` URL.
- */
+/** Coordinates verified TSSL v2/v3 `.m3u8s` and TSSL v4 `.m3u8sp` playback. */
 @Singleton
 class EncryptedHlsManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val tsslStore: TsslStore,
     private val webDavRepository: WebDavRepository
 ) {
-
-    /**
-     * Starts playback of a local `.m3u8s` file inside an SAF tree.
-     *
-     * @param treeUri the SAF tree the user granted
-     * @param manifestDocumentId the document id of the `.m3u8s` file itself
-     */
-    suspend fun prepareLocal(treeUri: Uri, manifestDocumentId: String): Result<EncryptedHlsPlayback> =
-        runCatching {
-            val manifestName = manifestDocumentId.substringAfterLast('/')
-            val baseDocumentId = manifestDocumentId.substringBeforeLast('/', "")
-            prepare(SafHlsSource(context, treeUri, baseDocumentId), manifestName)
+    suspend fun prepareLocal(
+        treeUri: Uri,
+        documentId: String,
+        containerLength: Long = -1
+    ): Result<EncryptedHlsPlayback> = runCatching {
+        val name = documentId.substringAfterLast('/')
+        if (name.endsWith(".m3u8sp", ignoreCase = true)) {
+            prepareContainer(SafContainerSource(context, treeUri, documentId, containerLength))
+        } else {
+            val baseDocumentId = documentId.substringBeforeLast('/', "")
+            prepareDirectory(SafHlsSource(context, treeUri, baseDocumentId), name)
         }
-
-    /** Starts playback of a remote WebDAV `.m3u8s` located at [path]. */
-    suspend fun prepareWebDav(server: ServerConfig, path: String): Result<EncryptedHlsPlayback> =
-        runCatching {
-            val basePath = path.substringBeforeLast('/', "")
-            val manifestName = path.substringAfterLast('/')
-            prepare(WebDavHlsSource(webDavRepository, server, basePath), manifestName)
-        }
-
-    private suspend fun prepare(
-        source: HlsByteSource,
-        rootName: String
-    ): EncryptedHlsPlayback {
-        val manifestBytes = source.load(rootName)
-            .getOrElse { throw IllegalStateException("Unable to load manifest: ${it.message}") }
-        val identifier = extractIdentifier(manifestBytes)
-            ?: throw IllegalStateException("Manifest has no M3U8S identifier")
-
-        val doc = tsslStore.list()
-            .mapNotNull { pkg ->
-                val raw = tsslStore.read(pkg.fileName) ?: return@mapNotNull null
-                com.vibeplayer.app.domain.tssl.TsslDocument.parse(raw)
-            }
-            .firstOrNull { it.identifier == identifier }
-            ?: throw IllegalStateException("No matching local TSSL package for this manifest")
-
-        if (doc.rootManifestSha256.isNotEmpty() &&
-            com.vibeplayer.app.domain.tssl.TsslCrypto.sha256Hex(manifestBytes) != doc.rootManifestSha256
-        ) {
-            throw IllegalStateException("Root manifest digest mismatch (tampered or stale)")
-        }
-        val manifestText = String(manifestBytes, Charsets.UTF_8)
-        if (Regex("(?m)^#EXT-X-(SESSION-)?KEY:").containsMatchIn(manifestText)) {
-            throw IllegalStateException("Root manifest carries EXT-X-KEY (keys belong only in TSSL)")
-        }
-
-        val server = EncryptedHlsServer(
-            document = doc,
-            source = source,
-            rootManifestName = VIRTUAL_ROOT_NAME,
-            rootManifestBytes = manifestBytes
-        )
-        server.start()
-        return EncryptedHlsPlayback(
-            server = server,
-            rootManifestName = VIRTUAL_ROOT_NAME,
-            resolvedSourceName = recoverSourceName(doc)
-        )
     }
 
-    /** Reads the `#M3U8S-IDENTIFIER:<id>` line near the manifest start. */
-    private fun extractIdentifier(manifest: ByteArray): String? = try {
-        val text = String(manifest, Charsets.UTF_8)
-        Regex("(?m)^#M3U8S-IDENTIFIER:([A-Za-z0-9_-]+)$")
-            .find(text)?.groupValues?.get(1)
-    } catch (_: Exception) {
-        null
-    }
-
-    /**
-     * Recovers the authenticated original source basename from TSSL v3
-     * (null for v2 or on failure). Display-only; never used to resolve a path.
-     */
-    private fun recoverSourceName(doc: com.vibeplayer.app.domain.tssl.TsslDocument): String? {
-        val sn = doc.sourceName ?: return null
-        return try {
-            val plain = com.vibeplayer.app.domain.tssl.TsslCrypto.decrypt(
-                sn.key,
-                sn.encrypted,
-                aad = doc.identifier.toByteArray(Charsets.UTF_8)
+    suspend fun prepareWebDav(
+        server: ServerConfig,
+        path: String,
+        containerLength: Long = -1
+    ): Result<EncryptedHlsPlayback> = runCatching {
+        if (path.endsWith(".m3u8sp", ignoreCase = true)) {
+            val initial = webDavRepository.downloadInitialRange(
+                server, path, EncryptedHlsTarContainer.PREFIX_LIMIT.toLong()
+            ).getOrThrow()
+            if (containerLength > 0) require(containerLength == initial.totalLength)
+            prepareContainer(
+                WebDavContainerSource(
+                    webDavRepository, server, path, initial.totalLength,
+                    initial.etag, initial.bytes
+                )
             )
-            val name = String(plain, Charsets.UTF_8)
-            if (name.contains('/') || name.contains('\\') || name.isBlank()) null else name
-        } catch (_: Exception) {
-            null
+        } else {
+            val basePath = path.substringBeforeLast('/', "")
+            prepareDirectory(WebDavHlsSource(webDavRepository, server, basePath), path.substringAfterLast('/'))
         }
+    }
+
+    private suspend fun prepareContainer(container: SeekableHlsContainerSource): EncryptedHlsPlayback {
+        require(container.length > 0) { "M3U8SP container length is unavailable" }
+        val prefixLength = minOf(container.length, EncryptedHlsTarContainer.PREFIX_LIMIT.toLong())
+        val prefix = container.read(0, prefixLength).getOrThrow()
+        val index = EncryptedHlsTarContainer.readIndexPrefix(prefix, container.length)
+        val source = IndexedTarHlsSource(container, index)
+        val manifest = source.load(index.manifestPath).getOrThrow()
+        require(manifest.size <= MAX_MANIFEST_BYTES) { "M3U8SP manifest is too large" }
+        val doc = matchingDocument(manifest)
+        require(validateHlsPlaylist(manifest, index.manifestPath, doc, root = true)) {
+            "M3U8SP root playlist contains unsafe or unregistered URIs"
+        }
+        require(doc.version == 4) { "M3U8SP requires TSSL v4" }
+        require(doc.containerFormat == TsslDocument.V4_CONTAINER_FORMAT)
+        require(doc.containerLength == container.length) { "TSSL container length mismatch" }
+        require(doc.containerIndexSha256 == index.sha256) { "TSSL container index digest mismatch" }
+        return startPlayback(doc, source, manifest)
+    }
+
+    private suspend fun prepareDirectory(source: HlsByteSource, rootName: String): EncryptedHlsPlayback {
+        val manifest = source.load(rootName)
+            .getOrElse { throw IllegalStateException("Unable to load manifest: ${it.message}") }
+        require(manifest.size <= MAX_MANIFEST_BYTES) { "M3U8S manifest is too large" }
+        val doc = matchingDocument(manifest)
+        require(validateHlsPlaylist(manifest, rootName, doc, root = true)) {
+            "M3U8S root playlist contains unsafe or unregistered URIs"
+        }
+        require(doc.version != 4) { "TSSL v4 must be used with an M3U8SP container" }
+        return startPlayback(doc, source, manifest)
+    }
+
+    private suspend fun matchingDocument(manifest: ByteArray): TsslDocument {
+        val metadata = parseM3u8sManifestMetadata(manifest)
+            ?: throw IllegalStateException("Manifest has invalid M3U8S metadata")
+        val identifier = metadata.identifier
+        val doc = tsslStore.list().mapNotNull { pkg ->
+            tsslStore.read(pkg.fileName)?.let(TsslDocument::parse)
+        }.firstOrNull { it.identifier == identifier }
+            ?: throw IllegalStateException("No matching local TSSL package for this manifest")
+        require(doc.identifier.length == TsslDocument.IDENTIFIER_LENGTH)
+        require(TsslCrypto.sha256Hex(manifest) == doc.rootManifestSha256) {
+            "Root manifest digest mismatch (tampered or stale)"
+        }
+        if (doc.version >= 3) {
+            require(metadata.encryptedSourceName?.contentEquals(doc.sourceName?.encrypted) == true) {
+                "Manifest and TSSL source filename metadata do not match"
+            }
+        } else {
+            require(metadata.encryptedSourceName == null) {
+                "TSSL v2 cannot authenticate source filename metadata"
+            }
+        }
+        return doc
+    }
+
+    private fun startPlayback(
+        doc: TsslDocument,
+        source: HlsByteSource,
+        manifest: ByteArray
+    ): EncryptedHlsPlayback {
+        val text = String(manifest, Charsets.UTF_8)
+        require(!Regex("(?m)^#EXT-X-(SESSION-)?KEY:").containsMatchIn(text)) {
+            "Root manifest carries EXT-X-KEY (keys belong only in TSSL)"
+        }
+        val server = EncryptedHlsServer(doc, source, VIRTUAL_ROOT_NAME, manifest)
+        server.start()
+        return EncryptedHlsPlayback(server, VIRTUAL_ROOT_NAME, recoverSourceName(doc))
+    }
+
+    private fun recoverSourceName(doc: TsslDocument): String? {
+        val source = doc.sourceName ?: return null
+        return runCatching {
+            // Qt source-name AAD includes this fixed domain-separation prefix.
+            val qtAad = (SOURCE_NAME_AAD + doc.identifier).toByteArray(Charsets.UTF_8)
+            val legacyAad = doc.identifier.toByteArray(Charsets.UTF_8)
+            val plain = if (doc.version == 3) {
+                runCatching { TsslCrypto.decrypt(source.key, source.encrypted, qtAad) }
+                    .recoverCatching { TsslCrypto.decrypt(source.key, source.encrypted, legacyAad) }
+                    .getOrThrow()
+            } else {
+                TsslCrypto.decrypt(source.key, source.encrypted, qtAad)
+            }
+            val name = plain.toString(Charsets.UTF_8)
+            require(name.isNotBlank() && name != "." && name != ".." &&
+                !name.contains('/') && !name.contains('\\') && name.none { it.code < 0x20 || it.code == 0x7f })
+            name
+        }.getOrNull()
     }
 
     companion object {
-        /**
-         * Virtual name the root manifest is served under. Ends in `.m3u8` so
-         * Media3's HLS detection recognises the stream; the actual stored file
-         * (e.g. `index.m3u8s`) differs but is loaded and verified at setup time.
-         */
         private const val VIRTUAL_ROOT_NAME = "index.m3u8"
+        private const val MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+        private const val SOURCE_NAME_AAD = "vibeEmbyPlayerQT/M3U8S/source-name/v1\n"
     }
 }

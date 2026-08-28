@@ -10,6 +10,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.domain.local.LocalPlaybackService
 import com.vibeplayer.app.model.PlaybackSource
+import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.player.hls.EncryptedHlsManager
 import com.vibeplayer.app.player.hls.EncryptedHlsPlayback
@@ -69,7 +70,9 @@ class LocalPlayerViewModel @Inject constructor(
                         positionMs = p.positionMs,
                         durationMs = p.durationMs,
                         buffering = p.buffering,
-                        error = p.error
+                        error = p.error,
+                        audioTracks = p.audioTracks,
+                        selectedAudioTrackKey = p.selectedAudioTrackKey
                     )
                 }
             }
@@ -170,7 +173,10 @@ class LocalPlayerViewModel @Inject constructor(
         }
         viewModelScope.launch {
             hlsPlayback?.close()
-            encryptedHlsManager.prepareLocal(treeUri, docId).fold(
+            val containerLength = runCatching {
+                context.contentResolver.openAssetFileDescriptor(docUri, "r")?.use { it.length }
+            }.getOrNull() ?: -1L
+            encryptedHlsManager.prepareLocal(treeUri, docId, containerLength).fold(
                 onSuccess = { playback ->
                     hlsPlayback = playback
                     val title = playback.resolvedSourceName ?: displayName
@@ -194,6 +200,8 @@ class LocalPlayerViewModel @Inject constructor(
     }
 
     fun togglePlayPause() = playerManager.togglePlayPause()
+
+    fun selectAudioTrack(track: AudioTrack) = playerManager.selectAudioTrack(track)
 
     fun seekTo(positionMs: Long) = playerManager.seekTo(positionMs)
 

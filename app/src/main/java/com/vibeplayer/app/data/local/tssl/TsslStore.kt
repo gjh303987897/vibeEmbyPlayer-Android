@@ -1,6 +1,7 @@
 package com.vibeplayer.app.data.local.tssl
 
 import android.content.Context
+import com.vibeplayer.app.domain.tssl.TsslDocument
 import com.vibeplayer.app.model.TsslPackage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -32,11 +33,15 @@ class TsslStore @Inject constructor(
         if (!dir.exists()) return@withContext emptyList()
         dir.listFiles { f -> f.isFile && f.name.endsWith(TSSL_EXT) }
             ?.map { f ->
+                val bytes = f.readBytesOrNull()
+                val document = bytes?.let(TsslDocument::parse)
+                val validName = document != null &&
+                    f.name.equals("${document.rootManifestSha256.lowercase()}$TSSL_EXT", ignoreCase = true)
                 TsslPackage(
                     fileName = f.name,
                     sizeBytes = f.length(),
                     lastModifiedMillis = f.lastModified(),
-                    identifierPreview = identifierPreview(f.readBytesOrNull())
+                    identifierPreview = if (validName) identifierPreview(bytes) else null
                 )
             }
             ?.sortedBy { it.fileName }
@@ -54,19 +59,21 @@ class TsslStore @Inject constructor(
      */
     suspend fun import(bytes: ByteArray): String? = withContext(Dispatchers.IO) {
         if (bytes.isEmpty() || bytes.size > MAX_TSSL_BYTES) return@withContext null
-        if (!isValidTssl(bytes)) return@withContext null
+        val document = TsslDocument.parse(bytes) ?: return@withContext null
         val dir = tsslDir
         if (!dir.exists() && !dir.mkdirs()) return@withContext null
-        val name = digestFileName(bytes) + TSSL_EXT
+        val name = document.rootManifestSha256.lowercase() + TSSL_EXT
         val target = File(dir, name)
+        if (target.exists()) return@withContext null
         val written = runCatching {
             val tmp = File(dir, name + ".tmp")
             tmp.writeBytes(bytes)
             if (!tmp.renameTo(target)) {
                 tmp.delete()
+                if (target.exists()) return@runCatching false
                 target.writeBytes(bytes)
             }
-            target.exists()
+            target.isFile
         }.getOrDefault(false)
         return@withContext if (written) name else null
     }
@@ -76,22 +83,14 @@ class TsslStore @Inject constructor(
         file.exists() && file.delete()
     }
 
-    suspend fun exportBytes(fileName: String): ByteArray? = read(fileName)
-
-    private fun isValidTssl(bytes: ByteArray): Boolean = try {
-        val json = JSONObject(String(bytes, Charsets.UTF_8))
-        json.optString("format") == "TSSL" &&
-            (json.optInt("version") == 2 || json.optInt("version") == 3) &&
-            !json.optString("identifier").isNullOrEmpty()
-    } catch (e: Exception) {
-        false
-    }
-
-    /** Stable filename derived from package content only (never user input). */
-    private fun digestFileName(bytes: ByteArray): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(bytes).joinToString("") { "%02x".format(it) }
-        return digest.take(64)
+    suspend fun exportBytes(fileName: String): ByteArray? = withContext(Dispatchers.IO) {
+        val file = File(tsslDir, sanitize(fileName))
+        val bytes = if (file.isFile) file.readBytesOrNull() else null
+        val document = bytes?.let(TsslDocument::parse) ?: return@withContext null
+        if (!file.name.equals("${document.rootManifestSha256.lowercase()}$TSSL_EXT", ignoreCase = true)) {
+            return@withContext null
+        }
+        TsslDocument.toJsonBytes(document)
     }
 
     private fun identifierPreview(bytes: ByteArray?): String? {

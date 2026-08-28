@@ -145,6 +145,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.cbor)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
@@ -168,6 +169,8 @@ dependencies {
 
     // Tests
     testImplementation(libs.junit)
+    // Android provides org.json at runtime; JVM unit tests need its reference implementation.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

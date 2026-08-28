@@ -67,6 +67,8 @@ fun PlayerScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
+    var fullscreen by remember { mutableStateOf(false) }
+    PlayerFullscreenEffect(fullscreen)
 
     LaunchedEffect(itemId) { viewModel.play(itemId) }
 
@@ -114,7 +116,20 @@ fun PlayerScreen(
             exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(220)) + fadeOut(tween(220)),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            PlayerTopBar(title = state.title, subtitle = state.subtitle, onBack = { navController.popBackStack() })
+            PlayerTopBar(
+                title = state.title,
+                subtitle = state.subtitle,
+                onBack = { navController.popBackStack() },
+                actions = {
+                    PlayerExtraActions(
+                        fullscreen = fullscreen,
+                        onToggleFullscreen = { fullscreen = !fullscreen },
+                        audioTracks = state.audioTracks,
+                        selectedAudioTrackKey = state.selectedAudioTrackKey,
+                        onAudioTrackSelected = viewModel::selectAudioTrack
+                    )
+                }
+            )
         }
         AnimatedVisibility(
             visible = controlsVisible,
@@ -141,7 +156,12 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun PlayerTopBar(title: String, subtitle: String, onBack: () -> Unit) {
+private fun PlayerTopBar(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    actions: @Composable () -> Unit
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -153,12 +173,13 @@ private fun PlayerTopBar(title: String, subtitle: String, onBack: () -> Unit) {
         IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.back), tint = Color.White)
         }
-        Column(modifier = Modifier.padding(end = 16.dp)) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
             Text(text = title, color = Color.White, style = MaterialTheme.typography.titleMedium)
             subtitle.takeIf { it.isNotBlank() }?.let {
                 Text(text = it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
             }
         }
+        actions()
     }
 }
 

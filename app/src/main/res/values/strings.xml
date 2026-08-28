@@ -45,6 +45,9 @@
     <string name="play">Play</string>
     <string name="pause">Pause</string>
     <string name="resume">Resume</string>
+    <string name="player_fullscreen">Enter fullscreen</string>
+    <string name="player_exit_fullscreen">Exit fullscreen</string>
+    <string name="player_audio_tracks">Audio tracks</string>
     <string name="season">Season</string>
 
     <string name="search">Search</string>

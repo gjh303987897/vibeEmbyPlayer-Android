@@ -9,6 +9,7 @@ import com.vibeplayer.app.data.remote.PlaybackReport
 import com.vibeplayer.app.data.remote.PlaybackTarget
 import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.model.UserSession
+import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.player.SubtitleTrack
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,7 +35,9 @@ data class PlayerUiState(
     val playbackSpeed: Float = 1f,
     val volume: Float = 1f,
     val subtitleTracks: List<SubtitleTrack> = emptyList(),
-    val selectedSubtitleKey: String? = null
+    val selectedSubtitleKey: String? = null,
+    val audioTracks: List<AudioTrack> = emptyList(),
+    val selectedAudioTrackKey: String? = null
 )
 
 @HiltViewModel
@@ -75,7 +78,9 @@ class PlayerViewModel @Inject constructor(
                         playbackSpeed = p.playbackSpeed,
                         volume = p.volume,
                         subtitleTracks = p.subtitleTracks,
-                        selectedSubtitleKey = p.selectedSubtitleKey
+                        selectedSubtitleKey = p.selectedSubtitleKey,
+                        audioTracks = p.audioTracks,
+                        selectedAudioTrackKey = p.selectedAudioTrackKey
                     )
                 }
             }
@@ -135,6 +140,8 @@ class PlayerViewModel @Inject constructor(
     fun setVolume(volume: Float) = playerManager.setVolume(volume)
 
     fun selectSubtitle(track: SubtitleTrack?) = playerManager.selectSubtitle(track)
+
+    fun selectAudioTrack(track: AudioTrack) = playerManager.selectAudioTrack(track)
 
     fun seekTo(positionMs: Long) {
         playerManager.seekTo(positionMs)

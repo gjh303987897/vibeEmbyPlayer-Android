@@ -26,7 +26,7 @@ data class WebDavItem(
         val VIDEO_EXTENSIONS = listOf(
             ".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".ts", ".m2ts", ".mts",
             ".mpg", ".mpeg", ".wmv", ".flv", ".ogv", ".3gp", ".3g2", ".asf", ".vob",
-            ".rm", ".rmvb", ".ogm", ".m3u8s"
+            ".rm", ".rmvb", ".ogm", ".m3u8s", ".m3u8sp"
         )
         val AUDIO_EXTENSIONS = listOf(".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wav", ".wma")
 

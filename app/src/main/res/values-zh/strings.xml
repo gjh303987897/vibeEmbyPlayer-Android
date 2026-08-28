@@ -45,6 +45,9 @@
     <string name="play">播放</string>
     <string name="pause">暂停</string>
     <string name="resume">继续</string>
+    <string name="player_fullscreen">进入全屏</string>
+    <string name="player_exit_fullscreen">退出全屏</string>
+    <string name="player_audio_tracks">音轨</string>
     <string name="season">季</string>
 
     <string name="search">搜索</string>

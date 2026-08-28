@@ -145,12 +145,17 @@ class TsslManagerViewModel @Inject constructor(
                     return@launch
                 }
                 val source = SafHlsSource(context, treeUri, treeDocId)
-                val result = packager.packageFromHls(source, manifestName, displayName) { p ->
-                    _uiState.update { it.copy(packagingProgress = p) }
-                }
+                val result = packager.packageFromHls(
+                    source = source,
+                    manifestFileName = manifestName,
+                    sourceDisplayName = displayName,
+                    onProgress = { progress ->
+                        _uiState.update { it.copy(packagingProgress = progress) }
+                    }
+                )
                 val message = when (result) {
                     is EncryptedHlsPackager.PackageResult.Success ->
-                        "Packaged: ${result.packageDirName}"
+                        "Packaged M3U8SP v4: ${result.packageDirName}"
                     is EncryptedHlsPackager.PackageResult.Error -> result.message
                 }
                 _uiState.update {

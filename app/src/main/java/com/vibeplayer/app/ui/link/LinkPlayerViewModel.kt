@@ -6,6 +6,7 @@ import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.domain.link.LinkPlaybackService
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
+import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.ui.navigation.Routes
 import com.vibeplayer.app.ui.player.PlayerUiState
@@ -54,7 +55,9 @@ class LinkPlayerViewModel @Inject constructor(
                         positionMs = p.positionMs,
                         durationMs = p.durationMs,
                         buffering = p.buffering,
-                        error = p.error
+                        error = p.error,
+                        audioTracks = p.audioTracks,
+                        selectedAudioTrackKey = p.selectedAudioTrackKey
                     )
                 }
             }
@@ -97,6 +100,8 @@ class LinkPlayerViewModel @Inject constructor(
     }
 
     fun togglePlayPause() = playerManager.togglePlayPause()
+
+    fun selectAudioTrack(track: AudioTrack) = playerManager.selectAudioTrack(track)
 
     fun seekTo(positionMs: Long) = playerManager.seekTo(positionMs)
 

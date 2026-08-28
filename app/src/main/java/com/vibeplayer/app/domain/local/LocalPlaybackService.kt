@@ -13,7 +13,7 @@ object LocalPlaybackService {
     )
 
     /** Encrypted-HLS package manifests are browsable and playable through the proxy. */
-    private val PLAYLIST_EXTENSIONS = setOf("m3u8s")
+    private val PLAYLIST_EXTENSIONS = setOf("m3u8s", "m3u8sp")
 
     private val GENERATED_SEGMENT = Regex("^segment_\\d{6}\\.ts$", RegexOption.IGNORE_CASE)
 
@@ -25,7 +25,7 @@ object LocalPlaybackService {
         isSupportedVideoFile(name) || name.substringAfterLast('.', "").lowercase() in PLAYLIST_EXTENSIONS
 
     fun isEncryptedHlsManifest(name: String): Boolean =
-        name.substringAfterLast('.', "").lowercase() == "m3u8s"
+        name.substringAfterLast('.', "").lowercase() in PLAYLIST_EXTENSIONS
 
     fun isGeneratedSegment(name: String): Boolean = GENERATED_SEGMENT.matches(name)
 }

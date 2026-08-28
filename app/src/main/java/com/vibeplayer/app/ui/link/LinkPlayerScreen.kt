@@ -42,6 +42,8 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import java.util.concurrent.TimeUnit
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
+import com.vibeplayer.app.ui.player.PlayerExtraActions
+import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
 
 @Composable
 fun LinkPlayerScreen(
@@ -51,6 +53,8 @@ fun LinkPlayerScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
+    var fullscreen by remember { mutableStateOf(false) }
+    PlayerFullscreenEffect(fullscreen)
 
     LaunchedEffect(encodedUrl) { viewModel.play(encodedUrl) }
 
@@ -92,7 +96,20 @@ fun LinkPlayerScreen(
         )
 
         if (controlsVisible) {
-            LinkTopBar(title = state.title, subtitle = state.subtitle, onBack = { navController.popBackStack() })
+            LinkTopBar(
+                title = state.title,
+                subtitle = state.subtitle,
+                onBack = { navController.popBackStack() },
+                actions = {
+                    PlayerExtraActions(
+                        fullscreen = fullscreen,
+                        onToggleFullscreen = { fullscreen = !fullscreen },
+                        audioTracks = state.audioTracks,
+                        selectedAudioTrackKey = state.selectedAudioTrackKey,
+                        onAudioTrackSelected = viewModel::selectAudioTrack
+                    )
+                }
+            )
             LinkControls(
                 isPlaying = state.isPlaying,
                 positionMs = state.positionMs,
@@ -106,7 +123,7 @@ fun LinkPlayerScreen(
 }
 
 @Composable
-private fun LinkTopBar(title: String, subtitle: String, onBack: () -> Unit) {
+private fun LinkTopBar(title: String, subtitle: String, onBack: () -> Unit, actions: @Composable () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -118,12 +135,13 @@ private fun LinkTopBar(title: String, subtitle: String, onBack: () -> Unit) {
         IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.back), tint = Color.White)
         }
-        Column(modifier = Modifier.padding(end = 16.dp)) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
             Text(text = title, color = Color.White, style = MaterialTheme.typography.titleMedium)
             subtitle.takeIf { it.isNotBlank() }?.let {
                 Text(text = it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
             }
         }
+        actions()
     }
 }
 

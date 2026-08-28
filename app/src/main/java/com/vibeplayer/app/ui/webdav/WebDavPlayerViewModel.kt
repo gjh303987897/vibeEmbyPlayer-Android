@@ -7,6 +7,7 @@ import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.data.repository.WebDavRepository
 import com.vibeplayer.app.model.PlaybackSource
+import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.player.hls.EncryptedHlsManager
 import com.vibeplayer.app.player.hls.EncryptedHlsPlayback
@@ -58,7 +59,9 @@ class WebDavPlayerViewModel @Inject constructor(
                         positionMs = p.positionMs,
                         durationMs = p.durationMs,
                         buffering = p.buffering,
-                        error = p.error
+                        error = p.error,
+                        audioTracks = p.audioTracks,
+                        selectedAudioTrackKey = p.selectedAudioTrackKey
                     )
                 }
             }
@@ -147,9 +150,11 @@ class WebDavPlayerViewModel @Inject constructor(
     }
 
     private fun isEncryptedHls(filePath: String): Boolean =
-        filePath.substringAfterLast('.').lowercase() == "m3u8s"
+        filePath.substringAfterLast('.').lowercase() in setOf("m3u8s", "m3u8sp")
 
     fun togglePlayPause() = playerManager.togglePlayPause()
+
+    fun selectAudioTrack(track: AudioTrack) = playerManager.selectAudioTrack(track)
 
     fun seekTo(positionMs: Long) = playerManager.seekTo(positionMs)
 

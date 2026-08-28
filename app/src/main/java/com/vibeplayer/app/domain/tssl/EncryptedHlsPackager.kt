@@ -2,6 +2,7 @@ package com.vibeplayer.app.domain.tssl
 
 import android.content.Context
 import com.vibeplayer.app.data.local.tssl.TsslStore
+import com.vibeplayer.app.player.hls.EncryptedHlsTarContainer
 import com.vibeplayer.app.player.hls.FileHlsSource
 import com.vibeplayer.app.player.hls.HlsByteSource
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,6 +28,8 @@ import kotlinx.coroutines.withContext
  * identifier and encrypted source-name metadata are embedded in the manifest
  * before that digest is computed.
  */
+enum class EncryptedHlsOutputFormat { M3U8SP_V4, DIRECTORY_V3 }
+
 @Singleton
 class EncryptedHlsPackager @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -34,7 +37,7 @@ class EncryptedHlsPackager @Inject constructor(
 ) {
 
     sealed class PackageResult {
-        data class Success(val packageDirName: String) : PackageResult()
+        data class Success(val packageDirName: String, val outputPath: String) : PackageResult()
         data class Error(val message: String) : PackageResult()
     }
 
@@ -52,6 +55,7 @@ class EncryptedHlsPackager @Inject constructor(
         source: HlsByteSource,
         manifestFileName: String,
         sourceDisplayName: String,
+        outputFormat: EncryptedHlsOutputFormat = EncryptedHlsOutputFormat.M3U8SP_V4,
         onProgress: (Float) -> Unit = {}
     ): PackageResult = withContext(Dispatchers.IO) {
         try {
@@ -69,7 +73,7 @@ class EncryptedHlsPackager @Inject constructor(
                 key = nameKey,
                 iv = nameIv,
                 plain = sourceDisplayName.toByteArray(Charsets.UTF_8),
-                aad = identifier.toByteArray(Charsets.UTF_8)
+                aad = (SOURCE_NAME_AAD + identifier).toByteArray(Charsets.UTF_8)
             )
 
             val staging = File(context.cacheDir, "pkg_stage_${System.nanoTime()}")
@@ -95,31 +99,52 @@ class EncryptedHlsPackager @Inject constructor(
                 .toByteArray(Charsets.UTF_8)
             val rootDigest = TsslCrypto.sha256Hex(playlistBytes)
 
-            val finalDir = File(outputDir, rootDigest)
-            finalDir.mkdirs()
-            File(finalDir, "index.m3u8s").writeBytes(playlistBytes)
-            for (seg in segmentKeys) {
-                File(staging, seg.path).copyTo(File(finalDir, seg.path), overwrite = true)
+            File(staging, "index.m3u8s").writeBytes(playlistBytes)
+
+            var version = 3
+            var containerFormat: String? = null
+            var containerIndexSha256: String? = null
+            var containerLength: Long? = null
+            val output: File
+            if (outputFormat == EncryptedHlsOutputFormat.M3U8SP_V4) {
+                outputDir.mkdirs()
+                output = File(outputDir, "$rootDigest.m3u8sp")
+                if (output.exists()) return@withContext fail(staging, "M3U8SP package already exists")
+                val index = EncryptedHlsTarContainer.build(staging, output, "index.m3u8s")
+                version = 4
+                containerFormat = TsslDocument.V4_CONTAINER_FORMAT
+                containerIndexSha256 = index.sha256
+                containerLength = index.containerLength
+            } else {
+                output = File(outputDir, rootDigest)
+                if (output.exists()) return@withContext fail(staging, "M3U8S package already exists")
+                if (!output.mkdirs()) return@withContext fail(staging, "Unable to publish M3U8S directory")
+                staging.listFiles()?.forEach { file -> file.copyTo(File(output, file.name), overwrite = false) }
             }
-            staging.deleteRecursively()
 
             val doc = TsslDocument(
                 format = TsslDocument.FORMAT,
-                version = 3,
+                version = version,
                 algorithm = TsslDocument.ALGORITHM,
                 identifier = identifier,
                 rootManifestSha256 = rootDigest,
                 sourceName = TsslSourceName(encrypted = sourceNameBlock, key = nameKey),
                 manifests = emptyList(),
                 segments = segmentKeys,
-                resources = emptyMap()
+                resources = emptyMap(),
+                containerFormat = containerFormat,
+                containerIndexSha256 = containerIndexSha256,
+                containerLength = containerLength
             )
             val stored = tsslStore.import(TsslDocument.toJsonBytes(doc))
             if (stored == null) {
-                return@withContext PackageResult.Error("Failed to store TSSL package")
+                if (outputFormat == EncryptedHlsOutputFormat.M3U8SP_V4) output.delete()
+                else output.deleteRecursively()
+                return@withContext fail(staging, "Failed to store TSSL package")
             }
+            staging.deleteRecursively()
             onProgress(1f)
-            PackageResult.Success(rootDigest)
+            PackageResult.Success(rootDigest, output.absolutePath)
         } catch (e: Exception) {
             PackageResult.Error(e.message ?: "Packaging failed")
         }
@@ -130,9 +155,10 @@ class EncryptedHlsPackager @Inject constructor(
         sourceDir: File,
         manifestFileName: String,
         sourceDisplayName: String,
+        outputFormat: EncryptedHlsOutputFormat = EncryptedHlsOutputFormat.M3U8SP_V4,
         onProgress: (Float) -> Unit = {}
     ): PackageResult =
-        packageFromHls(FileHlsSource(sourceDir), manifestFileName, sourceDisplayName, onProgress)
+        packageFromHls(FileHlsSource(sourceDir), manifestFileName, sourceDisplayName, outputFormat, onProgress)
 
     private fun buildPlaylist(
         entries: List<HlsEntry>,
@@ -182,5 +208,6 @@ class EncryptedHlsPackager @Inject constructor(
 
     companion object {
         private const val OUTPUT_DIR = "encryptedHls"
+        private const val SOURCE_NAME_AAD = "vibeEmbyPlayerQT/M3U8S/source-name/v1\n"
     }
 }

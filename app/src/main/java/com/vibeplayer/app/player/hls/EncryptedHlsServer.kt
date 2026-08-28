@@ -68,15 +68,18 @@ class EncryptedHlsServer(
                 val reader = BufferedReader(InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1))
                 val requestLine = reader.readLine() ?: return
                 val parts = requestLine.split(" ")
-                if (parts.size < 2 || parts[0] != "GET") {
+                if (parts.size < 2 || (parts[0] != "GET" && parts[0] != "HEAD")) {
                     respond(s.getOutputStream(), 405, "text/plain", "Method Not Allowed".toByteArray())
                     return
                 }
-                var target = parts[1]
-                // Read headers (ignore; Range is approximated by full-body serve for correctness).
+                val target = parts[1]
+                var rangeHeader: String? = null
                 while (true) {
                     val header = reader.readLine() ?: break
                     if (header.isEmpty()) break
+                    if (header.startsWith("Range:", ignoreCase = true)) {
+                        rangeHeader = header.substringAfter(':').trim()
+                    }
                 }
                 val rawPath = target.substringBefore('?')
                 val rel = normalizePath(rawPath.substringBefore('#'))
@@ -84,27 +87,29 @@ class EncryptedHlsServer(
                     respond(s.getOutputStream(), 400, "text/plain", "Bad path".toByteArray())
                     return
                 }
-                serve(s.getOutputStream(), rel)
+                serve(s.getOutputStream(), rel, parts[0] == "HEAD", rangeHeader)
             } catch (_: Exception) {
                 try { respond(s.getOutputStream(), 500, "text/plain", "Internal Error".toByteArray()) } catch (_: Exception) {}
             }
         }
     }
 
-    private fun serve(out: OutputStream, rel: String) {
+    private fun serve(out: OutputStream, rel: String, headOnly: Boolean, rangeHeader: String?) {
         // Root manifest (pre-verified by the manager) served at its virtual name.
         if (rel == rootManifestName) {
-            respond(out, 200, "application/vnd.apple.mpegurl", rootManifestBytes)
+            respondVerified(out, "application/vnd.apple.mpegurl", rootManifestBytes, headOnly, rangeHeader)
             return
         }
         // Child playlists must be registered and digest-verified.
         val childPlaylist = document.manifests.firstOrNull { it.path == rel }
         if (childPlaylist != null) {
             val bytes = loadOrNull(rel) ?: return respond404(out)
-            if (TsslCrypto.sha256Hex(bytes) != childPlaylist.sha256) {
+            if (TsslCrypto.sha256Hex(bytes) != childPlaylist.sha256 ||
+                !validateHlsPlaylist(bytes, childPlaylist.path, document, root = false)
+            ) {
                 respond(out, 403, "text/plain", "Verification failed".toByteArray()); return
             }
-            respond(out, 200, "application/vnd.apple.mpegurl", bytes)
+            respondVerified(out, "application/vnd.apple.mpegurl", bytes, headOnly, rangeHeader)
             return
         }
         // Encrypted segments.
@@ -116,7 +121,7 @@ class EncryptedHlsServer(
             } catch (_: Exception) {
                 respond(out, 500, "text/plain", "Authenticated decryption failed".toByteArray()); return
             }
-            respond(out, 200, "video/mp2t", plain)
+            respondVerified(out, "video/mp2t", plain, headOnly, rangeHeader)
             return
         }
         // Authenticated auxiliary resources (e.g. subtitles).
@@ -126,7 +131,7 @@ class EncryptedHlsServer(
             if (TsslCrypto.sha256Hex(bytes) != expected) {
                 respond(out, 403, "text/plain", "Verification failed".toByteArray()); return
             }
-            respond(out, 200, "text/plain", bytes)
+            respondVerified(out, "text/plain", bytes, headOnly, rangeHeader)
             return
         }
         respond404(out)
@@ -155,26 +160,38 @@ class EncryptedHlsServer(
         return segments.joinToString("/")
     }
 
-    private fun respond404(out: OutputStream) {
-        respond(out, 404, "text/plain", "Not found".toByteArray())
+    private fun respondVerified(out: OutputStream, contentType: String, body: ByteArray, headOnly: Boolean, rangeHeader: String?) {
+        val range = rangeHeader?.let { parseHttpByteRange(it, body.size.toLong()) }
+        if (rangeHeader != null && range == null) {
+            respond(out, 416, contentType, ByteArray(0), true, body.size.toLong())
+            return
+        }
+        if (range != null) {
+            respond(out, 206, contentType, body.copyOfRange(range.first.toInt(), range.last.toInt() + 1), headOnly, body.size.toLong(), range)
+        } else respond(out, 200, contentType, body, headOnly, body.size.toLong())
     }
 
-    private fun respond(out: OutputStream, code: Int, contentType: String, body: ByteArray) {
+    private fun respond404(out: OutputStream) { respond(out, 404, "text/plain", "Not found".toByteArray()) }
+
+    private fun respond(out: OutputStream, code: Int, contentType: String, body: ByteArray, headOnly: Boolean = false, totalLength: Long = body.size.toLong(), range: LongRange? = null) {
         try {
             val reason = when (code) {
-                200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"
-                404 -> "Not Found"; 405 -> "Method Not Allowed"; 500 -> "Internal Server Error"
+                200 -> "OK"; 206 -> "Partial Content"; 400 -> "Bad Request"; 403 -> "Forbidden"
+                404 -> "Not Found"; 405 -> "Method Not Allowed"; 416 -> "Range Not Satisfiable"; 500 -> "Internal Server Error"
                 else -> "OK"
             }
             val head = buildString {
                 append("HTTP/1.1 $code $reason\r\n")
                 append("Content-Type: $contentType\r\n")
                 append("Content-Length: ${body.size}\r\n")
+                append("Accept-Ranges: bytes\r\n")
+                if (range != null) append("Content-Range: bytes ${range.first}-${range.last}/$totalLength\r\n")
+                else if (code == 416) append("Content-Range: bytes */$totalLength\r\n")
                 append("Cache-Control: no-store\r\n")
                 append("Connection: close\r\n\r\n")
             }
             out.write(head.toByteArray(StandardCharsets.US_ASCII))
-            out.write(body)
+            if (!headOnly) out.write(body)
             out.flush()
         } catch (_: Exception) {
         }
@@ -188,3 +205,25 @@ class EncryptedHlsServer(
         serverSocket = null
     }
 }
+
+internal fun parseHttpByteRange(value: String, totalLength: Long): LongRange? = runCatching {
+    require(totalLength > 0)
+    val match = Regex("^bytes=(\\d*)-(\\d*)$").matchEntire(value) ?: return null
+    val startText = match.groupValues[1]
+    val endText = match.groupValues[2]
+    require(startText.isNotEmpty() || endText.isNotEmpty())
+    val start: Long
+    val end: Long
+    if (startText.isEmpty()) {
+        val suffix = endText.toLong()
+        require(suffix > 0)
+        start = (totalLength - suffix).coerceAtLeast(0)
+        end = totalLength - 1
+    } else {
+        start = startText.toLong()
+        require(start in 0 until totalLength)
+        end = if (endText.isEmpty()) totalLength - 1 else endText.toLong().coerceAtMost(totalLength - 1)
+        require(end >= start)
+    }
+    start..end
+}.getOrNull()

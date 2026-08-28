@@ -2,6 +2,7 @@ package com.vibeplayer.app.data.repository
 
 import com.vibeplayer.app.data.local.datastore.SecureSessionStore
 import com.vibeplayer.app.data.remote.webdav.WebDavClient
+import com.vibeplayer.app.data.remote.webdav.WebDavInitialRange
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.WebDavItem
 import java.io.InputStream
@@ -48,6 +49,29 @@ class WebDavRepository @Inject constructor(
         val password = secureSessionStore.password(server.id)
             ?: return Result.failure(IllegalStateException("WebDAV password not set"))
         return client.download(server, password, path)
+    }
+
+    suspend fun downloadInitialRange(
+        server: ServerConfig,
+        path: String,
+        maximumLength: Long
+    ): Result<WebDavInitialRange> {
+        val password = secureSessionStore.password(server.id)
+            ?: return Result.failure(IllegalStateException("WebDAV password not set"))
+        return client.downloadInitialRange(server, password, path, maximumLength)
+    }
+
+    suspend fun downloadRange(
+        server: ServerConfig,
+        path: String,
+        offset: Long,
+        length: Long,
+        expectedTotalLength: Long,
+        etag: String
+    ): Result<ByteArray> {
+        val password = secureSessionStore.password(server.id)
+            ?: return Result.failure(IllegalStateException("WebDAV password not set"))
+        return client.downloadRange(server, password, path, offset, length, expectedTotalLength, etag)
     }
 
     suspend fun upload(server: ServerConfig, path: String, bytes: ByteArray): Result<Unit> {

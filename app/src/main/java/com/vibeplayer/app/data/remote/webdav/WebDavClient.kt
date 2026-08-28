@@ -18,8 +18,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import okio.BufferedSink
 import org.xmlpull.v1.XmlPullParser
 
 /**
@@ -27,6 +25,8 @@ import org.xmlpull.v1.XmlPullParser
  * Basic authentication is added per-request from the repository-provided
  * password (stored securely, never logged). Mirrors the Qt WebDavClient.
  */
+data class WebDavInitialRange(val bytes: ByteArray, val totalLength: Long, val etag: String)
+
 @Singleton
 class WebDavClient @Inject constructor(
     private val clientFactory: OkHttpClientFactory
@@ -39,8 +39,12 @@ class WebDavClient @Inject constructor(
     suspend fun list(server: ServerConfig, password: String, path: String): Result<List<WebDavItem>> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = resolveUrl(server, path)
-                val body = "<?xml version=\"1.0\"?>".toRequestBody(PROPFIND_MEDIA_TYPE)
+                // WebDAV collection URLs should use the trailing-slash form.
+                // More importantly, PROPFIND requires either an omitted body or
+                // a valid <propfind> document; an XML declaration by itself is
+                // rejected as malformed by strict servers (HTTP 400).
+                val url = resolveDirectoryUrl(server, path)
+                val body = PROPFIND_XML.toRequestBody(PROPFIND_MEDIA_TYPE)
                 val request = auth(server, password)
                     .url(url)
                     .method("PROPFIND", body)
@@ -64,6 +68,79 @@ class WebDavClient @Inject constructor(
                 }
             }
         }
+
+    /** Starts M3U8SP with one bounded Range request, matching the Qt protocol. */
+    suspend fun downloadInitialRange(
+        server: ServerConfig,
+        password: String,
+        path: String,
+        maximumLength: Long
+    ): Result<WebDavInitialRange> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(maximumLength > 0)
+            val request = auth(server, password)
+                .url(resolveUrl(server, path))
+                .header("Range", "bytes=0-${maximumLength - 1}")
+                .header("Accept-Encoding", "identity")
+                .get()
+                .build()
+            clientFor(server).newCall(request).execute().use { response ->
+                if (response.code != 206) throw IOException("Server did not honor byte range (HTTP ${response.code})")
+                val match = response.header("Content-Range")
+                    ?.let { Regex("^bytes (\\d+)-(\\d+)/(\\d+)$").matchEntire(it) }
+                    ?: throw IOException("Invalid Content-Range")
+                val start = match.groupValues[1].toLong()
+                val end = match.groupValues[2].toLong()
+                val total = match.groupValues[3].toLong()
+                if (start != 0L || end < start || end >= total || end >= maximumLength) {
+                    throw IOException("Content-Range does not match initial request")
+                }
+                val etag = response.header("ETag")?.takeIf { it.isNotBlank() }
+                    ?: throw IOException("Remote M3U8SP object has no stable ETag")
+                val bytes = response.body?.bytes() ?: throw IOException("Empty range body")
+                if (bytes.size.toLong() != end + 1) throw IOException("Truncated range body")
+                WebDavInitialRange(bytes, total, etag)
+            }
+        }
+    }
+
+    /** Reads one exact byte range. M3U8SP rejects servers that ignore Range with HTTP 200. */
+    suspend fun downloadRange(
+        server: ServerConfig,
+        password: String,
+        path: String,
+        offset: Long,
+        length: Long,
+        expectedTotalLength: Long,
+        etag: String
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(offset >= 0 && length > 0) { "Invalid byte range" }
+            val end = Math.addExact(offset, length - 1)
+            val request = auth(server, password)
+                .url(resolveUrl(server, path))
+                .header("Range", "bytes=$offset-$end")
+                .header("If-Range", etag)
+                .header("Accept-Encoding", "identity")
+                .get()
+                .build()
+            clientFor(server).newCall(request).execute().use { response ->
+                if (response.code != 206) throw IOException("Server did not honor byte range (HTTP ${response.code})")
+                val contentRange = response.header("Content-Range")
+                    ?: throw IOException("Missing Content-Range")
+                val match = Regex("^bytes (\\d+)-(\\d+)/(\\d+)$").matchEntire(contentRange)
+                    ?: throw IOException("Invalid Content-Range")
+                if (match.groupValues[1].toLong() != offset ||
+                    match.groupValues[2].toLong() != end ||
+                    match.groupValues[3].toLong() != expectedTotalLength
+                ) throw IOException("Content-Range does not match request")
+                if (response.header("ETag") != etag) throw IOException("Remote M3U8SP object changed")
+                val bytes = response.body?.bytes() ?: throw IOException("Empty range body")
+                if (bytes.size.toLong() != length) throw IOException("Truncated range body")
+                bytes
+            }
+        }
+    }
 
     suspend fun upload(server: ServerConfig, password: String, path: String, bytes: ByteArray): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -190,6 +267,11 @@ class WebDavClient @Inject constructor(
         return base + normalized
     }
 
+    private fun resolveDirectoryUrl(server: ServerConfig, path: String): String {
+        val url = resolveUrl(server, path)
+        return if (url.endsWith('/')) url else "$url/"
+    }
+
     /** Parses a PROPFIND multistatus XML response into a list of WebDavItem. */
     private fun parseMultistatus(bytes: ByteArray?): List<WebDavItem> {
         if (bytes == null) return emptyList()
@@ -244,6 +326,18 @@ class WebDavClient @Inject constructor(
     }
 
     companion object {
-        private val PROPFIND_MEDIA_TYPE = "application/xml".toMediaType()
+        private val PROPFIND_XML = """
+            <?xml version="1.0" encoding="utf-8" ?>
+            <D:propfind xmlns:D="DAV:">
+              <D:prop>
+                <D:displayname/>
+                <D:resourcetype/>
+                <D:getcontentlength/>
+                <D:getcontenttype/>
+                <D:getlastmodified/>
+            </D:prop>
+            </D:propfind>
+        """.trimIndent()
+        private val PROPFIND_MEDIA_TYPE = "application/xml; charset=utf-8".toMediaType()
     }
 }
