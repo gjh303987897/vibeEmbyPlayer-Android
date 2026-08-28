@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +18,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.selection.selectable
@@ -31,6 +35,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.ServerConfig
@@ -97,12 +103,67 @@ private fun ServiceTypePicker(
 }
 
 @Composable
+private fun ServerAddressFields(
+    scheme: String,
+    onSchemeChange: (String) -> Unit,
+    host: String,
+    onHostChange: (String) -> Unit,
+    port: String,
+    onPortChange: (String) -> Unit,
+    serviceType: ServiceType
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            listOf("http", "https").forEachIndexed { index, value ->
+                SegmentedButton(
+                    selected = scheme == value,
+                    onClick = { onSchemeChange(value) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(value.uppercase())
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            OutlinedTextField(
+                value = host,
+                onValueChange = { value ->
+                    // Pasting a scheme or port is handled by the ViewModel's
+                    // validation; keep the field focused on host/path input.
+                    onHostChange(value.removePrefix("http://").removePrefix("https://"))
+                },
+                label = { Text(stringResource(R.string.server_host)) },
+                placeholder = { Text("example.com/dav") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = port,
+                onValueChange = { value -> onPortChange(value.filter(Char::isDigit).take(5)) },
+                label = { Text(stringResource(R.string.server_port)) },
+                placeholder = { Text(defaultServerPort(serviceType, scheme)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.width(112.dp)
+            )
+        }
+    }
+}
+
+@Composable
 fun AddServerDialog(
     onDismiss: () -> Unit,
     onSave: (ServerForm, password: String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
-    var baseUrl by remember { mutableStateOf("") }
+    var scheme by remember { mutableStateOf("http") }
+    var host by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf(defaultServerPort(ServiceType.EMBY, "http")) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var savePassword by remember { mutableStateOf(true) }
@@ -119,13 +180,18 @@ fun AddServerDialog(
             ) {
                 ServiceTypePicker(selected = type, onSelect = { type = it })
                 if (type == ServiceType.EMBY || type == ServiceType.JELLYFIN || type == ServiceType.WEBDAV) {
-                    OutlinedTextField(
-                        value = baseUrl,
-                        onValueChange = { baseUrl = it },
-                        label = { Text(stringResource(R.string.server_url)) },
-                        placeholder = { Text("https://example.com:8096") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    ServerAddressFields(
+                        scheme = scheme,
+                        onSchemeChange = { selected ->
+                            val oldDefault = defaultServerPort(type, scheme)
+                            scheme = selected
+                            if (port == oldDefault) port = defaultServerPort(type, selected)
+                        },
+                        host = host,
+                        onHostChange = { host = it },
+                        port = port,
+                        onPortChange = { port = it },
+                        serviceType = type
                     )
                 }
                 OutlinedTextField(
@@ -185,14 +251,16 @@ fun AddServerDialog(
             TextButton(
                 enabled = when (type) {
                     ServiceType.EMBY, ServiceType.JELLYFIN, ServiceType.WEBDAV ->
-                        baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
+                        host.isNotBlank() && port.isNotBlank() && username.isNotBlank() && password.isNotBlank()
                     else -> name.isNotBlank()
                 },
                 onClick = {
                     onSave(
                         ServerForm(
                             name = name,
-                            baseUrl = baseUrl,
+                            scheme = scheme,
+                            host = host,
+                            port = port,
                             username = username,
                             serviceType = type,
                             autoLogin = savePassword,
@@ -220,7 +288,10 @@ fun EditServerDialog(
     onSave: (ServerForm, password: String, savePassword: Boolean) -> Unit
 ) {
     var name by remember { mutableStateOf(server.name) }
-    var baseUrl by remember { mutableStateOf(server.baseUrl) }
+    val initialAddress = remember(server.baseUrl) { parseServerAddress(server.baseUrl) }
+    var scheme by remember(server.baseUrl) { mutableStateOf(initialAddress.scheme) }
+    var host by remember(server.baseUrl) { mutableStateOf(initialAddress.host) }
+    var port by remember(server.baseUrl) { mutableStateOf(initialAddress.port) }
     var username by remember { mutableStateOf(server.username) }
     var password by remember { mutableStateOf("") }
     // Start from what this server actually does today, so opening the dialog and
@@ -257,12 +328,14 @@ fun EditServerDialog(
                     )
                 }
                 if (isCredentialServer) {
-                    OutlinedTextField(
-                        value = baseUrl,
-                        onValueChange = { baseUrl = it },
-                        label = { Text(stringResource(R.string.server_url)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    ServerAddressFields(
+                        scheme = scheme,
+                        onSchemeChange = { scheme = it },
+                        host = host,
+                        onHostChange = { host = it },
+                        port = port,
+                        onPortChange = { port = it },
+                        serviceType = server.serviceType
                     )
                 }
                 OutlinedTextField(
@@ -316,7 +389,9 @@ fun EditServerDialog(
                     onSave(
                         ServerForm(
                             name = name,
-                            baseUrl = baseUrl,
+                            scheme = scheme,
+                            host = host,
+                            port = port,
                             username = username,
                             serviceType = server.serviceType,
                             trustSelfSignedCertificate = trustSelfSignedCertificate

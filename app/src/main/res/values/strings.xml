@@ -10,6 +10,8 @@
     <string name="add_server">Add server</string>
     <string name="edit_server">Edit server</string>
     <string name="server_url">Server URL</string>
+    <string name="server_host">Host or path</string>
+    <string name="server_port">Port</string>
     <string name="server_name">Server name</string>
     <string name="username">Username</string>
     <string name="password">Password</string>

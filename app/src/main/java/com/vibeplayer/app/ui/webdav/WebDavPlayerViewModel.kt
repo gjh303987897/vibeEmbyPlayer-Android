@@ -102,7 +102,8 @@ class WebDavPlayerViewModel @Inject constructor(
                 url = url,
                 title = historyTitle,
                 subtitle = server.name,
-                headers = mapOf("Authorization" to auth)
+                headers = mapOf("Authorization" to auth),
+                trustSelfSignedCertificate = server.trustSelfSignedCertificate
             )
             historyRepository.recordPlayback(
                 source = PlaybackSource.WEBDAV,

@@ -10,6 +10,8 @@
     <string name="add_server">添加服务器</string>
     <string name="edit_server">编辑服务器</string>
     <string name="server_url">服务器地址</string>
+    <string name="server_host">主机或路径</string>
+    <string name="server_port">端口</string>
     <string name="server_name">服务器名称</string>
     <string name="username">用户名</string>
     <string name="password">密码</string>

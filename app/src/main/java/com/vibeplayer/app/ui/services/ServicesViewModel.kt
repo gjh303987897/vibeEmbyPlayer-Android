@@ -45,7 +45,9 @@ data class ServicesUiState(
 /** UI form for adding a new media server account. */
 data class ServerForm(
     val name: String = "",
-    val baseUrl: String = "",
+    val scheme: String = "http",
+    val host: String = "",
+    val port: String = "",
     val username: String = "",
     val serviceType: ServiceType = ServiceType.EMBY,
     val autoLogin: Boolean = true,
@@ -132,10 +134,22 @@ class ServicesViewModel @Inject constructor(
 
     /** Saves a new server and attempts an initial login. */
     fun addServer(form: ServerForm, password: String) {
+        val requiresAddress = form.serviceType == ServiceType.EMBY ||
+            form.serviceType == ServiceType.JELLYFIN ||
+            form.serviceType == ServiceType.WEBDAV
+        val baseUrl = if (requiresAddress) {
+            buildServerBaseUrl(form.scheme, form.host, form.port)
+        } else {
+            ""
+        }
+        if (requiresAddress && baseUrl == null) {
+            _uiState.update { it.copy(errorMessage = "Enter a valid host and port") }
+            return
+        }
         val config = ServerConfig(
             id = UUID.randomUUID().toString(),
-            name = form.name.ifBlank { form.baseUrl },
-            baseUrl = normalizeScheme(form.baseUrl),
+            name = form.name.ifBlank { form.host },
+            baseUrl = baseUrl.orEmpty(),
             username = form.username,
             serviceType = form.serviceType,
             autoLogin = form.autoLogin,
@@ -320,6 +334,18 @@ class ServicesViewModel @Inject constructor(
         savePassword: Boolean = false
     ) {
         viewModelScope.launch {
+            val requiresAddress = server.serviceType == ServiceType.EMBY ||
+                server.serviceType == ServiceType.JELLYFIN ||
+                server.serviceType == ServiceType.WEBDAV
+            val baseUrl = if (requiresAddress) {
+                buildServerBaseUrl(form.scheme, form.host, form.port)
+            } else {
+                server.baseUrl
+            }
+            if (requiresAddress && baseUrl == null) {
+                _uiState.update { it.copy(errorMessage = "Enter a valid host and port") }
+                return@launch
+            }
             val credentialServer = server.serviceType == ServiceType.EMBY ||
                 server.serviceType == ServiceType.JELLYFIN
             // Save the password before the services list updates so that when the
@@ -332,8 +358,8 @@ class ServicesViewModel @Inject constructor(
             }
             repository.updateServer(
                 server.copy(
-                    name = form.name.ifBlank { form.baseUrl.ifBlank { server.name } },
-                    baseUrl = normalizeScheme(form.baseUrl).ifBlank { server.baseUrl },
+                    name = form.name.ifBlank { if (requiresAddress) form.host else server.name },
+                    baseUrl = baseUrl.orEmpty(),
                     username = form.username.ifBlank { server.username },
                     autoLogin = if (credentialServer) savePassword else server.autoLogin,
                     trustSelfSignedCertificate = form.trustSelfSignedCertificate
@@ -341,19 +367,6 @@ class ServicesViewModel @Inject constructor(
             )
             refreshItems()
         }
-    }
-
-    /**
-     * Ensures a bare LAN address (e.g. `192.168.1.5:8096`) is usable by
-     * prepending a scheme, so URL parsing does not fail during login and the
-     * server save never crashes on an invalid URL.
-     */
-    private fun normalizeScheme(url: String): String {
-        val trimmed = url.trim()
-        if (trimmed.isEmpty()) return trimmed
-        val hasScheme = trimmed.contains("://") || trimmed.startsWith("http://") ||
-            trimmed.startsWith("https://")
-        return if (hasScheme) trimmed else "http://$trimmed"
     }
 
     fun clearError() {
