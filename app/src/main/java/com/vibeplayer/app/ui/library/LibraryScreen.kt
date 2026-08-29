@@ -48,6 +48,7 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.MediaPoster
+import com.vibeplayer.app.ui.components.AppMessageCard
 import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.navigation.Routes
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -103,10 +104,11 @@ fun LibraryScreen(
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
                 state.error != null && state.items.isEmpty() -> {
-                    Text(
-                        text = state.error.orEmpty(),
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.align(Alignment.Center).padding(32.dp)
+                    AppMessageCard(
+                        message = state.error.orEmpty(),
+                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                        actionLabel = stringResource(R.string.message_retry),
+                        onAction = { viewModel.retry(libraryId) }
                     )
                 }
                 else -> {
@@ -118,6 +120,16 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        if (state.error != null) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                AppMessageCard(
+                                    message = state.error.orEmpty(),
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                    actionLabel = stringResource(R.string.message_retry),
+                                    onAction = { viewModel.retry(libraryId) }
+                                )
+                            }
+                        }
                         items(state.items, key = { it.id }) { item ->
                             MediaGridItem(
                                 item = item,

@@ -10,6 +10,16 @@ import com.vibeplayer.app.model.ServerConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/** Metadata exposed for an encrypted HLS item in a WebDAV listing. */
+data class EncryptedHlsMetadata(
+    val identifierPreview: String,
+    /** Authenticated original source basename, when a matching TSSL exists. */
+    val sourceFileName: String?
+)
 
 /** Coordinates verified TSSL v2/v3 `.m3u8s` and TSSL v4 `.m3u8sp` playback. */
 @Singleton
@@ -54,6 +64,64 @@ class EncryptedHlsManager @Inject constructor(
         }
     }
 
+    /**
+     * Reads only the bounded root manifest needed to decorate a WebDAV list
+     * row.  The identifier is safe to show as a short preview even when the
+     * device does not yet have the matching TSSL package; the original source
+     * filename is returned only after the manifest and local TSSL authenticate
+     * each other.  `.m3u8sp` is inspected through its index/range path so the
+     * complete container is never downloaded into memory.
+     */
+    suspend fun resolveWebDavMetadata(
+        server: ServerConfig,
+        path: String
+    ): Result<EncryptedHlsMetadata> = withContext(Dispatchers.IO) {
+        try {
+            require(path.endsWith(".m3u8s", ignoreCase = true) ||
+                path.endsWith(".m3u8sp", ignoreCase = true)) {
+                "Not an encrypted HLS manifest"
+            }
+            val inspection = inspectWebDavManifest(server, path)
+            val metadata = parseM3u8sManifestMetadata(inspection.manifest)
+                ?: throw IllegalStateException("Manifest has invalid M3U8S metadata")
+
+            // A package may be browsed before its TSSL has been restored. Keep
+            // the identifier visible in that case, but never guess/decrypt a
+            // source filename without a fully matching local package.
+            val document = try {
+                matchingDocument(inspection.manifest)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            val sourceName = document
+                ?.takeIf { doc ->
+                    if (inspection.containerLength == null) {
+                        doc.version != 4
+                    } else {
+                        doc.version == 4 &&
+                            doc.containerFormat == TsslDocument.V4_CONTAINER_FORMAT &&
+                            doc.containerLength == inspection.containerLength &&
+                            doc.containerIndexSha256 == inspection.containerIndexSha256
+                    }
+                }
+                ?.let(::recoverSourceName)
+
+            Result.success(
+                EncryptedHlsMetadata(
+                    identifierPreview = TsslDocument.identifierPreview(metadata.identifier)
+                        ?: throw IllegalStateException("Manifest has invalid M3U8S identifier"),
+                    sourceFileName = sourceName
+                )
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     private suspend fun prepareContainer(container: SeekableHlsContainerSource): EncryptedHlsPlayback {
         require(container.length > 0) { "M3U8SP container length is unavailable" }
         val prefixLength = minOf(container.length, EncryptedHlsTarContainer.PREFIX_LIMIT.toLong())
@@ -71,6 +139,43 @@ class EncryptedHlsManager @Inject constructor(
         require(doc.containerLength == container.length) { "TSSL container length mismatch" }
         require(doc.containerIndexSha256 == index.sha256) { "TSSL container index digest mismatch" }
         return startPlayback(doc, source, manifest)
+    }
+
+    private suspend fun inspectWebDavManifest(
+        server: ServerConfig,
+        path: String
+    ): WebDavManifestInspection {
+        if (path.endsWith(".m3u8sp", ignoreCase = true)) {
+            val initial = webDavRepository.downloadInitialRange(
+                server,
+                path,
+                EncryptedHlsTarContainer.PREFIX_LIMIT.toLong()
+            ).getOrThrow()
+            val container = WebDavContainerSource(
+                webDavRepository,
+                server,
+                path,
+                initial.totalLength,
+                initial.etag,
+                initial.bytes
+            )
+            val prefixLength = minOf(container.length, EncryptedHlsTarContainer.PREFIX_LIMIT.toLong())
+            val prefix = container.read(0, prefixLength).getOrThrow()
+            val index = EncryptedHlsTarContainer.readIndexPrefix(prefix, container.length)
+            val manifest = IndexedTarHlsSource(container, index)
+                .load(index.manifestPath)
+                .getOrThrow()
+            require(manifest.size <= MAX_MANIFEST_BYTES) { "M3U8SP manifest is too large" }
+            return WebDavManifestInspection(
+                manifest = manifest,
+                containerLength = index.containerLength,
+                containerIndexSha256 = index.sha256
+            )
+        }
+
+        val manifest = webDavRepository.download(server, path).getOrThrow()
+        require(manifest.size <= MAX_MANIFEST_BYTES) { "M3U8S manifest is too large" }
+        return WebDavManifestInspection(manifest)
     }
 
     private suspend fun prepareDirectory(source: HlsByteSource, rootName: String): EncryptedHlsPlayback {
@@ -142,6 +247,12 @@ class EncryptedHlsManager @Inject constructor(
             name
         }.getOrNull()
     }
+
+    private data class WebDavManifestInspection(
+        val manifest: ByteArray,
+        val containerLength: Long? = null,
+        val containerIndexSha256: String? = null
+    )
 
     companion object {
         private const val VIRTUAL_ROOT_NAME = "index.m3u8"

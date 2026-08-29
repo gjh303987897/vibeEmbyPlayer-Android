@@ -305,13 +305,24 @@ private fun PinDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                value = pin,
-                onValueChange = { pin = it; error = false },
-                label = { Text(stringResource(R.string.settings_pin_placeholder)) },
-                singleLine = true,
-                isError = error,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it; error = false },
+                    label = { Text(stringResource(R.string.settings_pin_placeholder)) },
+                    singleLine = true,
+                    isError = error,
+                    supportingText = if (error) {
+                        {
+                            Text(
+                                if (pin.length in 4..16 && pin.all(Char::isDigit)) {
+                                    stringResource(R.string.settings_wrong_pin)
+                                } else {
+                                    stringResource(R.string.settings_pin_short)
+                                }
+                            )
+                        }
+                    } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 modifier = Modifier.fillMaxWidth()
             )
         },

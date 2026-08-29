@@ -37,9 +37,12 @@ class MediaDetailsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             val client = repository.clientFor(session.server.serviceType)
-            val item = client.fetchItemDetails(session, itemId).getOrNull()
+            val itemResult = client.fetchItemDetails(session, itemId)
+            val item = itemResult.getOrNull()
             if (item == null) {
-                _uiState.update { it.copy(loading = false, error = "Item not found") }
+                _uiState.update {
+                    it.copy(loading = false, error = itemResult.exceptionOrNull()?.message ?: "Item not found")
+                }
                 return@launch
             }
             _uiState.update { it.copy(item = item, loading = false) }
@@ -59,7 +62,14 @@ class MediaDetailsViewModel @Inject constructor(
     ) {
         val session = activeSessionManager.activeSession.value ?: return
         val seriesId = item.seriesId.ifEmpty { item.id }
-        val seasons = client.fetchSeriesSeasons(session, seriesId).getOrNull() ?: emptyList()
+        val seasonsResult = client.fetchSeriesSeasons(session, seriesId)
+        val seasons = seasonsResult.getOrNull() ?: emptyList()
+        if (seasonsResult.isFailure) {
+            _uiState.update {
+                it.copy(error = seasonsResult.exceptionOrNull()?.message ?: "Failed to load seasons")
+            }
+            return
+        }
 
         // For an episode, prefer the season that owns it (via ParentId).
         val initialSeason = seasons.firstOrNull { it.id == item.parentId } ?: seasons.firstOrNull()
@@ -90,7 +100,16 @@ class MediaDetailsViewModel @Inject constructor(
         seasonId: String
     ) {
         _uiState.update { it.copy(episodesLoading = true) }
-        val episodes = client.fetchSeasonEpisodes(session, seriesId, seasonId).getOrNull() ?: emptyList()
-        _uiState.update { it.copy(episodes = episodes, episodesLoading = false) }
+        val result = client.fetchSeasonEpisodes(session, seriesId, seasonId)
+        val episodes = result.getOrNull() ?: emptyList()
+        _uiState.update {
+            it.copy(
+                episodes = episodes,
+                episodesLoading = false,
+                error = result.exceptionOrNull()?.message ?: if (result.isFailure) "Failed to load episodes" else null
+            )
+        }
     }
+
+    fun retry(itemId: String) = load(itemId)
 }

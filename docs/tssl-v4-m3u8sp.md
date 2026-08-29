@@ -12,6 +12,8 @@ TSSL v4 在 v3 字段之外强制包含：
 
 `.m3u8sp` 是未压缩 POSIX/PAX TAR。首成员必须是 `.vibe/index.cbor`，CBOR index version 为 1，记录 manifest 路径及每个成员的 TAR header offset、data offset、长度与 SHA-256。
 
+Qt 使用 `QByteArray::toHex()` 写入每个成员的 `sha256`，因此该字段在 CBOR 中是包含 64 个 ASCII 十六进制字符的 byte string。Android 写入时保持相同编码；读取时也兼容早期 Android 版本曾写出的 CBOR byte array，避免已有移动端容器失效。
+
 ## Android 播放流程
 
 1. 本地 SAF 通过可定位文件描述符按范围读取；WebDAV 必须返回 `206 Partial Content` 和匹配的 `Content-Range`，返回整个对象的 `200` 会拒绝。
@@ -22,6 +24,12 @@ TSSL v4 在 v3 字段之外强制包含：
 6. 后续 TS/playlist/resource 按 index 随机读取并校验；TS 继续在 AES-256-GCM tag 验证后才交给 Media3。
 
 新扩展已加入本地和 WebDAV 媒体识别。TSSL import 使用完整 v2/v3/v4 schema 验证，不再只检查版本和 identifier 是否非空。源文件名加密 AAD 和标准 Base64 编码也与 Qt 定义保持一致。
+
+## 元数据显示
+
+WebDAV 目录先显示文件列表，再异步读取 `.m3u8s` / `.m3u8sp` 的根 manifest。严格验证后的 4096 字符 identifier 按桌面端规则缩写为前 16 位、`...` 和后 12 位；如果本机存在匹配的 TSSL，且 manifest digest、源文件名密文以及 v4 容器绑定均通过验证，则同时显示解密后的原始文件名。元数据读取失败不会阻塞普通 WebDAV 目录浏览。
+
+本地 TSSL 管理页显示包文件名和同样格式的识别码预览。完整 identifier、密钥及未经验证的源文件名不会传给界面。
 
 ## 打包
 

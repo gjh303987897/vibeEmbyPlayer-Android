@@ -12,8 +12,17 @@ data class WebDavItem(
     val isDirectory: Boolean,
     val size: Long = 0L,
     val contentType: String = "",
-    val modifiedAt: String = ""
+    val modifiedAt: String = "",
+    /** Short preview of the authenticated M3U8S/TSSL identifier. */
+    val identifierPreview: String? = null,
+    /** Original source basename, only populated after TSSL authentication. */
+    val sourceFileName: String? = null
 ) {
+    val isEncryptedHls: Boolean
+        get() = !isDirectory &&
+            (name.endsWith(".m3u8s", ignoreCase = true) ||
+                name.endsWith(".m3u8sp", ignoreCase = true))
+
     val isVideo: Boolean
         get() = contentType.startsWith("video/", ignoreCase = true) ||
             VIDEO_EXTENSIONS.any { name.endsWith(it, ignoreCase = true) }

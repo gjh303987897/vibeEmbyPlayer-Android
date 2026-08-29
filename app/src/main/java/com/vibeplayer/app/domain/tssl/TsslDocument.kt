@@ -40,6 +40,13 @@ data class TsslDocument(
         private val IDENTIFIER = Regex("^[A-Za-z0-9_-]{4096}$")
         private val SHA256 = Regex("^[0-9a-fA-F]{64}$")
 
+        /** Returns the compact identifier form used by the desktop client. */
+        fun identifierPreview(identifier: String): String? {
+            if (!IDENTIFIER.matches(identifier)) return null
+            return if (identifier.length <= 28) identifier
+            else identifier.take(16) + "..." + identifier.takeLast(12)
+        }
+
         /** Parses the complete v2/v3/v4 contract; malformed or mixed-version fields are rejected. */
         fun parse(bytes: ByteArray): TsslDocument? = runCatching {
             val json = JSONObject(String(bytes, Charsets.UTF_8))

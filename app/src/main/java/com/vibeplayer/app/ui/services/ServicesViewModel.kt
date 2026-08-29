@@ -1,5 +1,6 @@
 package com.vibeplayer.app.ui.services
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.ActiveSessionManager
@@ -9,6 +10,7 @@ import com.vibeplayer.app.data.repository.WebDavRepository
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +58,7 @@ data class ServerForm(
 
 @HiltViewModel
 class ServicesViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repository: MediaServerRepository,
     private val activeSessionManager: ActiveSessionManager,
     private val webDavRepository: WebDavRepository,
@@ -143,7 +146,7 @@ class ServicesViewModel @Inject constructor(
             ""
         }
         if (requiresAddress && baseUrl == null) {
-            _uiState.update { it.copy(errorMessage = "Enter a valid host and port") }
+            _uiState.update { it.copy(errorMessage = context.getString(com.vibeplayer.app.R.string.server_address_required)) }
             return
         }
         val config = ServerConfig(
@@ -163,14 +166,24 @@ class ServicesViewModel @Inject constructor(
             } catch (t: Throwable) {
                 // Persisting the new account must never crash the save. Surface
                 // the error and keep the dialog so the user can retry.
-                _uiState.update { it.copy(loading = false, errorMessage = t.message) }
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        errorMessage = t.message ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
+                    )
+                }
                 return@launch
             }
             try {
                 when (config.serviceType) {
                     ServiceType.EMBY, ServiceType.JELLYFIN -> {
                         val loginResult = repository.login(config, password)
-                        val message = loginResult.exceptionOrNull()?.message
+                        val message = if (loginResult.isSuccess) {
+                            null
+                        } else {
+                            loginResult.exceptionOrNull()?.message
+                                ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
+                        }
                         if (loginResult.isSuccess) {
                             activeSessionManager.setActiveSession(loginResult.getOrNull())
                             // One-tap entry: persist the password only when the user
@@ -203,7 +216,12 @@ class ServicesViewModel @Inject constructor(
                 }
             } catch (t: Throwable) {
                 // The initial login / credential step must never crash the save.
-                _uiState.update { it.copy(loading = false, errorMessage = t.message) }
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        errorMessage = t.message ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
+                    )
+                }
                 return@launch
             }
             _showAddDialog.value = false
@@ -251,7 +269,12 @@ class ServicesViewModel @Inject constructor(
                         lastLoggedInServerId = if (result.isSuccess) server.id else null,
                         navigationServerId = if (result.isSuccess && pendingEntryServerId == server.id) server.id else null,
                         enteringServerId = if (pendingEntryServerId == server.id) null else state.enteringServerId,
-                        errorMessage = result.exceptionOrNull()?.message
+                        errorMessage = if (result.isSuccess) {
+                            null
+                        } else {
+                            result.exceptionOrNull()?.message
+                                ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
+                        }
                     )
                 }
                 if (pendingEntryServerId == server.id) pendingEntryServerId = null
@@ -263,6 +286,7 @@ class ServicesViewModel @Inject constructor(
                         loading = false,
                         enteringServerId = if (it.enteringServerId == server.id) null else it.enteringServerId,
                         errorMessage = t.message
+                            ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
                     )
                 }
             }
@@ -343,7 +367,7 @@ class ServicesViewModel @Inject constructor(
                 server.baseUrl
             }
             if (requiresAddress && baseUrl == null) {
-                _uiState.update { it.copy(errorMessage = "Enter a valid host and port") }
+                _uiState.update { it.copy(errorMessage = context.getString(com.vibeplayer.app.R.string.server_address_required)) }
                 return@launch
             }
             val credentialServer = server.serviceType == ServiceType.EMBY ||

@@ -62,6 +62,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +74,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.datastore.TsslBackupSettings
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.TsslPackage
+import com.vibeplayer.app.ui.components.AppMessageCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,25 +142,11 @@ fun TsslManagerScreen(
         ) {
             state.message?.let { message ->
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = viewModel::clearMessage) {
-                                Icon(Icons.Outlined.Close, contentDescription = "Dismiss")
-                            }
-                        }
-                    }
+                    AppMessageCard(
+                        message = message,
+                        tone = state.messageTone,
+                        onDismiss = viewModel::clearMessage
+                    )
                 }
             }
             item {
@@ -448,9 +436,28 @@ private fun TsslRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(pkg.fileName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                pkg.identifierPreview?.let {
-                    Text("ID: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = stringResource(R.string.tssl_file_name, pkg.fileName),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (pkg.identifierPreview != null) {
+                    val identifier = pkg.identifierPreview
+                    Text(
+                        text = stringResource(R.string.tssl_identifier, identifier),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (!pkg.isValid) {
+                    Text(
+                        text = stringResource(R.string.tssl_invalid_package),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
                 Text(
                     "${pkg.sizeBytes / 1024} KB",

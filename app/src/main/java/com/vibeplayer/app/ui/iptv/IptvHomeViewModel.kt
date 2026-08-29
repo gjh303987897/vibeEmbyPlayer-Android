@@ -1,11 +1,14 @@
 package com.vibeplayer.app.ui.iptv
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.local.db.entity.IptvChannelEntity
 import com.vibeplayer.app.data.repository.IptvRepository
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.model.ServerConfig
+import com.vibeplayer.app.R
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +40,7 @@ data class IptvUiState(
 
 @HiltViewModel
 class IptvHomeViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repository: MediaServerRepository,
     private val iptvRepository: IptvRepository
 ) : ViewModel() {
@@ -67,10 +71,17 @@ class IptvHomeViewModel @Inject constructor(
             _uiState.update { it.copy(importing = true, error = null, info = null) }
             iptvRepository.importFromContentUri(server.id, server.name, displayName, uriString).fold(
                 onSuccess = { count ->
-                    _uiState.update { it.copy(importing = false, info = "Imported $count channels") }
+                    _uiState.update {
+                        it.copy(
+                            importing = false,
+                            info = context.getString(R.string.iptv_imported_channels, count)
+                        )
+                    }
                 },
                 onFailure = { e ->
-                    _uiState.update { it.copy(importing = false, error = e.message) }
+                    _uiState.update {
+                        it.copy(importing = false, error = e.message ?: "Playlist import failed")
+                    }
                 }
             )
         }

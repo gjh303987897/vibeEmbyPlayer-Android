@@ -55,6 +55,7 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.MediaPoster
+import com.vibeplayer.app.ui.components.AppMessageCard
 import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.navigation.Routes
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -145,6 +146,14 @@ fun SearchScreen(
                             modifier = Modifier.align(Alignment.Center).padding(32.dp)
                         )
                     }
+                    state.error != null && state.results.isEmpty() -> {
+                        AppMessageCard(
+                            message = state.error.orEmpty(),
+                            modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                            actionLabel = stringResource(R.string.message_retry),
+                            onAction = viewModel::retry
+                        )
+                    }
                     else -> {
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(3),
@@ -154,6 +163,16 @@ fun SearchScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
+                            if (state.error != null) {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    AppMessageCard(
+                                        message = state.error.orEmpty(),
+                                        modifier = Modifier.padding(bottom = 4.dp),
+                                        actionLabel = stringResource(R.string.message_retry),
+                                        onAction = viewModel::retry
+                                    )
+                                }
+                            }
                             items(state.results, key = { it.id }) { item ->
                                 val interactionSource = remember { MutableInteractionSource() }
                                 Column(
@@ -192,4 +211,3 @@ fun SearchScreen(
         }
     }
 }
-

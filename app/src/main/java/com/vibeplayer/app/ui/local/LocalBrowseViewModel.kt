@@ -78,13 +78,26 @@ class LocalBrowseViewModel @Inject constructor(
         _uiState.update { it.copy(stack = emptyList(), items = emptyList()) }
     }
 
+    fun retryCurrent() {
+        val stack = _uiState.value.stack
+        if (stack.isNotEmpty()) listChildren(stack)
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+
     private fun listChildren(stack: List<Pair<String, String>>) {
         val uri = stack.last().second
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             repository.listChildren(uri).fold(
                 onSuccess = { items -> _uiState.update { it.copy(items = items, loading = false) } },
-                onFailure = { e -> _uiState.update { it.copy(loading = false, error = e.message) } }
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(loading = false, error = e.message ?: "Failed to read folder")
+                    }
+                }
             )
         }
     }

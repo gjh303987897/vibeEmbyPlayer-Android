@@ -37,7 +37,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +57,9 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
+import com.vibeplayer.app.model.MessageTone
+import com.vibeplayer.app.ui.components.AppSnackbarHost
+import com.vibeplayer.app.ui.components.showAppSnackbar
 import com.vibeplayer.app.ui.navigation.Routes
 
 /**
@@ -85,7 +87,10 @@ fun ServicesScreen(
 
     LaunchedEffect(uiState.lastLoggedInServerId) {
         if (uiState.lastLoggedInServerId != null) {
-            snackbarHostState.showSnackbar(context.getString(R.string.signed_in))
+            snackbarHostState.showAppSnackbar(
+                context.getString(R.string.signed_in),
+                tone = MessageTone.SUCCESS
+            )
             viewModel.acknowledgeLoginSuccess()
         }
     }
@@ -111,14 +116,17 @@ fun ServicesScreen(
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
-            snackbarHostState.showSnackbar(it)
+            snackbarHostState.showAppSnackbar(it, tone = MessageTone.ERROR)
             viewModel.clearError()
         }
     }
 
     LaunchedEffect(uiState.passwordWarning) {
         if (uiState.passwordWarning) {
-            snackbarHostState.showSnackbar(context.getString(R.string.save_password_failed))
+            snackbarHostState.showAppSnackbar(
+                context.getString(R.string.save_password_failed),
+                tone = MessageTone.WARNING
+            )
             viewModel.acknowledgePasswordWarning()
         }
     }
@@ -132,7 +140,7 @@ fun ServicesScreen(
                 )
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = viewModel::openAddDialog) {
                 Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.add_server))

@@ -41,6 +41,7 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.db.entity.LinkPlaybackHistoryEntity
 import com.vibeplayer.app.ui.navigation.Routes
+import com.vibeplayer.app.ui.components.AppInlineError
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,7 +157,7 @@ private fun UrlInputCard(
                 modifier = Modifier.fillMaxWidth()
             )
             error?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                AppInlineError(it)
             }
             OutlinedButton(
                 onClick = onPlay,

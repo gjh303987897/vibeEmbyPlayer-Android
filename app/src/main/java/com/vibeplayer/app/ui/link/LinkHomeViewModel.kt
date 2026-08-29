@@ -7,6 +7,7 @@ import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.domain.link.LinkPlaybackService
 import com.vibeplayer.app.model.ServerConfig
+import com.vibeplayer.app.util.normalizeUrlInput
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +48,9 @@ class LinkHomeViewModel @Inject constructor(
     }
 
     fun onUrlInputChange(value: String) {
-        _uiState.update { it.copy(urlInput = value, validationError = null) }
+        _uiState.update {
+            it.copy(urlInput = normalizeUrlInput(value), validationError = null)
+        }
     }
 
     /** Validates the typed URL and, on success, prepares navigation to the player. */

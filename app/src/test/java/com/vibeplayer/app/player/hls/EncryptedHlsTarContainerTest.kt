@@ -1,8 +1,11 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.vibeplayer.app.player.hls
 
 import com.vibeplayer.app.domain.tssl.TsslCrypto
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.cbor.ByteString
 import kotlinx.serialization.cbor.Cbor
 import kotlinx.serialization.encodeToByteArray
 import java.io.File
@@ -55,6 +58,7 @@ class EncryptedHlsTarContainerTest {
         val headerOffset: Long,
         val dataOffset: Long,
         val size: Long,
+        @ByteString
         val sha256: ByteArray
     )
 

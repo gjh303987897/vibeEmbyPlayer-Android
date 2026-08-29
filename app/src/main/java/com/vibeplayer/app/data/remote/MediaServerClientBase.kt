@@ -391,8 +391,10 @@ abstract class MediaServerClientBase(
 /** Internal exception to carry a typed network error through runCatching. */
 class NetworkException(
     val kind: NetworkErrorKind,
-    message: String
-) : IOException(message)
+    message: String,
+    val statusCode: Int = -1,
+    cause: Throwable? = null
+) : IOException(message, cause)
 
 /** Convenience parsers shared by all clients. */
 internal fun NetworkResult.parseBytes(): String? =
@@ -410,5 +412,5 @@ internal fun NetworkResult.errorOrNull(): NetworkError? =
 
 /** Converts a failed [NetworkResult] into a [Throwable] for Result.failure. */
 internal fun NetworkResult.asThrowable(): Throwable =
-    errorOrNull()?.let { NetworkException(it.kind, it.message) }
+    errorOrNull()?.let { NetworkException(it.kind, it.message, it.statusCode, it.cause) }
         ?: NetworkException(NetworkErrorKind.UNKNOWN, "Unknown network error")

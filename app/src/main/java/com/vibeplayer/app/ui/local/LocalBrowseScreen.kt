@@ -51,6 +51,7 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.data.local.db.entity.LocalMediaRootEntity
 import com.vibeplayer.app.model.LocalMediaItem
 import com.vibeplayer.app.ui.navigation.Routes
+import com.vibeplayer.app.ui.components.AppMessageCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,10 +128,11 @@ fun LocalBrowseScreen(
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = browseError,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error
+                        AppMessageCard(
+                            message = browseError,
+                            onDismiss = viewModel::clearError,
+                            actionLabel = stringResource(R.string.message_retry),
+                            onAction = viewModel::retryCurrent
                         )
                     }
                 }
@@ -161,6 +163,17 @@ fun LocalBrowseScreen(
                             bottom = innerPadding.calculateBottomPadding() + 96.dp
                         )
                     ) {
+                        if (browseError != null) {
+                            item {
+                                AppMessageCard(
+                                    message = browseError,
+                                    onDismiss = viewModel::clearError,
+                                    actionLabel = stringResource(R.string.message_retry),
+                                    onAction = viewModel::retryCurrent,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
                         items(state.items, key = { it.uri }) { item ->
                             LocalItemRow(
                                 item = item,

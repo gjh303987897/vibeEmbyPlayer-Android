@@ -59,15 +59,25 @@ class SearchViewModel @Inject constructor(
             loaded = 0
             hasMore = false
             val client = repository.clientFor(session.server.serviceType)
-            val page = client.searchItems(session, term, startIndex = 0, limit = PAGE_SIZE).getOrNull()
+            val result = client.searchItems(session, term, startIndex = 0, limit = PAGE_SIZE)
             if (generation != searchGeneration) return@launch
-            if (page != null) {
-                loaded = page.items.size
-                hasMore = (page.total ?: loaded) > loaded
-                _uiState.update { it.copy(results = page.items, hasMore = hasMore, loading = false) }
-            } else {
-                _uiState.update { it.copy(loading = false, error = "Search failed") }
-            }
+            result.fold(
+                onSuccess = { page ->
+                    loaded = page.items.size
+                    hasMore = (page.total ?: loaded) > loaded
+                    _uiState.update { it.copy(results = page.items, hasMore = hasMore, loading = false) }
+                },
+                onFailure = { error ->
+                    hasMore = false
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            hasMore = false,
+                            error = error.message ?: "Search failed"
+                        )
+                    }
+                }
+            )
         }
     }
 
@@ -80,17 +90,32 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(loadingMore = true) }
             val client = repository.clientFor(session.server.serviceType)
-            val page = client.searchItems(session, term, startIndex = loaded, limit = PAGE_SIZE).getOrNull()
+            val result = client.searchItems(session, term, startIndex = loaded, limit = PAGE_SIZE)
             if (generation != searchGeneration) return@launch
-            if (page != null) {
-                loaded += page.items.size
-                hasMore = (page.total ?: loaded) > loaded
-                _uiState.update { state ->
-                    state.copy(results = state.results + page.items, hasMore = hasMore, loadingMore = false)
+            result.fold(
+                onSuccess = { page ->
+                    loaded += page.items.size
+                    hasMore = (page.total ?: loaded) > loaded
+                    _uiState.update { state ->
+                        state.copy(results = state.results + page.items, hasMore = hasMore, loadingMore = false, error = null)
+                    }
+                },
+                onFailure = { error ->
+                    hasMore = false
+                    _uiState.update {
+                        it.copy(
+                            loadingMore = false,
+                            hasMore = false,
+                            error = error.message ?: "Failed to load more results"
+                        )
+                    }
                 }
-            } else {
-                _uiState.update { it.copy(loadingMore = false) }
-            }
+            )
         }
+    }
+
+    /** Repeats the current query from the first page. */
+    fun retry() {
+        if (_uiState.value.query.isNotBlank()) submitSearch()
     }
 }

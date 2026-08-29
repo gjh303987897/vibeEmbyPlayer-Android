@@ -35,6 +35,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -49,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -56,6 +59,9 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.WebDavItem
 import com.vibeplayer.app.service.TransferService
+import com.vibeplayer.app.ui.components.AppMessageCard
+import com.vibeplayer.app.ui.components.AppSnackbarHost
+import com.vibeplayer.app.ui.components.showAppSnackbar
 import com.vibeplayer.app.ui.navigation.Routes
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,6 +73,7 @@ fun WebDavBrowseScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     var passwordInput by remember { mutableStateOf("") }
 
     var pendingDownload by remember { mutableStateOf<WebDavItem?>(null) }
@@ -93,7 +100,15 @@ fun WebDavBrowseScreen(
         viewModel.load(serverId)
     }
 
+    LaunchedEffect(uiState.message) {
+        uiState.message?.let { message ->
+            snackbarHostState.showAppSnackbar(message, tone = uiState.messageTone)
+            viewModel.clearMessage()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { AppSnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text(uiState.currentDirectoryName) },
@@ -142,7 +157,12 @@ fun WebDavBrowseScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(uiState.error.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    AppMessageCard(
+                        message = uiState.error.orEmpty(),
+                        onDismiss = viewModel::clearError,
+                        actionLabel = stringResource(R.string.message_retry),
+                        onAction = viewModel::retryCurrent
+                    )
                 }
             }
             else -> {
@@ -155,6 +175,17 @@ fun WebDavBrowseScreen(
                         .padding(innerPadding),
                     contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 16.dp)
                 ) {
+                    if (uiState.error != null) {
+                        item {
+                            AppMessageCard(
+                                message = uiState.error.orEmpty(),
+                                onDismiss = viewModel::clearError,
+                                actionLabel = stringResource(R.string.message_retry),
+                                onAction = viewModel::retryCurrent,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                     items(uiState.items, key = { it.path }) { item ->
                         WebDavRow(
                             item = item,
@@ -268,10 +299,34 @@ private fun WebDavRow(item: WebDavItem, onOpen: () -> Unit, onDownload: () -> Un
         },
         headlineContent = { Text(item.name) },
         supportingContent = {
-            if (item.isDirectory) {
-                Text(stringResource(R.string.webdav_folder))
-            } else if (item.size > 0) {
-                Text(formatBytes(item.size))
+            if (item.isDirectory || item.size > 0 ||
+                item.identifierPreview != null || item.sourceFileName != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (item.isDirectory) {
+                        Text(stringResource(R.string.webdav_folder))
+                    } else if (item.size > 0) {
+                        Text(formatBytes(item.size))
+                    }
+                    item.identifierPreview?.let { identifier ->
+                        Text(
+                            text = stringResource(R.string.webdav_identifier, identifier),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    item.sourceFileName?.let { sourceName ->
+                        Text(
+                            text = stringResource(R.string.webdav_original_file_name, sourceName),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         },
         trailingContent = {

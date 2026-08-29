@@ -45,18 +45,32 @@ class LibraryViewModel @Inject constructor(
             _uiState.update { it.copy(initialLoading = true, error = null) }
             val client = repository.clientFor(session.server.serviceType)
 
-            val lib = client.fetchLibraries(session).getOrNull()
-                ?.firstOrNull { it.id == libraryId }
+            val librariesResult = client.fetchLibraries(session)
+            val lib = librariesResult.getOrNull()?.firstOrNull { it.id == libraryId }
             if (lib == null) {
-                _uiState.update { it.copy(initialLoading = false, error = "Library not found") }
+                _uiState.update {
+                    it.copy(
+                        initialLoading = false,
+                        error = if (librariesResult.isFailure) {
+                            librariesResult.exceptionOrNull()?.message ?: "Failed to load libraries"
+                        } else {
+                            "Library not found"
+                        }
+                    )
+                }
                 return@launch
             }
             library = lib
 
-            val page = client.fetchLibraryItems(session, lib, parentId = "", startIndex = 0, limit = PAGE_SIZE)
-                .getOrNull()
+            val pageResult = client.fetchLibraryItems(session, lib, parentId = "", startIndex = 0, limit = PAGE_SIZE)
+            val page = pageResult.getOrNull()
             if (page == null) {
-                _uiState.update { it.copy(initialLoading = false, error = "Failed to load items") }
+                _uiState.update {
+                    it.copy(
+                        initialLoading = false,
+                        error = pageResult.exceptionOrNull()?.message ?: "Failed to load items"
+                    )
+                }
                 return@launch
             }
             loaded = page.items.size
@@ -79,21 +93,43 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(loadingMore = true) }
             val client = repository.clientFor(session.server.serviceType)
-            val page = client.fetchLibraryItems(session, lib, parentId = "", startIndex = loaded, limit = PAGE_SIZE)
-                .getOrNull()
-            if (page != null) {
-                loaded += page.items.size
-                hasMore = (page.total ?: loaded) > loaded
-                _uiState.update { state ->
-                    state.copy(
-                        items = state.items + page.items,
-                        hasMore = hasMore,
-                        loadingMore = false
-                    )
+            val result = client.fetchLibraryItems(session, lib, parentId = "", startIndex = loaded, limit = PAGE_SIZE)
+            result.fold(
+                onSuccess = { page ->
+                    loaded += page.items.size
+                    hasMore = (page.total ?: loaded) > loaded
+                    _uiState.update { state ->
+                        state.copy(
+                            items = state.items + page.items,
+                            hasMore = hasMore,
+                            loadingMore = false,
+                            error = null
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    // Stop auto-pagination until the user explicitly retries;
+                    // otherwise a visible error card can trigger the same
+                    // request again on every recomposition.
+                    hasMore = false
+                    _uiState.update {
+                        it.copy(
+                            loadingMore = false,
+                            hasMore = false,
+                            error = error.message ?: "Failed to load more items"
+                        )
+                    }
                 }
-            } else {
-                _uiState.update { it.copy(loadingMore = false) }
-            }
+            )
         }
+    }
+
+    /** Clears stale pagination state and retries the complete library load. */
+    fun retry(libraryId: String) {
+        loaded = 0
+        hasMore = true
+        library = null
+        _uiState.value = LibraryUiState()
+        load(libraryId)
     }
 }

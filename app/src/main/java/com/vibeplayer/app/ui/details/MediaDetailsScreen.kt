@@ -52,6 +52,7 @@ import coil.compose.AsyncImage
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.pressScale
+import com.vibeplayer.app.ui.components.AppMessageCard
 import com.vibeplayer.app.ui.navigation.Routes
 import com.vibeplayer.app.util.seasonEpisodeText
 
@@ -70,8 +71,15 @@ fun MediaDetailsScreen(
     val item = state.item
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (state.loading || item == null) {
+        if (state.loading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        } else if (item == null) {
+            AppMessageCard(
+                message = state.error.orEmpty(),
+                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                actionLabel = stringResource(R.string.message_retry),
+                onAction = { viewModel.retry(itemId) }
+            )
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 BackdropHeader(
@@ -82,6 +90,16 @@ fun MediaDetailsScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
+                    if (state.error != null) {
+                        item {
+                            AppMessageCard(
+                                message = state.error.orEmpty(),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                actionLabel = stringResource(R.string.message_retry),
+                                onAction = { viewModel.retry(itemId) }
+                            )
+                        }
+                    }
                     item {
                         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                             Text(
@@ -284,4 +302,3 @@ private fun EpisodeRow(episode: MediaItem, modifier: Modifier = Modifier, onClic
         }
     }
 }
-

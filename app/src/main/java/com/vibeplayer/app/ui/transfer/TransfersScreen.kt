@@ -41,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.db.entity.TransferStatus
 import com.vibeplayer.app.data.local.db.entity.TransferTaskEntity
+import com.vibeplayer.app.ui.components.AppInlineError
 
 /**
  * Transfers (download / upload) screen. Renders the persisted transfer queue
@@ -179,12 +180,8 @@ private fun TransferRow(
                 modifier = Modifier.padding(top = 4.dp)
             )
             task.error?.let { err ->
-                Text(
-                    text = err,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                AppInlineError(
+                    message = err,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }

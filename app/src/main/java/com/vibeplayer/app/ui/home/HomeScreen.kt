@@ -62,6 +62,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
 import com.vibeplayer.app.ui.components.pressScale
+import com.vibeplayer.app.ui.components.AppMessageCard
 import com.vibeplayer.app.ui.navigation.Routes
 import com.vibeplayer.app.util.seasonEpisodeText
 import kotlinx.coroutines.delay
@@ -142,15 +143,15 @@ fun HomeScreen(
                         val homeError = state.error
                         if (homeError != null) {
                             item {
-                                Text(
-                                    text = homeError,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.padding(16.dp)
+                                AppMessageCard(
+                                    message = homeError,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    actionLabel = stringResource(R.string.message_retry),
+                                    onAction = viewModel::load
                                 )
                             }
                         }
-                        if (state.continueWatching.isEmpty() && state.libraries.isEmpty() && state.suggestedSeries.isEmpty()) {
+                        if (state.error == null && state.continueWatching.isEmpty() && state.libraries.isEmpty() && state.suggestedSeries.isEmpty()) {
                             item {
                                 Text(
                                     text = stringResource(R.string.home_empty),

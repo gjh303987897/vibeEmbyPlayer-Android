@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.tssl.TsslStore
 import com.vibeplayer.app.data.local.datastore.TsslBackupSettings
 import com.vibeplayer.app.data.local.datastore.TsslBackupSettingsStore
@@ -13,9 +14,11 @@ import com.vibeplayer.app.domain.tssl.EncryptedHlsPackager
 import com.vibeplayer.app.domain.tssl.TsslBackupService
 import com.vibeplayer.app.domain.tssl.TsslBackupTarget
 import com.vibeplayer.app.model.ServerConfig
+import com.vibeplayer.app.model.MessageTone
 import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.TsslPackage
 import com.vibeplayer.app.player.hls.SafHlsSource
+import com.vibeplayer.app.util.normalizeUrlInput
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -31,6 +34,7 @@ data class TsslManagerUiState(
     val webDavTargets: List<ServerConfig> = emptyList(),
     val loading: Boolean = false,
     val message: String? = null,
+    val messageTone: MessageTone = MessageTone.INFO,
     val backupBusy: Boolean = false,
     val packagingBusy: Boolean = false,
     /** Progress 0..1 while packaging, null when idle. */
@@ -90,7 +94,9 @@ class TsslManagerViewModel @Inject constructor(
             val name = tsslStore.import(bytes)
             _uiState.update {
                 it.copy(
-                    message = if (name != null) "Imported $name" else "Invalid TSSL package",
+                    message = name?.let { context.getString(R.string.tssl_message_imported, it) }
+                        ?: context.getString(R.string.tssl_invalid_package),
+                    messageTone = if (name != null) MessageTone.SUCCESS else MessageTone.ERROR,
                     packages = tsslStore.list()
                 )
             }
@@ -100,7 +106,9 @@ class TsslManagerViewModel @Inject constructor(
     fun setBackupTarget(target: String) = updateBackupSettings { it.copy(target = target) }
     fun setWebDavServiceId(id: String) = updateBackupSettings { it.copy(webDavServiceId = id) }
     fun setWebDavPath(path: String) = updateBackupSettings { it.copy(webDavPath = path) }
-    fun setS3Endpoint(value: String) = updateBackupSettings { it.copy(s3Endpoint = value) }
+    fun setS3Endpoint(value: String) = updateBackupSettings {
+        it.copy(s3Endpoint = normalizeUrlInput(value))
+    }
     fun setS3Bucket(value: String) = updateBackupSettings { it.copy(s3Bucket = value) }
     fun setS3Region(value: String) = updateBackupSettings { it.copy(s3Region = value) }
     fun setS3Prefix(value: String) = updateBackupSettings { it.copy(s3Prefix = value) }
@@ -109,7 +117,13 @@ class TsslManagerViewModel @Inject constructor(
 
     fun saveS3Secret(secret: String) {
         val saved = backupSettingsStore.saveS3Secret(secret)
-        _uiState.update { it.copy(message = if (saved) "S3 secret saved" else "Unable to save S3 secret securely") }
+        _uiState.update {
+            it.copy(
+                message = if (saved) context.getString(R.string.tssl_s3_secret_saved)
+                else context.getString(R.string.tssl_message_secret_save_failed),
+                messageTone = if (saved) MessageTone.SUCCESS else MessageTone.ERROR
+            )
+        }
     }
 
     fun backupAll() {
@@ -118,7 +132,12 @@ class TsslManagerViewModel @Inject constructor(
             val target = buildTarget() ?: return@launch
             val packages = tsslStore.list().filter { it.isValid }
             if (packages.isEmpty()) {
-                _uiState.update { it.copy(message = "No valid TSSL packages to back up") }
+                _uiState.update {
+                    it.copy(
+                        message = context.getString(R.string.tssl_message_no_valid_packages),
+                        messageTone = MessageTone.WARNING
+                    )
+                }
                 return@launch
             }
             _uiState.update { it.copy(backupBusy = true, message = null, backingUpFileName = null) }
@@ -130,8 +149,13 @@ class TsslManagerViewModel @Inject constructor(
                     backupBusy = false,
                     backingUpFileName = null,
                     message = when (result) {
-                        is TsslBackupService.BackupResult.Success -> "Backed up ${result.uploaded} TSSL packages"
+                        is TsslBackupService.BackupResult.Success ->
+                            context.getString(R.string.tssl_message_backup_count, result.uploaded)
                         is TsslBackupService.BackupResult.Error -> result.message
+                    },
+                    messageTone = when (result) {
+                        is TsslBackupService.BackupResult.Success -> MessageTone.SUCCESS
+                        is TsslBackupService.BackupResult.Error -> MessageTone.ERROR
                     }
                 )
             }
@@ -149,16 +173,27 @@ class TsslManagerViewModel @Inject constructor(
             val message = when (result) {
                 is TsslBackupService.RestoreResult.Success -> {
                     val summary = result.summary
-                    "Restored ${summary.restored} packages (${summary.alreadyExists} already existed, ${summary.failed} failed)" +
-                        (summary.firstError?.let { ": $it" } ?: "")
+                    context.getString(
+                        R.string.tssl_message_restore_summary,
+                        summary.restored,
+                        summary.alreadyExists,
+                        summary.failed
+                    )
                 }
                 is TsslBackupService.RestoreResult.Error -> result.message
+            }
+            val messageTone = when (result) {
+                is TsslBackupService.RestoreResult.Success -> {
+                    if (result.summary.failed > 0) MessageTone.WARNING else MessageTone.SUCCESS
+                }
+                is TsslBackupService.RestoreResult.Error -> MessageTone.ERROR
             }
             _uiState.update {
                 it.copy(
                     restoring = false,
                     restoreProgress = null,
                     message = message,
+                    messageTone = messageTone,
                     packages = tsslStore.list()
                 )
             }
@@ -168,7 +203,13 @@ class TsslManagerViewModel @Inject constructor(
     fun delete(pkg: TsslPackage) {
         viewModelScope.launch {
             tsslStore.delete(pkg.fileName)
-            _uiState.update { it.copy(packages = tsslStore.list(), message = "Deleted ${pkg.fileName}") }
+            _uiState.update {
+                it.copy(
+                    packages = tsslStore.list(),
+                    message = context.getString(R.string.tssl_message_deleted, pkg.fileName),
+                    messageTone = MessageTone.SUCCESS
+                )
+            }
         }
     }
 
@@ -177,7 +218,12 @@ class TsslManagerViewModel @Inject constructor(
         viewModelScope.launch {
             val bytes = tsslStore.exportBytes(pkg.fileName)
             if (bytes != null) onBytes(bytes) else {
-                _uiState.update { it.copy(message = "Package unreadable") }
+                _uiState.update {
+                    it.copy(
+                        message = context.getString(R.string.tssl_message_unreadable),
+                        messageTone = MessageTone.ERROR
+                    )
+                }
             }
         }
     }
@@ -189,7 +235,7 @@ class TsslManagerViewModel @Inject constructor(
             _uiState.update { it.copy(backupBusy = true, backingUpFileName = pkg.fileName, message = null) }
             val bytes = tsslStore.read(pkg.fileName)
             val result = if (bytes == null) {
-                TsslBackupService.BackupResult.Error("Package unreadable")
+                TsslBackupService.BackupResult.Error(context.getString(R.string.tssl_message_unreadable))
             } else {
                 backupService.backup(
                     TsslBackupTarget.WebDav(target, _uiState.value.backupSettings.webDavPath),
@@ -197,11 +243,21 @@ class TsslManagerViewModel @Inject constructor(
                 )
             }
             val message = when (result) {
-                is TsslBackupService.BackupResult.Success -> "Backed up ${result.uploaded} TSSL package(s) to ${target.name}"
+                is TsslBackupService.BackupResult.Success ->
+                    context.getString(R.string.tssl_message_backup_to, result.uploaded, target.name)
                 is TsslBackupService.BackupResult.Error -> result.message
             }
+            val messageTone = when (result) {
+                is TsslBackupService.BackupResult.Success -> MessageTone.SUCCESS
+                is TsslBackupService.BackupResult.Error -> MessageTone.ERROR
+            }
             _uiState.update {
-                it.copy(backupBusy = false, backingUpFileName = null, message = message)
+                it.copy(
+                    backupBusy = false,
+                    backingUpFileName = null,
+                    message = message,
+                    messageTone = messageTone
+                )
             }
         }
     }
@@ -228,7 +284,8 @@ class TsslManagerViewModel @Inject constructor(
                 if (manifestName == null) {
                     _uiState.update {
                         it.copy(
-                            message = "No HLS playlist (.m3u8) found in the selected folder",
+                            message = context.getString(R.string.tssl_message_no_playlist),
+                            messageTone = MessageTone.ERROR,
                             packagingBusy = false, packagingProgress = null
                         )
                     }
@@ -245,12 +302,17 @@ class TsslManagerViewModel @Inject constructor(
                 )
                 val message = when (result) {
                     is EncryptedHlsPackager.PackageResult.Success ->
-                        "Packaged M3U8SP v4: ${result.packageDirName}"
+                        context.getString(R.string.tssl_message_packaged, result.packageDirName)
                     is EncryptedHlsPackager.PackageResult.Error -> result.message
+                }
+                val messageTone = when (result) {
+                    is EncryptedHlsPackager.PackageResult.Success -> MessageTone.SUCCESS
+                    is EncryptedHlsPackager.PackageResult.Error -> MessageTone.ERROR
                 }
                 _uiState.update {
                     it.copy(
                         message = message,
+                        messageTone = messageTone,
                         packagingBusy = false,
                         packagingProgress = null,
                         packages = tsslStore.list()
@@ -259,7 +321,8 @@ class TsslManagerViewModel @Inject constructor(
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
-                        message = e.message ?: "Packaging failed",
+                        message = e.message ?: context.getString(R.string.message_error_generic),
+                        messageTone = MessageTone.ERROR,
                         packagingBusy = false,
                         packagingProgress = null
                     )
@@ -300,14 +363,24 @@ class TsslManagerViewModel @Inject constructor(
                 val server = _uiState.value.webDavTargets.firstOrNull { it.id == settings.webDavServiceId }
                     ?: _uiState.value.webDavTargets.firstOrNull()
                 if (server == null) {
-                    _uiState.update { it.copy(message = "Select an available WebDAV service") }
+                    _uiState.update {
+                        it.copy(
+                            message = context.getString(R.string.tssl_message_select_webdav),
+                            messageTone = MessageTone.WARNING
+                        )
+                    }
                     null
                 } else TsslBackupTarget.WebDav(server, settings.webDavPath)
             }
             "s3" -> {
                 val secret = backupSettingsStore.s3Secret()
                 if (secret.isNullOrEmpty()) {
-                    _uiState.update { it.copy(message = "Save the S3 secret key before backing up") }
+                    _uiState.update {
+                        it.copy(
+                            message = context.getString(R.string.tssl_message_save_secret_first),
+                            messageTone = MessageTone.WARNING
+                        )
+                    }
                     null
                 } else TsslBackupTarget.S3(
                     endpoint = settings.s3Endpoint,
@@ -320,7 +393,12 @@ class TsslManagerViewModel @Inject constructor(
                 )
             }
             else -> {
-                _uiState.update { it.copy(message = "Choose a backup target first") }
+                _uiState.update {
+                    it.copy(
+                        message = context.getString(R.string.tssl_message_choose_target),
+                        messageTone = MessageTone.WARNING
+                    )
+                }
                 null
             }
         }

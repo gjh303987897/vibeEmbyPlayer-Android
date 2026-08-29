@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
+import com.vibeplayer.app.util.normalizeUrlInput
 
 /**
  * Service-type chooser for the "add server" dialog: one fixed-size, icon-only
@@ -135,7 +136,10 @@ private fun ServerAddressFields(
                 onValueChange = { value ->
                     // Pasting a scheme or port is handled by the ViewModel's
                     // validation; keep the field focused on host/path input.
-                    onHostChange(value.removePrefix("http://").removePrefix("https://"))
+                    // This field is the server URL/address input, so remove
+                    // accidental whitespace only at its two edges.
+                    val normalized = normalizeUrlInput(value)
+                    onHostChange(normalized.removePrefix("http://").removePrefix("https://"))
                 },
                 label = { Text(stringResource(R.string.server_host)) },
                 placeholder = { Text("example.com/dav") },

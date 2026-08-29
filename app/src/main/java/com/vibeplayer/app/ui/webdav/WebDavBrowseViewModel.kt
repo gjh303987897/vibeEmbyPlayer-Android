@@ -3,13 +3,16 @@ package com.vibeplayer.app.ui.webdav
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.vibeplayer.app.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.TransferRepository
 import com.vibeplayer.app.data.repository.WebDavRepository
 import com.vibeplayer.app.model.ServerConfig
+import com.vibeplayer.app.model.MessageTone
 import com.vibeplayer.app.model.WebDavItem
+import com.vibeplayer.app.player.hls.EncryptedHlsManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -19,6 +22,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -28,6 +33,8 @@ data class WebDavUiState(
     val items: List<WebDavItem> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
+    val message: String? = null,
+    val messageTone: MessageTone = MessageTone.INFO,
     val needPassword: Boolean = false
 ) {
     val currentDirectoryName: String
@@ -39,12 +46,14 @@ class WebDavBrowseViewModel @Inject constructor(
     private val repository: MediaServerRepository,
     private val webDavRepository: WebDavRepository,
     private val transferRepository: TransferRepository,
+    private val encryptedHlsManager: EncryptedHlsManager,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WebDavUiState())
     val uiState: StateFlow<WebDavUiState> = _uiState.asStateFlow()
     private var browseJob: Job? = null
+    private var metadataJob: Job? = null
     private var browseRequestId = 0L
 
     fun load(serverId: String) {
@@ -59,7 +68,13 @@ class WebDavBrowseViewModel @Inject constructor(
     fun savePassword(password: String) {
         val server = _uiState.value.server ?: return
         webDavRepository.saveCredentials(server, password)
-        _uiState.update { it.copy(needPassword = false) }
+        _uiState.update {
+            it.copy(
+                needPassword = false,
+                message = appContext.getString(R.string.webdav_password_saved),
+                messageTone = MessageTone.SUCCESS
+            )
+        }
         browse(server, "")
     }
 
@@ -74,8 +89,24 @@ class WebDavBrowseViewModel @Inject constructor(
         navigateTo(if (parent.isEmpty()) "" else parent)
     }
 
+    /** Retries the current directory without changing the navigation stack. */
+    fun retryCurrent() {
+        val server = _uiState.value.server ?: return
+        browse(server, _uiState.value.path)
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+
+    fun clearMessage() {
+        _uiState.update { it.copy(message = null) }
+    }
+
     private fun browse(server: ServerConfig, path: String) {
         browseJob?.cancel()
+        metadataJob?.cancel()
+        metadataJob = null
         val requestId = ++browseRequestId
         browseJob = viewModelScope.launch {
             // Clear stale rows immediately. Keeping the previous directory on
@@ -85,14 +116,65 @@ class WebDavBrowseViewModel @Inject constructor(
                 onSuccess = { items ->
                     if (requestId == browseRequestId) {
                         _uiState.update { it.copy(path = path, items = items, loading = false) }
+                        resolveEncryptedMetadata(server, path, items, requestId)
                     }
                 },
                 onFailure = { e ->
                     if (requestId == browseRequestId) {
-                        _uiState.update { it.copy(loading = false, error = e.message ?: "WebDAV request failed") }
+                        _uiState.update {
+                            it.copy(
+                                loading = false,
+                                error = e.message ?: appContext.getString(R.string.message_error_generic)
+                            )
+                        }
                     }
                 }
             )
+        }
+    }
+
+    /**
+     * Enriches encrypted-HLS rows after the directory itself is visible.  The
+     * work is cancellable when the user changes directory, and every update is
+     * guarded by the browse generation so a slow response cannot overwrite a
+     * newer directory's rows.
+     */
+    private fun resolveEncryptedMetadata(
+        server: ServerConfig,
+        path: String,
+        items: List<WebDavItem>,
+        requestId: Long
+    ) {
+        val encryptedItems = items.filter { it.isEncryptedHls }
+        if (encryptedItems.isEmpty()) return
+
+        metadataJob = viewModelScope.launch {
+            for (item in encryptedItems) {
+                ensureActive()
+                val metadata = encryptedHlsManager
+                    .resolveWebDavMetadata(server, item.path)
+                    .getOrNull()
+                    ?: continue
+                if (!isActive || requestId != browseRequestId) return@launch
+                _uiState.update { state ->
+                    if (state.path != path || state.server?.id != server.id) {
+                        state
+                    } else {
+                        state.copy(
+                            items = state.items.map { current ->
+                                if (current.path == item.path) {
+                                    current.copy(
+                                        identifierPreview = metadata.identifierPreview,
+                                        sourceFileName = metadata.sourceFileName
+                                    )
+                                } else {
+                                    current
+                                }
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -105,8 +187,18 @@ class WebDavBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(error = null) }
             runCatching { transferRepository.downloadToTree(server, item, destTreeUri) }
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            message = appContext.getString(R.string.webdav_download_queued),
+                            messageTone = MessageTone.SUCCESS
+                        )
+                    }
+                }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message ?: "Download failed") }
+                    _uiState.update {
+                        it.copy(error = e.message ?: appContext.getString(R.string.message_error_generic))
+                    }
                 }
         }
     }
@@ -124,9 +216,22 @@ class WebDavBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             webDavRepository.createDirectory(server, target).fold(
-                onSuccess = { browse(server, base) },
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            message = appContext.getString(R.string.webdav_folder_created),
+                            messageTone = MessageTone.SUCCESS
+                        )
+                    }
+                    browse(server, base)
+                },
                 onFailure = { e ->
-                    _uiState.update { it.copy(loading = false, error = e.message ?: "Create folder failed") }
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            error = e.message ?: appContext.getString(R.string.message_error_generic)
+                        )
+                    }
                 }
             )
         }
@@ -153,9 +258,22 @@ class WebDavBrowseViewModel @Inject constructor(
                 }
             }
             result.fold(
-                onSuccess = { browse(server, base) },
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            message = appContext.getString(R.string.webdav_upload_complete),
+                            messageTone = MessageTone.SUCCESS
+                        )
+                    }
+                    browse(server, base)
+                },
                 onFailure = { e ->
-                    _uiState.update { it.copy(loading = false, error = e.message ?: "Upload failed") }
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            error = e.message ?: appContext.getString(R.string.message_error_generic)
+                        )
+                    }
                 }
             )
         }

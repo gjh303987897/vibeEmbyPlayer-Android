@@ -12,6 +12,7 @@
     <string name="server_url">Server URL</string>
     <string name="server_host">Host or path</string>
     <string name="server_port">Port</string>
+    <string name="server_address_required">Enter a valid host and port.</string>
     <string name="server_name">Server name</string>
     <string name="username">Username</string>
     <string name="password">Password</string>
@@ -112,6 +113,7 @@
     <string name="iptv_favorite">Favorite</string>
     <string name="iptv_no_channels">No channels imported yet</string>
     <string name="iptv_import_m3u">Import M3U playlist</string>
+    <string name="iptv_imported_channels">Imported channels: %1$d.</string>
 
     <!-- Local media -->
     <string name="local_folder">Local folder</string>
@@ -159,6 +161,22 @@
     <string name="tssl_backup_all">Back up all</string>
     <string name="tssl_restore_backup">Restore remote</string>
     <string name="tssl_encrypting">Encrypting media segments and building the TSSL package. This can take a while for large sources.</string>
+    <string name="tssl_file_name">File name: %1$s</string>
+    <string name="tssl_identifier">Identifier: %1$s</string>
+    <string name="tssl_invalid_package">Invalid TSSL package</string>
+    <string name="tssl_message_imported">Imported %1$s.</string>
+    <string name="tssl_message_secret_save_failed">The S3 secret key could not be saved securely.</string>
+    <string name="tssl_message_no_valid_packages">There are no valid TSSL packages to back up.</string>
+    <string name="tssl_message_backup_count">Backed up %1$d TSSL packages.</string>
+    <string name="tssl_message_restore_summary">Restore summary — restored: %1$d, already existed: %2$d, failed: %3$d.</string>
+    <string name="tssl_message_deleted">Deleted %1$s.</string>
+    <string name="tssl_message_unreadable">The TSSL package cannot be read.</string>
+    <string name="tssl_message_backup_to">Backed up %1$d TSSL packages to %2$s.</string>
+    <string name="tssl_message_no_playlist">No HLS playlist (.m3u8) was found in the selected folder.</string>
+    <string name="tssl_message_packaged">Created M3U8SP v4 package: %1$s</string>
+    <string name="tssl_message_select_webdav">Select an available WebDAV service first.</string>
+    <string name="tssl_message_save_secret_first">Save the S3 secret key before backing up.</string>
+    <string name="tssl_message_choose_target">Choose a backup target first.</string>
 
     <!-- WebDAV -->
     <string name="webdav_enter_password">Enter password for this server</string>
@@ -166,6 +184,12 @@
     <string name="webdav_folder_name">Folder name</string>
     <string name="webdav_folder">Folder</string>
     <string name="webdav_download">Download</string>
+    <string name="webdav_identifier">Identifier: %1$s</string>
+    <string name="webdav_original_file_name">Original file: %1$s</string>
+    <string name="webdav_password_saved">WebDAV password saved securely.</string>
+    <string name="webdav_download_queued">Download added to Transfers.</string>
+    <string name="webdav_folder_created">Folder created.</string>
+    <string name="webdav_upload_complete">Upload completed.</string>
 
     <!-- Playback feedback -->
     <string name="player_loading">Loading…</string>
@@ -186,4 +210,22 @@
     <string name="player_error_format">This video format or codec is not supported on this device.</string>
     <string name="player_error_timeout">Loading timed out. Please try again.</string>
     <string name="save_password_failed">Password could not be saved securely, so it will be asked again.</string>
+
+    <!-- Consistent user-facing messages -->
+    <string name="message_error_title">Something went wrong</string>
+    <string name="message_warning_title">Please check this</string>
+    <string name="message_success_title">Done</string>
+    <string name="message_info_title">Information</string>
+    <string name="message_dismiss">Dismiss message</string>
+    <string name="message_retry">Try again</string>
+    <string name="message_error_generic">Something went wrong. Please try again.</string>
+    <string name="message_error_network">Could not connect to the server. Check your network and server address.</string>
+    <string name="message_error_authentication">Sign-in failed. Check your username and password.</string>
+    <string name="message_error_permission">Access was denied by the server or storage provider.</string>
+    <string name="message_error_not_found">The requested file or item could not be found.</string>
+    <string name="message_error_timeout">The request took too long. Please try again.</string>
+    <string name="message_error_invalid_input">Check the address and other values you entered.</string>
+    <string name="message_error_request_rejected">The server rejected this request. Check the path and permissions.</string>
+    <string name="message_error_server">The server returned an error. Try again or check its status.</string>
+    <string name="message_error_format">The response or media format is not supported.</string>
 </resources>

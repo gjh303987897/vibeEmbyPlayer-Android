@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,6 +71,12 @@ fun PlaybackStatusOverlay(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (failure != null) {
+            Icon(
+                imageVector = Icons.Outlined.ErrorOutline,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
+            )
             Text(
                 text = stringResource(R.string.player_load_failed),
                 style = MaterialTheme.typography.titleSmall,
@@ -115,8 +124,10 @@ fun PlaybackStatusOverlay(
  */
 @Composable
 private fun playbackErrorText(code: String): String = when {
-    // Anything we produced ourselves is already user-facing text.
-    !code.startsWith("ERROR_CODE_") -> code
+    // ViewModels may produce a short text for an input/prepare failure; run it
+    // through the same formatter as the rest of the app so an implementation
+    // exception never leaks into the player overlay.
+    !code.startsWith("ERROR_CODE_") -> userReadableError(code, R.string.player_load_failed)
     code == "ERROR_CODE_IO_FILE_NOT_FOUND" -> stringResource(R.string.local_file_missing)
     code == "ERROR_CODE_IO_NO_PERMISSION" -> stringResource(R.string.local_permission_lost)
     code == "ERROR_CODE_IO_NETWORK_CONNECTION_FAILED" ||

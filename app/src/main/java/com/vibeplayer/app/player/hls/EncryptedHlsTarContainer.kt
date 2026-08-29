@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.vibeplayer.app.player.hls
 
 import com.vibeplayer.app.domain.tssl.TsslCrypto
@@ -6,6 +8,7 @@ import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.cbor.Cbor
+import kotlinx.serialization.cbor.ByteString
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.Serializable
@@ -50,6 +53,30 @@ object EncryptedHlsTarContainer {
         val dataOffset: Long,
         val size: Long,
         // Qt writes QByteArray::toHex(), therefore this is a CBOR byte string.
+        @ByteString
+        val sha256: ByteArray
+    )
+
+    /**
+     * Android builds before the Qt-compatible writer used the default
+     * kotlinx.serialization representation for ByteArray (a CBOR array).
+     * Keep a read-only decoder for those archives while the current writer
+     * always emits the Qt byte-string representation above.
+     */
+    @Serializable
+    private data class LegacyIndexDto(
+        val version: Int,
+        val containerLength: Long,
+        val manifestPath: String,
+        val entries: List<LegacyEntryDto>
+    )
+
+    @Serializable
+    private data class LegacyEntryDto(
+        val path: String,
+        val headerOffset: Long,
+        val dataOffset: Long,
+        val size: Long,
         val sha256: ByteArray
     )
 
@@ -135,7 +162,7 @@ object EncryptedHlsTarContainer {
         val indexSize = octal(header, 124, 12)
         require(indexSize in 1..MAX_INDEX.toLong() && indexSize <= prefix.size - BLOCK)
         val serialized = prefix.copyOfRange(BLOCK.toInt(), (BLOCK + indexSize).toInt())
-        val dto = Cbor.decodeFromByteArray<IndexDto>(serialized)
+        val dto = decodeIndex(serialized)
         require(dto.version == 1 && dto.containerLength == actualContainerLength)
         require(dto.containerLength in (BLOCK * 3)..MAX_CONTAINER)
         require(isSafePath(dto.manifestPath) && dto.manifestPath.endsWith(".m3u8s", true))
@@ -177,6 +204,28 @@ object EncryptedHlsTarContainer {
     }
 
     private fun aligned(value: Long): Long = Math.addExact(value, BLOCK - 1) / BLOCK * BLOCK
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun decodeIndex(serialized: ByteArray): IndexDto =
+        runCatching { Cbor.decodeFromByteArray<IndexDto>(serialized) }
+            .getOrElse {
+                Cbor.decodeFromByteArray<LegacyIndexDto>(serialized).let { legacy ->
+                    IndexDto(
+                        version = legacy.version,
+                        containerLength = legacy.containerLength,
+                        manifestPath = legacy.manifestPath,
+                        entries = legacy.entries.map { entry ->
+                            EntryDto(
+                                path = entry.path,
+                                headerOffset = entry.headerOffset,
+                                dataOffset = entry.dataOffset,
+                                size = entry.size,
+                                sha256 = entry.sha256
+                            )
+                        }
+                    )
+                }
+            }
 
     private fun paxPrefixSize(path: String): Long =
         if (path.toByteArray().size <= 100) 0 else BLOCK + aligned(paxPathRecord(path).size.toLong())

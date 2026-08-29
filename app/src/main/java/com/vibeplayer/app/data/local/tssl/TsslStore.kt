@@ -9,7 +9,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 /**
  * Manages local TSSL packages in application-private storage
@@ -47,7 +46,11 @@ class TsslStore @Inject constructor(
                     fileName = f.name,
                     sizeBytes = f.length(),
                     lastModifiedMillis = f.lastModified(),
-                    identifierPreview = if (validName) identifierPreview(bytes) else null,
+                    identifierPreview = if (validName) {
+                        document?.let { TsslDocument.identifierPreview(it.identifier) }
+                    } else {
+                        null
+                    },
                     isValid = validName
                 )
             }
@@ -118,16 +121,6 @@ class TsslStore @Inject constructor(
             return@withContext null
         }
         TsslDocument.toJsonBytes(document)
-    }
-
-    private fun identifierPreview(bytes: ByteArray?): String? {
-        val json = try {
-            bytes?.let { JSONObject(String(it, Charsets.UTF_8)) }
-        } catch (e: Exception) {
-            null
-        } ?: return null
-        val id = json.optString("identifier").takeIf { it.isNotEmpty() } ?: return null
-        return if (id.length <= 28) id else id.take(16) + "…" + id.takeLast(12)
     }
 
     private fun File.readBytesOrNull(): ByteArray? = runCatching { readBytes() }.getOrNull()

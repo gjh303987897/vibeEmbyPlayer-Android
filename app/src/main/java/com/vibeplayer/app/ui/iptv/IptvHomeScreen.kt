@@ -36,7 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +56,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.db.entity.IptvChannelEntity
+import com.vibeplayer.app.model.MessageTone
+import com.vibeplayer.app.ui.components.AppSnackbarHost
+import com.vibeplayer.app.ui.components.showAppSnackbar
 import com.vibeplayer.app.ui.navigation.Routes
 import kotlinx.coroutines.launch
 
@@ -77,7 +79,10 @@ fun IptvHomeScreen(
     LaunchedEffect(state.error, state.info) {
         val message = state.error ?: state.info
         if (message != null) {
-            snackbarHostState.showSnackbar(message)
+            snackbarHostState.showAppSnackbar(
+                message,
+                tone = if (state.error != null) MessageTone.ERROR else MessageTone.SUCCESS
+            )
             viewModel.clearMessages()
         }
     }
@@ -90,7 +95,7 @@ fun IptvHomeScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text(state.server?.name ?: "IPTV") },

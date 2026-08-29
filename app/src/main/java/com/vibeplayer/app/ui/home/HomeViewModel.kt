@@ -66,7 +66,10 @@ class HomeViewModel @Inject constructor(
                         libraries = libraries,
                         suggestedSeries = suggested,
                         loading = false,
-                        error = firstError?.message
+                        error = firstError?.message ?: if (
+                            firstError != null ||
+                            (continueWatching.isEmpty() && libraries.isEmpty() && suggested.isEmpty())
+                        ) "Failed to load home" else null
                     )
                 }
             }
