@@ -7,17 +7,25 @@ import com.vibeplayer.app.model.WebDavItem
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 import java.util.Base64
+import java.util.Locale
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Authenticator
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.Route
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.HttpUrl
 import org.xmlpull.v1.XmlPullParser
 
 /**
@@ -32,9 +40,15 @@ class WebDavClient @Inject constructor(
     private val clientFactory: OkHttpClientFactory
 ) {
 
-    /** Returns the client tuned for this server's TLS policy (self-signed opt-in). */
-    private fun clientFor(server: ServerConfig): OkHttpClient =
-        clientFactory.client(server.trustSelfSignedCertificate)
+    /** Returns a client tuned for TLS and the server's authentication scheme. */
+    private fun clientFor(server: ServerConfig, password: String? = null): OkHttpClient {
+        val base = clientFactory.client(server.trustSelfSignedCertificate)
+        return if (password == null) base else base.newBuilder()
+            // Basic is sent pre-emptively by [auth]. The authenticator is a
+            // fallback for WebDAV servers that challenge with RFC 7616 Digest.
+            .authenticator(DigestAuthenticator(server.username, password))
+            .build()
+    }
 
     suspend fun list(server: ServerConfig, password: String, path: String): Result<List<WebDavItem>> =
         withContext(Dispatchers.IO) {
@@ -50,9 +64,9 @@ class WebDavClient @Inject constructor(
                     .method("PROPFIND", body)
                     .header("Depth", "1")
                     .build()
-                clientFor(server).newCall(request).execute().use { response ->
+                clientFor(server, password).newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw IOException("PROPFIND HTTP ${response.code}")
-                    parseMultistatus(response.body?.bytes())
+                    parseMultistatus(response.body?.bytes(), server, url)
                 }
             }
         }
@@ -62,7 +76,7 @@ class WebDavClient @Inject constructor(
             runCatching {
                 val url = resolveUrl(server, path)
                 val request = auth(server, password).url(url).get().build()
-                clientFor(server).newCall(request).execute().use { response ->
+                clientFor(server, password).newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw IOException("GET HTTP ${response.code}")
                     response.body?.bytes() ?: throw IOException("Empty body")
                 }
@@ -84,7 +98,7 @@ class WebDavClient @Inject constructor(
                 .header("Accept-Encoding", "identity")
                 .get()
                 .build()
-            clientFor(server).newCall(request).execute().use { response ->
+            clientFor(server, password).newCall(request).execute().use { response ->
                 if (response.code != 206) throw IOException("Server did not honor byte range (HTTP ${response.code})")
                 val match = response.header("Content-Range")
                     ?.let { Regex("^bytes (\\d+)-(\\d+)/(\\d+)$").matchEntire(it) }
@@ -124,7 +138,7 @@ class WebDavClient @Inject constructor(
                 .header("Accept-Encoding", "identity")
                 .get()
                 .build()
-            clientFor(server).newCall(request).execute().use { response ->
+            clientFor(server, password).newCall(request).execute().use { response ->
                 if (response.code != 206) throw IOException("Server did not honor byte range (HTTP ${response.code})")
                 val contentRange = response.header("Content-Range")
                     ?: throw IOException("Missing Content-Range")
@@ -150,7 +164,7 @@ class WebDavClient @Inject constructor(
                     .url(url)
                     .put(bytes.toRequestBody())
                     .build()
-                clientFor(server).newCall(request).execute().use { response ->
+                clientFor(server, password).newCall(request).execute().use { response ->
                     if (!response.isSuccessful && response.code != 201 && response.code != 204) {
                         throw IOException("PUT HTTP ${response.code}")
                     }
@@ -166,7 +180,7 @@ class WebDavClient @Inject constructor(
                     .url(url)
                     .method("MKCOL", null)
                     .build()
-                clientFor(server).newCall(request).execute().use { response ->
+                clientFor(server, password).newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw IOException("MKCOL HTTP ${response.code}")
                 }
             }
@@ -189,7 +203,7 @@ class WebDavClient @Inject constructor(
         runCatching {
             val url = resolveUrl(server, path)
             val request = auth(server, password).url(url).get().build()
-            clientFor(server).newCall(request).execute().use { response ->
+            clientFor(server, password).newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("GET HTTP ${response.code}")
                 val body = response.body ?: throw IOException("Empty body")
                 if (body.contentLength() > 0) onProgress(0f)
@@ -244,7 +258,7 @@ class WebDavClient @Inject constructor(
                 }
             }
             val request = auth(server, password).url(url).put(body).build()
-            clientFor(server).newCall(request).execute().use { response ->
+            clientFor(server, password).newCall(request).execute().use { response ->
                 if (!response.isSuccessful && response.code != 201 && response.code != 204) {
                     throw IOException("PUT HTTP ${response.code}")
                 }
@@ -254,17 +268,24 @@ class WebDavClient @Inject constructor(
     }
 
     private fun auth(server: ServerConfig, password: String): Request.Builder =
-        Request.Builder().header("Authorization", basicAuth(server.username, password))
+        Request.Builder().apply {
+            if (server.username.isNotBlank() || password.isNotBlank()) {
+                header("Authorization", basicAuth(server.username, password))
+            }
+        }
 
     private fun basicAuth(user: String, password: String): String {
         val credentials = Base64.getEncoder().encodeToString("$user:$password".toByteArray(Charsets.UTF_8))
         return "Basic $credentials"
     }
 
+    /** Resolves a path beneath the configured WebDAV base URL. */
     private fun resolveUrl(server: ServerConfig, path: String): String {
-        val base = server.normalizedBaseUrl
-        val normalized = if (path.isEmpty() || path == "/") "" else "/" + path.trimStart('/')
-        return base + normalized
+        val base = server.normalizedBaseUrl.toHttpUrlOrNull()
+            ?: throw IOException("Invalid WebDAV URL")
+        val relative = path.trim().trim('/')
+        if (relative.isEmpty()) return base.toString()
+        return base.newBuilder().addPathSegments(relative).build().toString()
     }
 
     private fun resolveDirectoryUrl(server: ServerConfig, path: String): String {
@@ -272,9 +293,15 @@ class WebDavClient @Inject constructor(
         return if (url.endsWith('/')) url else "$url/"
     }
 
-    /** Parses a PROPFIND multistatus XML response into a list of WebDavItem. */
-    private fun parseMultistatus(bytes: ByteArray?): List<WebDavItem> {
+    /** Parses a PROPFIND multistatus XML response into paths relative to the service base. */
+    private fun parseMultistatus(
+        bytes: ByteArray?,
+        server: ServerConfig,
+        requestUrl: String
+    ): List<WebDavItem> {
         if (bytes == null) return emptyList()
+        val baseUrl = server.normalizedBaseUrl.toHttpUrlOrNull() ?: return emptyList()
+        val currentUrl = requestUrl.toHttpUrlOrNull() ?: return emptyList()
         val items = mutableListOf<WebDavItem>()
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
@@ -306,16 +333,23 @@ class WebDavClient @Inject constructor(
                 XmlPullParser.END_TAG -> {
                     val tag = parser.name ?: ""
                     if (tag == "response" && inResponse) {
-                        val path = WebDavItem.decodePath(href ?: "")
-                        val displayName = name?.takeIf { it.isNotBlank() } ?: path.substringAfterLast('/')
-                        items += WebDavItem(
-                            name = displayName,
-                            path = path,
-                            isDirectory = isCollection,
-                            size = size,
-                            contentType = contentType,
-                            modifiedAt = modified
-                        )
+                        val itemUrl = currentUrl.resolve(href?.trim().orEmpty())
+                        if (itemUrl != null && sameAuthority(baseUrl, itemUrl) &&
+                            itemUrl.encodedPath.trimEnd('/') != currentUrl.encodedPath.trimEnd('/')) {
+                            val path = relativePath(baseUrl, itemUrl)
+                            if (path != null) {
+                                val displayName = name?.trim()?.takeIf { it.isNotBlank() }
+                                    ?: itemUrl.pathSegments.lastOrNull { it.isNotEmpty() }.orEmpty()
+                                items += WebDavItem(
+                                    name = displayName,
+                                    path = path,
+                                    isDirectory = isCollection,
+                                    size = size,
+                                    contentType = contentType,
+                                    modifiedAt = modified
+                                )
+                            }
+                        }
                         inResponse = false
                     }
                 }
@@ -323,6 +357,116 @@ class WebDavClient @Inject constructor(
             eventType = parser.next()
         }
         return items
+    }
+
+    private fun sameAuthority(base: HttpUrl, item: HttpUrl): Boolean =
+        base.scheme.equals(item.scheme, ignoreCase = true) &&
+            base.host.equals(item.host, ignoreCase = true) && base.port == item.port
+
+    /** Returns a decoded path relative to the configured service base path. */
+    private fun relativePath(base: HttpUrl, item: HttpUrl): String? {
+        val basePath = base.encodedPath.trimEnd('/')
+        val itemPath = item.encodedPath.trimEnd('/')
+        val relativeEncoded = if (basePath.isEmpty()) {
+            itemPath.trimStart('/')
+        } else {
+            when {
+                itemPath == basePath -> ""
+                itemPath.startsWith("$basePath/") -> itemPath.removePrefix("$basePath/")
+                else -> return null
+            }
+        }
+        return relativeEncoded.split('/').filter { it.isNotEmpty() }
+            .joinToString("/") { android.net.Uri.decode(it) }
+    }
+
+    /** Handles RFC 7616 Digest challenges while retaining pre-emptive Basic auth. */
+    private class DigestAuthenticator(
+        private val username: String,
+        private val password: String
+    ) : Authenticator {
+        private val nonceCounts = mutableMapOf<String, Int>()
+
+        override fun authenticate(route: Route?, response: Response): Request? {
+            if (response.code != 401 || username.isBlank() ||
+                response.request.header("Authorization")?.startsWith("Digest ") == true ||
+                responseCount(response) >= 3
+            ) return null
+            val challenge = response.headers("WWW-Authenticate")
+                .firstOrNull { it.trimStart().startsWith("Digest", ignoreCase = true) }
+                ?: return null
+            val values = parseChallenge(challenge)
+            val realm = values["realm"] ?: return null
+            val nonce = values["nonce"] ?: return null
+            val algorithm = values["algorithm"]?.uppercase(Locale.US) ?: "MD5"
+            val qop = values["qop"]?.split(',')?.map { it.trim().lowercase(Locale.US) }
+                ?.firstOrNull { it == "auth" }
+            if (values["qop"] != null && qop == null) return null
+            val hashAlgorithm = when {
+                algorithm.startsWith("SHA-256") -> "SHA-256"
+                algorithm.startsWith("MD5") -> "MD5"
+                else -> return null
+            }
+            val cnonce = UUID.randomUUID().toString().replace("-", "")
+            val nonceCount = synchronized(nonceCounts) {
+                val next = (nonceCounts[nonce] ?: 0) + 1
+                nonceCounts[nonce] = next
+                "%08x".format(Locale.US, next)
+            }
+            val uri = response.request.url.encodedPath +
+                response.request.url.encodedQuery?.let { "?$it" }.orEmpty()
+            var ha1 = digest(hashAlgorithm, "$username:$realm:$password")
+            if (algorithm.endsWith("-SESS")) {
+                ha1 = digest(hashAlgorithm, "$ha1:$nonce:$cnonce")
+            }
+            val ha2 = digest(hashAlgorithm, "${response.request.method}:$uri")
+            val responseDigest = if (qop == null) {
+                digest(hashAlgorithm, "$ha1:$nonce:$ha2")
+            } else {
+                digest(hashAlgorithm, "$ha1:$nonce:$nonceCount:$cnonce:$qop:$ha2")
+            }
+            val header = buildString {
+                append("Digest username=\"").append(escape(username)).append("\"")
+                append(", realm=\"").append(escape(realm)).append("\"")
+                append(", nonce=\"").append(escape(nonce)).append("\"")
+                append(", uri=\"").append(escape(uri)).append("\"")
+                append(", response=\"").append(responseDigest).append("\"")
+                if (values["algorithm"] != null) append(", algorithm=").append(algorithm)
+                if (qop != null) {
+                    append(", qop=").append(qop)
+                    append(", nc=").append(nonceCount)
+                    append(", cnonce=\"").append(cnonce).append("\"")
+                }
+                values["opaque"]?.let { append(", opaque=\"").append(escape(it)).append("\"") }
+            }
+            return response.request.newBuilder().header("Authorization", header).build()
+        }
+
+        private fun parseChallenge(header: String): Map<String, String> {
+            val body = header.substringAfter(' ', "")
+            val regex = Regex("""([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:\"([^\"]*)\"|([^,\s]+))""")
+            return regex.findAll(body).associate { match ->
+                match.groupValues[1].lowercase(Locale.US) to
+                    (match.groupValues[2].ifEmpty { match.groupValues[3] })
+            }
+        }
+
+        private fun digest(algorithm: String, value: String): String =
+            MessageDigest.getInstance(algorithm).digest(value.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(Locale.US, it.toInt() and 0xff) }
+
+        private fun escape(value: String): String =
+            value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+        private fun responseCount(response: Response): Int {
+            var count = 1
+            var prior = response.priorResponse
+            while (prior != null) {
+                count++
+                prior = prior.priorResponse
+            }
+            return count
+        }
     }
 
     companion object {

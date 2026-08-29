@@ -100,7 +100,12 @@ fun WebDavBrowseScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            if (uiState.path.isEmpty()) navController.popBackStack()
+                            if (uiState.path.isEmpty()) {
+                                // navigateUp handles nested graphs and restored
+                                // state more reliably than a raw pop on some
+                                // Android navigation versions.
+                                if (!navController.navigateUp()) navController.popBackStack()
+                            }
                             else viewModel.goUp()
                         }
                     ) {
@@ -142,8 +147,13 @@ fun WebDavBrowseScreen(
             }
             else -> {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(8.dp)
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // Scaffold's top bar is outside the content slot. Not
+                        // applying this inset caused the first rows to render
+                        // underneath the app bar and appear clipped/hidden.
+                        .padding(innerPadding),
+                    contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 16.dp)
                 ) {
                     items(uiState.items, key = { it.path }) { item ->
                         WebDavRow(

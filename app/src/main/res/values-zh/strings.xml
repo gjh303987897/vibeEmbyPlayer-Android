@@ -134,6 +134,7 @@
     <string name="tssl_packages_hint">TSSL 包包含加密媒体密钥，属于机密信息，请谨慎处理。</string>
     <string name="tssl_no_packages">尚未存储 TSSL 包</string>
     <string name="tssl_no_webdav_target">未配置 WebDAV 目标</string>
+    <string name="tssl_select_webdav">选择 WebDAV 服务</string>
     <string name="tssl_packaging_hls">正在打包 HLS</string>
     <string name="tssl_import_restore">导入/恢复</string>
     <string name="tssl_package_hls_folder">打包 HLS 文件夹</string>

@@ -94,7 +94,7 @@ fun WebDavPlayerScreen(
         PlaybackStatusOverlay(
             buffering = state.buffering,
             error = state.error,
-            onBack = { navController.popBackStack() },
+            onBack = { if (!navController.navigateUp()) navController.popBackStack() },
             modifier = Modifier
                 .align(Alignment.Center)
                 .graphicsLayer { alpha = if (controlsVisible) 1f else 0.5f }
@@ -104,7 +104,7 @@ fun WebDavPlayerScreen(
             WebDavTopBar(
                 title = state.title,
                 subtitle = state.subtitle,
-                onBack = { navController.popBackStack() },
+                onBack = { if (!navController.navigateUp()) navController.popBackStack() },
                 actions = {
                     PlayerExtraActions(
                         fullscreen = fullscreen,

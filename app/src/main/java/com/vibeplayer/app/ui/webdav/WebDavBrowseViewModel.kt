@@ -14,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +44,8 @@ class WebDavBrowseViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(WebDavUiState())
     val uiState: StateFlow<WebDavUiState> = _uiState.asStateFlow()
+    private var browseJob: Job? = null
+    private var browseRequestId = 0L
 
     fun load(serverId: String) {
         viewModelScope.launch {
@@ -72,14 +75,22 @@ class WebDavBrowseViewModel @Inject constructor(
     }
 
     private fun browse(server: ServerConfig, path: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, error = null) }
+        browseJob?.cancel()
+        val requestId = ++browseRequestId
+        browseJob = viewModelScope.launch {
+            // Clear stale rows immediately. Keeping the previous directory on
+            // screen made a failed child PROPFIND look like a frozen navigation.
+            _uiState.update { it.copy(path = path, items = emptyList(), loading = true, error = null) }
             webDavRepository.list(server, path).fold(
                 onSuccess = { items ->
-                    _uiState.update { it.copy(path = path, items = items, loading = false) }
+                    if (requestId == browseRequestId) {
+                        _uiState.update { it.copy(path = path, items = items, loading = false) }
+                    }
                 },
                 onFailure = { e ->
-                    _uiState.update { it.copy(loading = false, error = e.message) }
+                    if (requestId == browseRequestId) {
+                        _uiState.update { it.copy(loading = false, error = e.message ?: "WebDAV request failed") }
+                    }
                 }
             )
         }

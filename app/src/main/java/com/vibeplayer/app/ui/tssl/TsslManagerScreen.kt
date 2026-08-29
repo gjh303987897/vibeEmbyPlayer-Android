@@ -9,12 +9,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
@@ -26,8 +32,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +39,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -48,14 +53,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
@@ -273,7 +284,14 @@ private fun TsslBackupSettingsCard(
     onBackup: () -> Unit,
     onRestore: () -> Unit
 ) {
-    var serviceMenuExpanded by remember { mutableStateOf(false) }
+    var showServicePicker by remember { mutableStateOf(false) }
+    var webDavPathFocused by remember { mutableStateOf(false) }
+    var webDavPathDraft by rememberSaveable { mutableStateOf(settings.webDavPath) }
+    androidx.compose.runtime.LaunchedEffect(settings.webDavPath) {
+        if (!webDavPathFocused && webDavPathDraft != settings.webDavPath) {
+            webDavPathDraft = settings.webDavPath
+        }
+    }
     val busy = backupBusy || restoring
     val targetOptions = listOf("none", "webdav", "s3")
     val targetLabels = listOf(
@@ -312,115 +330,65 @@ private fun TsslBackupSettingsCard(
             when (settings.target) {
                 "webdav" -> {
                     OutlinedButton(
-                        onClick = { serviceMenuExpanded = true },
+                        onClick = { showServicePicker = true },
                         enabled = webDavTargets.isNotEmpty() && !busy,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(selectedService?.name ?: stringResource(R.string.tssl_no_webdav_target))
                     }
-                    DropdownMenu(
-                        expanded = serviceMenuExpanded,
-                        onDismissRequest = { serviceMenuExpanded = false }
-                    ) {
-                        webDavTargets.forEach { service ->
-                            DropdownMenuItem(
-                                text = { Text(service.name) },
-                                onClick = {
-                                    onWebDavServiceChange(service.id)
-                                    serviceMenuExpanded = false
-                                }
-                            )
-                        }
-                    }
                     OutlinedTextField(
-                        value = settings.webDavPath,
-                        onValueChange = onWebDavPathChange,
+                        value = webDavPathDraft,
+                        onValueChange = {
+                            webDavPathDraft = it
+                            onWebDavPathChange(it)
+                        },
                         label = { Text(stringResource(R.string.tssl_backup_remote_path)) },
                         singleLine = true,
                         enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().onFocusChanged { webDavPathFocused = it.isFocused }
                     )
                 }
                 "s3" -> {
-                    OutlinedTextField(
-                        value = settings.s3Endpoint,
-                        onValueChange = onS3EndpointChange,
-                        label = { Text(stringResource(R.string.tssl_s3_endpoint)) },
-                        singleLine = true,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = settings.s3Bucket,
-                        onValueChange = onS3BucketChange,
-                        label = { Text(stringResource(R.string.tssl_s3_bucket)) },
-                        singleLine = true,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    OutlinedTextField(value = settings.s3Endpoint, onValueChange = onS3EndpointChange,
+                        label = { Text(stringResource(R.string.tssl_s3_endpoint)) }, singleLine = true,
+                        enabled = !busy, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = settings.s3Bucket, onValueChange = onS3BucketChange,
+                        label = { Text(stringResource(R.string.tssl_s3_bucket)) }, singleLine = true,
+                        enabled = !busy, modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedTextField(
-                            value = settings.s3Region,
-                            onValueChange = onS3RegionChange,
-                            label = { Text(stringResource(R.string.tssl_s3_region)) },
-                            singleLine = true,
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = settings.s3Prefix,
-                            onValueChange = onS3PrefixChange,
-                            label = { Text(stringResource(R.string.tssl_s3_prefix)) },
-                            singleLine = true,
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f)
-                        )
+                        OutlinedTextField(value = settings.s3Region, onValueChange = onS3RegionChange,
+                            label = { Text(stringResource(R.string.tssl_s3_region)) }, singleLine = true,
+                            enabled = !busy, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = settings.s3Prefix, onValueChange = onS3PrefixChange,
+                            label = { Text(stringResource(R.string.tssl_s3_prefix)) }, singleLine = true,
+                            enabled = !busy, modifier = Modifier.weight(1f))
                     }
-                    OutlinedTextField(
-                        value = settings.s3AccessKey,
-                        onValueChange = onS3AccessKeyChange,
-                        label = { Text(stringResource(R.string.tssl_s3_access_key)) },
-                        singleLine = true,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    OutlinedTextField(value = settings.s3AccessKey, onValueChange = onS3AccessKeyChange,
+                        label = { Text(stringResource(R.string.tssl_s3_access_key)) }, singleLine = true,
+                        enabled = !busy, modifier = Modifier.fillMaxWidth())
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        OutlinedTextField(
-                            value = s3SecretDraft,
-                            onValueChange = onSecretDraftChange,
-                            label = { Text(stringResource(R.string.tssl_s3_secret)) },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f)
-                        )
+                        OutlinedTextField(value = s3SecretDraft, onValueChange = onSecretDraftChange,
+                            label = { Text(stringResource(R.string.tssl_s3_secret)) }, singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(), enabled = !busy,
+                            modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))
                         TextButton(onClick = onSaveSecret, enabled = !busy && (s3SecretDraft.isNotBlank() || s3SecretConfigured)) {
                             Text(stringResource(R.string.tssl_save_secret))
                         }
                     }
                     if (s3SecretConfigured) {
-                        Text(
-                            stringResource(R.string.tssl_s3_secret_saved),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Text(stringResource(R.string.tssl_s3_secret_saved), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary)
                     }
-                    TsslSwitchRow(
-                        label = stringResource(R.string.tssl_backup_trust_self_signed),
-                        checked = settings.trustSelfSignedCertificate,
-                        enabled = !busy,
-                        onCheckedChange = onTrustSelfSignedChange
-                    )
+                    TsslSwitchRow(label = stringResource(R.string.tssl_backup_trust_self_signed),
+                        checked = settings.trustSelfSignedCertificate, enabled = !busy,
+                        onCheckedChange = onTrustSelfSignedChange)
                 }
             }
 
             if (backupBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            restoreProgress?.let {
-                LinearProgressIndicator(
-                    progress = { it.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            restoreProgress?.let { progress ->
+                LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = onBackup, enabled = !busy && settings.target != "none", modifier = Modifier.weight(1f)) {
@@ -431,6 +399,18 @@ private fun TsslBackupSettingsCard(
                 }
             }
         }
+    }
+
+    if (showServicePicker) {
+        WebDavServicePickerDialog(
+            targets = webDavTargets,
+            selectedId = selectedService?.id,
+            onDismiss = { showServicePicker = false },
+            onSelect = { service ->
+                onWebDavServiceChange(service.id)
+                showServicePicker = false
+            }
+        )
     }
 }
 
@@ -502,29 +482,126 @@ private fun BackupTargetDialog(
         )
         return
     }
-    var expanded by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf(targets.first()) }
-    AlertDialog(
+    var selectedId by remember(targets) { mutableStateOf(targets.first().id) }
+    val selected = targets.firstOrNull { it.id == selectedId } ?: targets.first()
+    WebDavServicePickerDialog(
+        targets = targets,
+        selectedId = selected.id,
+        title = stringResource(R.string.tssl_backup_to_webdav),
+        confirmLabel = stringResource(R.string.tssl_backup),
+        onDismiss = onDismiss,
+        onSelect = { selectedId = it.id },
+        onConfirm = { onConfirm(selected) }
+    )
+}
+
+/**
+ * Centered WebDAV service picker used by both settings and one-off backup.
+ * DropdownMenu is positioned relative to the dialog's window and can appear
+ * detached on edge-to-edge/cutout devices; a bounded dialog keeps the list
+ * centered, scrollable and visually consistent instead.
+ */
+@Composable
+private fun WebDavServicePickerDialog(
+    targets: List<ServerConfig>,
+    selectedId: String?,
+    onDismiss: () -> Unit,
+    onSelect: (ServerConfig) -> Unit,
+    title: String = stringResource(R.string.tssl_select_webdav),
+    confirmLabel: String? = null,
+    onConfirm: (() -> Unit)? = null
+) {
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.tssl_backup_to_webdav)) },
-        text = {
-            Column {
-                OutlinedButton(onClick = { expanded = true }) {
-                    Text(selected.name)
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 560.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Cloud,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(title, style = MaterialTheme.typography.titleLarge)
                 }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    targets.forEach { t ->
-                        DropdownMenuItem(
-                            text = { Text(t.name) },
-                            onClick = { selected = t; expanded = false }
-                        )
+                Spacer(Modifier.height(1.dp))
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                        .padding(top = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(targets, key = { it.id }) { service ->
+                        val selected = service.id == selectedId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                    shape = RoundedCornerShape(18.dp)
+                                )
+                                .clickable { onSelect(service) }
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Cloud,
+                                contentDescription = null,
+                                tint = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Column(
+                                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                            ) {
+                                Text(
+                                    service.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    service.baseUrl,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            RadioButton(selected = selected, onClick = { onSelect(service) })
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    if (confirmLabel != null && onConfirm != null) {
+                        TextButton(onClick = onConfirm) { Text(confirmLabel) }
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(selected) }) { Text(stringResource(R.string.tssl_backup)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
-    )
+        }
+    }
 }
 
 @Composable

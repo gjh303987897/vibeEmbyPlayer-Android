@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -77,6 +78,12 @@ fun VibePlayerNavHost(
     val isTopLevel = TopLevelDestination.entries.any { it.route == currentDestination?.route }
 
     Scaffold(
+        // Child screens own their top app bars and therefore their status-bar
+        // insets. Passing the default safe-drawing inset here as well would
+        // apply the top inset twice on edge-to-edge devices (especially
+        // cutout/notched screens), leaving a large blank strip above content.
+        // The NavigationBar still contributes its measured height below.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (isTopLevel) {
                 NavigationBar {
