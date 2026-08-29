@@ -37,21 +37,21 @@ fun PlayerFullscreenEffect(fullscreen: Boolean) {
         val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         if (fullscreen) {
             // Video fullscreen is intentionally landscape. Resetting to
-            // UNSPECIFIED on exit gives the user's automatic rotation setting
-            // control again.
+            // PORTRAIT on exit makes the fullscreen button deterministic even
+            // when the device is held sideways or automatic rotation is on.
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
         } else {
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
         onDispose {
             // Navigation away must never leave the rest of the app in immersive mode.
             controller.show(WindowInsetsCompat.Type.systemBars())
             if (fullscreen) {
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
         }
     }
