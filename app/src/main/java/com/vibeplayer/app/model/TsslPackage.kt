@@ -11,5 +11,7 @@ data class TsslPackage(
     val sizeBytes: Long,
     val lastModifiedMillis: Long,
     /** Short identifier preview (first 16 + last 12 characters), when parseable. */
-    val identifierPreview: String? = null
+    val identifierPreview: String? = null,
+    /** False for files that are present locally but fail TSSL validation. */
+    val isValid: Boolean = identifierPreview != null
 )

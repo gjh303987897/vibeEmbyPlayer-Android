@@ -31,14 +31,19 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,11 +53,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
+import com.vibeplayer.app.data.local.datastore.TsslBackupSettings
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.TsslPackage
 
@@ -67,6 +74,7 @@ fun TsslManagerScreen(
 
     var exportTarget by remember { mutableStateOf<TsslPackage?>(null) }
     var backupTarget by remember { mutableStateOf<TsslPackage?>(null) }
+    var s3SecretDraft by remember { mutableStateOf("") }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -171,6 +179,34 @@ fun TsslManagerScreen(
                 }
             }
 
+            item {
+                TsslBackupSettingsCard(
+                    settings = state.backupSettings,
+                    webDavTargets = state.webDavTargets,
+                    s3SecretConfigured = state.s3SecretConfigured,
+                    backupBusy = state.backupBusy,
+                    restoring = state.restoring,
+                    restoreProgress = state.restoreProgress,
+                    s3SecretDraft = s3SecretDraft,
+                    onSecretDraftChange = { s3SecretDraft = it },
+                    onTargetChange = viewModel::setBackupTarget,
+                    onWebDavServiceChange = viewModel::setWebDavServiceId,
+                    onWebDavPathChange = viewModel::setWebDavPath,
+                    onS3EndpointChange = viewModel::setS3Endpoint,
+                    onS3BucketChange = viewModel::setS3Bucket,
+                    onS3RegionChange = viewModel::setS3Region,
+                    onS3PrefixChange = viewModel::setS3Prefix,
+                    onS3AccessKeyChange = viewModel::setS3AccessKey,
+                    onTrustSelfSignedChange = viewModel::setTrustSelfSigned,
+                    onSaveSecret = {
+                        viewModel.saveS3Secret(s3SecretDraft)
+                        s3SecretDraft = ""
+                    },
+                    onBackup = viewModel::backupAll,
+                    onRestore = viewModel::restoreBackup
+                )
+            }
+
             if (state.packages.isEmpty()) {
                 item {
                     Text(
@@ -211,6 +247,207 @@ fun TsslManagerScreen(
                 backupTarget = null
             }
         )
+    }
+}
+
+@Composable
+private fun TsslBackupSettingsCard(
+    settings: TsslBackupSettings,
+    webDavTargets: List<ServerConfig>,
+    s3SecretConfigured: Boolean,
+    backupBusy: Boolean,
+    restoring: Boolean,
+    restoreProgress: Float?,
+    s3SecretDraft: String,
+    onSecretDraftChange: (String) -> Unit,
+    onTargetChange: (String) -> Unit,
+    onWebDavServiceChange: (String) -> Unit,
+    onWebDavPathChange: (String) -> Unit,
+    onS3EndpointChange: (String) -> Unit,
+    onS3BucketChange: (String) -> Unit,
+    onS3RegionChange: (String) -> Unit,
+    onS3PrefixChange: (String) -> Unit,
+    onS3AccessKeyChange: (String) -> Unit,
+    onTrustSelfSignedChange: (Boolean) -> Unit,
+    onSaveSecret: () -> Unit,
+    onBackup: () -> Unit,
+    onRestore: () -> Unit
+) {
+    var serviceMenuExpanded by remember { mutableStateOf(false) }
+    val busy = backupBusy || restoring
+    val targetOptions = listOf("none", "webdav", "s3")
+    val targetLabels = listOf(
+        stringResource(R.string.tssl_backup_target_none),
+        stringResource(R.string.tssl_backup_target_webdav),
+        stringResource(R.string.tssl_backup_target_s3)
+    )
+    val selectedService = webDavTargets.firstOrNull { it.id == settings.webDavServiceId }
+        ?: webDavTargets.firstOrNull()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(stringResource(R.string.tssl_backup_settings), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.tssl_backup_settings_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                targetOptions.forEachIndexed { index, option ->
+                    SegmentedButton(
+                        selected = settings.target == option,
+                        onClick = { onTargetChange(option) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = targetOptions.size),
+                        label = { Text(targetLabels[index], maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    )
+                }
+            }
+
+            when (settings.target) {
+                "webdav" -> {
+                    OutlinedButton(
+                        onClick = { serviceMenuExpanded = true },
+                        enabled = webDavTargets.isNotEmpty() && !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(selectedService?.name ?: stringResource(R.string.tssl_no_webdav_target))
+                    }
+                    DropdownMenu(
+                        expanded = serviceMenuExpanded,
+                        onDismissRequest = { serviceMenuExpanded = false }
+                    ) {
+                        webDavTargets.forEach { service ->
+                            DropdownMenuItem(
+                                text = { Text(service.name) },
+                                onClick = {
+                                    onWebDavServiceChange(service.id)
+                                    serviceMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = settings.webDavPath,
+                        onValueChange = onWebDavPathChange,
+                        label = { Text(stringResource(R.string.tssl_backup_remote_path)) },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                "s3" -> {
+                    OutlinedTextField(
+                        value = settings.s3Endpoint,
+                        onValueChange = onS3EndpointChange,
+                        label = { Text(stringResource(R.string.tssl_s3_endpoint)) },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = settings.s3Bucket,
+                        onValueChange = onS3BucketChange,
+                        label = { Text(stringResource(R.string.tssl_s3_bucket)) },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = settings.s3Region,
+                            onValueChange = onS3RegionChange,
+                            label = { Text(stringResource(R.string.tssl_s3_region)) },
+                            singleLine = true,
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = settings.s3Prefix,
+                            onValueChange = onS3PrefixChange,
+                            label = { Text(stringResource(R.string.tssl_s3_prefix)) },
+                            singleLine = true,
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    OutlinedTextField(
+                        value = settings.s3AccessKey,
+                        onValueChange = onS3AccessKeyChange,
+                        label = { Text(stringResource(R.string.tssl_s3_access_key)) },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = s3SecretDraft,
+                            onValueChange = onSecretDraftChange,
+                            label = { Text(stringResource(R.string.tssl_s3_secret)) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = onSaveSecret, enabled = !busy && (s3SecretDraft.isNotBlank() || s3SecretConfigured)) {
+                            Text(stringResource(R.string.tssl_save_secret))
+                        }
+                    }
+                    if (s3SecretConfigured) {
+                        Text(
+                            stringResource(R.string.tssl_s3_secret_saved),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    TsslSwitchRow(
+                        label = stringResource(R.string.tssl_backup_trust_self_signed),
+                        checked = settings.trustSelfSignedCertificate,
+                        enabled = !busy,
+                        onCheckedChange = onTrustSelfSignedChange
+                    )
+                }
+            }
+
+            if (backupBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            restoreProgress?.let {
+                LinearProgressIndicator(
+                    progress = { it.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = onBackup, enabled = !busy && settings.target != "none", modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.tssl_backup_all))
+                }
+                OutlinedButton(onClick = onRestore, enabled = !busy && settings.target != "none", modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.tssl_restore_backup))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TsslSwitchRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

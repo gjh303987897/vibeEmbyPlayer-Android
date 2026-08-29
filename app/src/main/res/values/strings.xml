@@ -140,6 +140,23 @@
     <string name="tssl_webdav_target_help">Add a WebDAV service first to use it as a backup target.</string>
     <string name="tssl_backup_to_webdav">Back up to WebDAV</string>
     <string name="tssl_backup">Backup</string>
+    <string name="tssl_backup_settings">Remote TSSL backup</string>
+    <string name="tssl_backup_settings_hint">Back up validated TSSL packages or restore them from a WebDAV folder or S3-compatible bucket.</string>
+    <string name="tssl_backup_target_none">None</string>
+    <string name="tssl_backup_target_webdav">WebDAV</string>
+    <string name="tssl_backup_target_s3">S3</string>
+    <string name="tssl_backup_remote_path">Remote folder</string>
+    <string name="tssl_backup_trust_self_signed">Trust self-signed certificate</string>
+    <string name="tssl_s3_endpoint">S3 endpoint (https://...)</string>
+    <string name="tssl_s3_bucket">Bucket</string>
+    <string name="tssl_s3_region">Region</string>
+    <string name="tssl_s3_prefix">Object prefix</string>
+    <string name="tssl_s3_access_key">Access key</string>
+    <string name="tssl_s3_secret">Secret key</string>
+    <string name="tssl_s3_secret_saved">S3 secret key is securely stored.</string>
+    <string name="tssl_save_secret">Save secret</string>
+    <string name="tssl_backup_all">Back up all</string>
+    <string name="tssl_restore_backup">Restore remote</string>
     <string name="tssl_encrypting">Encrypting media segments and building the TSSL package. This can take a while for large sources.</string>
 
     <!-- WebDAV -->

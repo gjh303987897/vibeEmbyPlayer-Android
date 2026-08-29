@@ -25,6 +25,12 @@ class TsslStore @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
 
+    sealed class RestoreResult {
+        data class Stored(val fileName: String) : RestoreResult()
+        data class AlreadyExists(val fileName: String) : RestoreResult()
+        data class Invalid(val reason: String = "Invalid TSSL package") : RestoreResult()
+    }
+
     private val tsslDir: File
         get() = File(context.filesDir, TSSL_DIR)
 
@@ -41,7 +47,8 @@ class TsslStore @Inject constructor(
                     fileName = f.name,
                     sizeBytes = f.length(),
                     lastModifiedMillis = f.lastModified(),
-                    identifierPreview = if (validName) identifierPreview(bytes) else null
+                    identifierPreview = if (validName) identifierPreview(bytes) else null,
+                    isValid = validName
                 )
             }
             ?.sortedBy { it.fileName }
@@ -58,13 +65,31 @@ class TsslStore @Inject constructor(
      * Returns the stored filename, or null when the document is invalid.
      */
     suspend fun import(bytes: ByteArray): String? = withContext(Dispatchers.IO) {
-        if (bytes.isEmpty() || bytes.size > MAX_TSSL_BYTES) return@withContext null
-        val document = TsslDocument.parse(bytes) ?: return@withContext null
+        when (val result = restore(bytes)) {
+            is RestoreResult.Stored -> result.fileName
+            is RestoreResult.AlreadyExists,
+            is RestoreResult.Invalid -> null
+        }
+    }
+
+    /**
+     * Validates and restores a package without replacing an existing digest.
+     * The result distinguishes duplicate backups from malformed files so the
+     * remote restore summary can match the desktop implementation.
+     */
+    suspend fun restore(bytes: ByteArray): RestoreResult = withContext(Dispatchers.IO) {
+        if (bytes.isEmpty() || bytes.size > MAX_TSSL_BYTES) {
+            return@withContext RestoreResult.Invalid("TSSL package is empty or too large")
+        }
+        val document = TsslDocument.parse(bytes)
+            ?: return@withContext RestoreResult.Invalid()
         val dir = tsslDir
-        if (!dir.exists() && !dir.mkdirs()) return@withContext null
+        if (!dir.exists() && !dir.mkdirs()) {
+            return@withContext RestoreResult.Invalid("Unable to create local TSSL storage")
+        }
         val name = document.rootManifestSha256.lowercase() + TSSL_EXT
         val target = File(dir, name)
-        if (target.exists()) return@withContext null
+        if (target.exists()) return@withContext RestoreResult.AlreadyExists(name)
         val written = runCatching {
             val tmp = File(dir, name + ".tmp")
             tmp.writeBytes(bytes)
@@ -75,7 +100,9 @@ class TsslStore @Inject constructor(
             }
             target.isFile
         }.getOrDefault(false)
-        return@withContext if (written) name else null
+        if (written) RestoreResult.Stored(name)
+        else if (target.exists()) RestoreResult.AlreadyExists(name)
+        else RestoreResult.Invalid("Unable to save local TSSL package")
     }
 
     suspend fun delete(fileName: String): Boolean = withContext(Dispatchers.IO) {

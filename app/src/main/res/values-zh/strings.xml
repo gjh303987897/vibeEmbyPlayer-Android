@@ -168,4 +168,21 @@
     <string name="player_error_format">本机不支持该视频格式或编码。</string>
     <string name="player_error_timeout">加载超时，请重试。</string>
     <string name="save_password_failed">无法安全保存密码，下次进入仍需输入。</string>
+    <string name="tssl_backup_settings">TSSL 远程备份</string>
+    <string name="tssl_backup_settings_hint">将已验证的 TSSL 包备份到 WebDAV 文件夹或 S3 兼容存储，也可从远程位置恢复。</string>
+    <string name="tssl_backup_target_none">无</string>
+    <string name="tssl_backup_target_webdav">WebDAV</string>
+    <string name="tssl_backup_target_s3">S3</string>
+    <string name="tssl_backup_remote_path">远程文件夹</string>
+    <string name="tssl_backup_trust_self_signed">信任自签发证书</string>
+    <string name="tssl_s3_endpoint">S3 端点（https://...）</string>
+    <string name="tssl_s3_bucket">Bucket</string>
+    <string name="tssl_s3_region">区域</string>
+    <string name="tssl_s3_prefix">对象前缀</string>
+    <string name="tssl_s3_access_key">Access key</string>
+    <string name="tssl_s3_secret">Secret key</string>
+    <string name="tssl_s3_secret_saved">S3 密钥已安全保存。</string>
+    <string name="tssl_save_secret">保存密钥</string>
+    <string name="tssl_backup_all">备份全部</string>
+    <string name="tssl_restore_backup">恢复远端备份</string>
 </resources>
