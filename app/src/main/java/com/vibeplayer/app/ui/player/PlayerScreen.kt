@@ -166,6 +166,7 @@ private fun PlayerTopBar(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .playerTopBarInsets()
             .background(Color.Black.copy(alpha = 0.5f))
             .padding(vertical = 8.dp)
             .zIndex(1f)

@@ -5,6 +5,8 @@ import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Fullscreen
@@ -20,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -56,6 +59,10 @@ fun PlayerFullscreenEffect(fullscreen: Boolean) {
         }
     }
 }
+
+/** Keeps player controls below notches, camera cutouts, and status bars. */
+fun Modifier.playerTopBarInsets(): Modifier =
+    statusBarsPadding().displayCutoutPadding()
 
 /** Shared fullscreen and audio-track actions used by every video source. */
 @Composable

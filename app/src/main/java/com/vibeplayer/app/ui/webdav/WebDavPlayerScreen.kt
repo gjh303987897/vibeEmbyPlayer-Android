@@ -48,6 +48,7 @@ import java.util.concurrent.TimeUnit
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 import com.vibeplayer.app.ui.player.PlayerExtraActions
 import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
+import com.vibeplayer.app.ui.player.playerTopBarInsets
 
 @Composable
 fun WebDavPlayerScreen(
@@ -137,6 +138,7 @@ private fun WebDavTopBar(title: String, subtitle: String, onBack: () -> Unit, ac
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .playerTopBarInsets()
             .background(Color.Black.copy(alpha = 0.5f))
             .padding(vertical = 8.dp)
             .zIndex(1f)
