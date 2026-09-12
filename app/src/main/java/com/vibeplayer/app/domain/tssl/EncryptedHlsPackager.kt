@@ -165,13 +165,19 @@ class EncryptedHlsPackager @Inject constructor(
         identifier: String,
         sourceNameBase64: String
     ): String = buildString {
+        // #EXT-X-TARGETDURATION is required by RFC 8216 for every media playlist
+        // and ExoPlayer rejects playlists without it, so it is derived from the
+        // segment durations instead of being copied from the source playlist.
+        val targetDuration = entries.maxOf { (it.duration ?: DEFAULT_SEGMENT_DURATION) }
+            .let { Math.max(1L, Math.ceil(it.toDouble()).toLong()) }
         appendLine("#EXTM3U")
         appendLine("#EXT-X-VERSION:3")
         appendLine("#EXT-X-PLAYLIST-TYPE:VOD")
+        appendLine("#EXT-X-TARGETDURATION:$targetDuration")
         appendLine("#M3U8S-IDENTIFIER:$identifier")
         appendLine("#M3U8S-SOURCE-NAME:$sourceNameBase64")
         for ((i, e) in entries.withIndex()) {
-            val duration = e.duration?.let { "%.3f".format(it) } ?: "10.000"
+            val duration = e.duration?.let { "%.3f".format(it) } ?: "%.3f".format(DEFAULT_SEGMENT_DURATION)
             appendLine("#EXTINF:$duration,")
             appendLine("segment_%06d.ts".format(i + 1))
         }
@@ -209,5 +215,8 @@ class EncryptedHlsPackager @Inject constructor(
     companion object {
         private const val OUTPUT_DIR = "encryptedHls"
         private const val SOURCE_NAME_AAD = "vibeEmbyPlayerQT/M3U8S/source-name/v1\n"
+
+        /** Duration assumed when a source playlist omits #EXTINF. */
+        private const val DEFAULT_SEGMENT_DURATION = 10.0
     }
 }

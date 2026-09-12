@@ -3,6 +3,7 @@ package com.vibeplayer.app.data.repository
 import com.vibeplayer.app.data.local.datastore.SecureSessionStore
 import com.vibeplayer.app.data.remote.webdav.WebDavClient
 import com.vibeplayer.app.data.remote.webdav.WebDavInitialRange
+import com.vibeplayer.app.data.remote.webdav.WebDavPrefix
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.WebDavItem
 import java.io.InputStream
@@ -59,6 +60,17 @@ class WebDavRepository @Inject constructor(
         val password = secureSessionStore.password(server.id)
             ?: return Result.failure(IllegalStateException("WebDAV password not set"))
         return client.downloadInitialRange(server, password, path, maximumLength)
+    }
+
+    /** Bounded leading bytes of an object; used for encrypted-HLS list metadata. */
+    suspend fun downloadPrefix(
+        server: ServerConfig,
+        path: String,
+        maximumLength: Long
+    ): Result<WebDavPrefix> {
+        val password = secureSessionStore.password(server.id)
+            ?: return Result.failure(IllegalStateException("WebDAV password not set"))
+        return client.downloadPrefix(server, password, path, maximumLength)
     }
 
     suspend fun downloadRange(

@@ -35,6 +35,12 @@ import org.xmlpull.v1.XmlPullParser
  */
 data class WebDavInitialRange(val bytes: ByteArray, val totalLength: Long, val etag: String)
 
+/**
+ * Leading bytes of a remote object and whether the whole object fits in them.
+ * Used for bounded metadata reads so a listing never transfers a large object.
+ */
+data class WebDavPrefix(val bytes: ByteArray, val totalLength: Long, val complete: Boolean)
+
 @Singleton
 class WebDavClient @Inject constructor(
     private val clientFactory: OkHttpClientFactory
@@ -114,6 +120,67 @@ class WebDavClient @Inject constructor(
                 val bytes = response.body?.bytes() ?: throw IOException("Empty range body")
                 if (bytes.size.toLong() != end + 1) throw IOException("Truncated range body")
                 WebDavInitialRange(bytes, total, etag)
+            }
+        }
+    }
+
+    /**
+     * Reads at most [maximumLength] leading bytes. A server that ignores the Range
+     * request is still accepted: the body is then capped and reported incomplete,
+     * so metadata lookups never pull a whole media object into memory.
+     */
+    suspend fun downloadPrefix(
+        server: ServerConfig,
+        password: String,
+        path: String,
+        maximumLength: Long
+    ): Result<WebDavPrefix> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(maximumLength > 0) { "Invalid prefix length" }
+            val request = auth(server, password)
+                .url(resolveUrl(server, path))
+                .header("Range", "bytes=0-${maximumLength - 1}")
+                .header("Accept-Encoding", "identity")
+                .get()
+                .build()
+            clientFor(server, password).newCall(request).execute().use { response ->
+                when (response.code) {
+                    206 -> {
+                        val match = response.header("Content-Range")
+                            ?.let { Regex("^bytes (\\d+)-(\\d+)/(\\d+)$").matchEntire(it) }
+                            ?: throw IOException("Invalid Content-Range")
+                        val start = match.groupValues[1].toLong()
+                        val end = match.groupValues[2].toLong()
+                        val total = match.groupValues[3].toLong()
+                        if (start != 0L || end < start || end >= total || end >= maximumLength) {
+                            throw IOException("Content-Range does not match prefix request")
+                        }
+                        val bytes = response.body?.bytes() ?: throw IOException("Empty prefix body")
+                        if (bytes.size.toLong() != end + 1) throw IOException("Truncated prefix body")
+                        WebDavPrefix(bytes, total, complete = total <= bytes.size)
+                    }
+                    200 -> {
+                        val declared = response.body?.contentLength() ?: -1L
+                        val bytes = response.body?.let { body ->
+                            val input = body.byteStream()
+                            val buffer = java.io.ByteArrayOutputStream(minOf(maximumLength, 64L * 1024L).toInt())
+                            val chunk = ByteArray(8 * 1024)
+                            var remaining = maximumLength
+                            while (remaining > 0) {
+                                val read = input.read(chunk, 0, minOf(remaining, chunk.size.toLong()).toInt())
+                                if (read < 0) break
+                                buffer.write(chunk, 0, read)
+                                remaining -= read
+                            }
+                            buffer.toByteArray()
+                        } ?: throw IOException("Empty prefix body")
+                        if (bytes.isEmpty()) throw IOException("Empty prefix body")
+                        val total = if (declared > 0) declared else bytes.size.toLong()
+                        WebDavPrefix(bytes, total, complete = bytes.size.toLong() < maximumLength ||
+                            (declared > 0 && declared <= maximumLength))
+                    }
+                    else -> throw IOException("GET HTTP ${response.code}")
+                }
             }
         }
     }

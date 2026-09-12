@@ -186,6 +186,7 @@
     <string name="webdav_download">Download</string>
     <string name="webdav_identifier">Identifier: %1$s</string>
     <string name="webdav_original_file_name">Original file: %1$s</string>
+    <string name="webdav_metadata_unavailable">Unavailable</string>
     <string name="webdav_password_saved">WebDAV password saved securely.</string>
     <string name="webdav_download_queued">Download added to Transfers.</string>
     <string name="webdav_folder_created">Folder created.</string>

@@ -32,6 +32,9 @@ data class EncryptedHlsTarIndex(
 
 object EncryptedHlsTarContainer {
     const val PREFIX_LIMIT = 16 * 1024 * 1024 + 512
+
+    /** TAR block size; also the size of the header that precedes the index. */
+    const val BLOCK_SIZE = 512
     private const val BLOCK = 512L
     private const val MAX_INDEX = 16 * 1024 * 1024
     private const val MAX_ENTRIES = 1_000_000
@@ -152,15 +155,29 @@ object EncryptedHlsTarContainer {
         return readIndexPrefix(prefix, outputFile.length())
     }
 
+    /**
+     * Validates only the leading 512-byte TAR header and returns the CBOR index
+     * length. Players and list rows read the index itself with a second, exact
+     * range request, so a remote container never has to be downloaded whole.
+     */
+    fun indexLength(header: ByteArray): Long {
+        require(header.size >= BLOCK) { "Incomplete M3U8SP TAR header" }
+        // The checksum covers exactly the first 512-byte block, never the range
+        // body that may follow it in a prefix read.
+        val block = header.copyOf(BLOCK_SIZE)
+        require(String(block, 257, 5, StandardCharsets.US_ASCII) == "ustar")
+        require(cString(block, 0, 100) == ".vibe/index.cbor" && block[156] == '0'.code.toByte())
+        require(validChecksum(block)) { "Invalid M3U8SP TAR header" }
+        return octal(block, 124, 12).also {
+            require(it in 1..MAX_INDEX) { "M3U8SP index has an invalid size" }
+        }
+    }
+
     @OptIn(ExperimentalSerializationApi::class)
     fun readIndexPrefix(prefix: ByteArray, actualContainerLength: Long): EncryptedHlsTarIndex {
-        require(prefix.size >= BLOCK && actualContainerLength >= BLOCK * 3) { "Incomplete M3U8SP TAR header" }
-        val header = prefix.copyOfRange(0, BLOCK.toInt())
-        require(String(header, 257, 5, StandardCharsets.US_ASCII) == "ustar")
-        require(cString(header, 0, 100) == ".vibe/index.cbor" && header[156] == '0'.code.toByte())
-        require(validChecksum(header)) { "Invalid M3U8SP TAR header" }
-        val indexSize = octal(header, 124, 12)
-        require(indexSize in 1..MAX_INDEX.toLong() && indexSize <= prefix.size - BLOCK)
+        require(actualContainerLength >= BLOCK * 3) { "Incomplete M3U8SP TAR header" }
+        val indexSize = indexLength(prefix)
+        require(indexSize <= prefix.size - BLOCK)
         val serialized = prefix.copyOfRange(BLOCK.toInt(), (BLOCK + indexSize).toInt())
         val dto = decodeIndex(serialized)
         require(dto.version == 1 && dto.containerLength == actualContainerLength)

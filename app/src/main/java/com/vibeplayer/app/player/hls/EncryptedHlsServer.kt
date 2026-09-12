@@ -12,6 +12,9 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -28,6 +31,14 @@ import kotlinx.coroutines.runBlocking
  * playlists and resources are verified against the TSSL digests.
  *
  * The server binds only to 127.0.0.1 and stops when [close] is called.
+ *
+ * Connections are served elastically. A media player keeps several loaders in
+ * flight and may also hold pooled connections that have not sent a request yet,
+ * so a small fixed thread pool is starvable: the manifest or a later segment
+ * then waits behind idle sockets and playback fails after a black screen. Every
+ * accepted socket therefore gets its own daemon thread (bounded by
+ * [MAX_CONCURRENT_CONNECTIONS]) and idle sockets are reaped by the short
+ * request-line timeout instead of occupying a worker.
  */
 class EncryptedHlsServer(
     private val document: TsslDocument,
@@ -38,6 +49,7 @@ class EncryptedHlsServer(
 
     private var serverSocket: ServerSocket? = null
     private var executor: ExecutorService? = null
+    private val openConnections = Semaphore(MAX_CONCURRENT_CONNECTIONS)
 
     val baseUrl: String
         get() = serverSocket?.let { "http://127.0.0.1:${it.localPort}/" } ?: ""
@@ -45,15 +57,25 @@ class EncryptedHlsServer(
     @Synchronized
     fun start() {
         if (serverSocket != null) return
-        val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+        val socket = ServerSocket(0, BACKLOG, InetAddress.getByName("127.0.0.1"))
         serverSocket = socket
-        val pool = Executors.newFixedThreadPool(4)
+        val pool = Executors.newCachedThreadPool(DaemonThreadFactory)
         executor = pool
         Thread {
             while (!socket.isClosed) {
                 try {
                     val client = socket.accept()
-                    pool.execute { handle(client) }
+                    if (!openConnections.tryAcquire(CONNECTION_ACQUIRE_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                        runCatching { client.close() }
+                        continue
+                    }
+                    pool.execute {
+                        try {
+                            handle(client)
+                        } finally {
+                            openConnections.release()
+                        }
+                    }
                 } catch (_: Exception) {
                     break
                 }
@@ -63,7 +85,9 @@ class EncryptedHlsServer(
 
     private fun handle(socket: Socket) {
         socket.use { s ->
-            s.soTimeout = 30_000
+            // Applies to the request line/headers only. A pooled but idle
+            // connection must not hold a worker for the whole playback session.
+            s.soTimeout = REQUEST_TIMEOUT_MS
             try {
                 val reader = BufferedReader(InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1))
                 val requestLine = reader.readLine() ?: return
@@ -87,6 +111,9 @@ class EncryptedHlsServer(
                     respond(s.getOutputStream(), 400, "text/plain", "Bad path".toByteArray())
                     return
                 }
+                // The request has been read; now allow the (potentially slow)
+                // remote package fetch to finish without dropping the player.
+                s.soTimeout = RESPONSE_TIMEOUT_MS
                 serve(s.getOutputStream(), rel, parts[0] == "HEAD", rangeHeader)
             } catch (_: Exception) {
                 try { respond(s.getOutputStream(), 500, "text/plain", "Internal Error".toByteArray()) } catch (_: Exception) {}
@@ -203,6 +230,21 @@ class EncryptedHlsServer(
         executor = null
         runCatching { serverSocket?.close() }
         serverSocket = null
+    }
+
+    private companion object {
+        const val BACKLOG = 64
+
+        /** Enough headroom for every concurrent loader/idle socket a player holds. */
+        const val MAX_CONCURRENT_CONNECTIONS = 32
+        const val CONNECTION_ACQUIRE_TIMEOUT_MS = 5_000L
+        const val REQUEST_TIMEOUT_MS = 10_000
+        const val RESPONSE_TIMEOUT_MS = 120_000
+
+        /** Daemon threads so a stalled read can never keep the process alive. */
+        val DaemonThreadFactory = ThreadFactory { runnable ->
+            Thread(runnable, "encrypted-hls-conn").apply { isDaemon = true }
+        }
     }
 }
 

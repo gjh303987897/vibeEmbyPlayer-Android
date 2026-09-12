@@ -14,6 +14,20 @@ interface SeekableHlsContainerSource {
     suspend fun read(offset: Long, length: Long): Result<ByteArray>
 }
 
+/**
+ * Reads the CBOR index with exactly two accesses: the 512-byte TAR header and
+ * the index body the header advertises. Containers are multi-gigabyte, so the
+ * previous fixed-prefix read made both listing and playback download megabytes
+ * (and time out) before showing anything.
+ */
+suspend fun SeekableHlsContainerSource.readIndex(): EncryptedHlsTarIndex {
+    val header = read(0, EncryptedHlsTarContainer.BLOCK_SIZE.toLong()).getOrThrow()
+    val indexLength = EncryptedHlsTarContainer.indexLength(header)
+    require(indexLength <= EncryptedHlsTarContainer.PREFIX_LIMIT.toLong()) { "M3U8SP index is too large" }
+    val body = read(EncryptedHlsTarContainer.BLOCK_SIZE.toLong(), indexLength).getOrThrow()
+    return EncryptedHlsTarContainer.readIndexPrefix(header + body, length)
+}
+
 class SafContainerSource(
     private val context: Context,
     treeUri: Uri,

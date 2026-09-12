@@ -154,6 +154,7 @@
     <string name="webdav_download">下载</string>
     <string name="webdav_identifier">识别码：%1$s</string>
     <string name="webdav_original_file_name">原始文件：%1$s</string>
+    <string name="webdav_metadata_unavailable">ä¸å¯ç¨</string>
 
     <!-- 播放反馈 -->
     <string name="player_loading">加载中…</string>

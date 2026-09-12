@@ -16,10 +16,14 @@ import kotlinx.coroutines.withContext
 
 /** Metadata exposed for an encrypted HLS item in a WebDAV listing. */
 data class EncryptedHlsMetadata(
-    val identifierPreview: String,
+    /** Short identifier preview, or null when the manifest could not be read. */
+    val identifierPreview: String?,
     /** Authenticated original source basename, when a matching TSSL exists. */
     val sourceFileName: String?
-)
+) {
+    /** False when even the bounded manifest read produced nothing usable. */
+    val available: Boolean get() = identifierPreview != null
+}
 
 /** Coordinates verified TSSL v2/v3 `.m3u8s` and TSSL v4 `.m3u8sp` playback. */
 @Singleton
@@ -32,13 +36,15 @@ class EncryptedHlsManager @Inject constructor(
         treeUri: Uri,
         documentId: String,
         containerLength: Long = -1
-    ): Result<EncryptedHlsPlayback> = runCatching {
-        val name = documentId.substringAfterLast('/')
-        if (name.endsWith(".m3u8sp", ignoreCase = true)) {
-            prepareContainer(SafContainerSource(context, treeUri, documentId, containerLength))
-        } else {
-            val baseDocumentId = documentId.substringBeforeLast('/', "")
-            prepareDirectory(SafHlsSource(context, treeUri, baseDocumentId), name)
+    ): Result<EncryptedHlsPlayback> = withContext(Dispatchers.IO) {
+        runCatching {
+            val name = documentId.substringAfterLast('/')
+            if (name.endsWith(".m3u8sp", ignoreCase = true)) {
+                prepareContainer(SafContainerSource(context, treeUri, documentId, containerLength))
+            } else {
+                val baseDocumentId = documentId.substringBeforeLast('/', "")
+                prepareDirectory(SafHlsSource(context, treeUri, baseDocumentId), name)
+            }
         }
     }
 
@@ -46,31 +52,39 @@ class EncryptedHlsManager @Inject constructor(
         server: ServerConfig,
         path: String,
         containerLength: Long = -1
-    ): Result<EncryptedHlsPlayback> = runCatching {
-        if (path.endsWith(".m3u8sp", ignoreCase = true)) {
-            val initial = webDavRepository.downloadInitialRange(
-                server, path, EncryptedHlsTarContainer.PREFIX_LIMIT.toLong()
-            ).getOrThrow()
-            if (containerLength > 0) require(containerLength == initial.totalLength)
-            prepareContainer(
-                WebDavContainerSource(
-                    webDavRepository, server, path, initial.totalLength,
-                    initial.etag, initial.bytes
+    ): Result<EncryptedHlsPlayback> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (path.endsWith(".m3u8sp", ignoreCase = true)) {
+                // Only the TAR header is fetched up front; the index and root
+                // manifest are read with exact ranges. Reading a fixed prefix
+                // instead made startup wait for megabytes of container data and
+                // often timed out before the player received a single frame.
+                val header = webDavRepository.downloadInitialRange(
+                    server, path, EncryptedHlsTarContainer.BLOCK_SIZE.toLong()
+                ).getOrThrow()
+                if (containerLength > 0) require(containerLength == header.totalLength)
+                prepareContainer(
+                    WebDavContainerSource(
+                        webDavRepository, server, path, header.totalLength,
+                        header.etag, header.bytes
+                    )
                 )
-            )
-        } else {
-            val basePath = path.substringBeforeLast('/', "")
-            prepareDirectory(WebDavHlsSource(webDavRepository, server, basePath), path.substringAfterLast('/'))
+            } else {
+                val basePath = path.substringBeforeLast('/', "")
+                prepareDirectory(WebDavHlsSource(webDavRepository, server, basePath), path.substringAfterLast('/'))
+            }
         }
     }
 
     /**
-     * Reads only the bounded root manifest needed to decorate a WebDAV list
-     * row.  The identifier is safe to show as a short preview even when the
-     * device does not yet have the matching TSSL package; the original source
-     * filename is returned only after the manifest and local TSSL authenticate
-     * each other.  `.m3u8sp` is inspected through its index/range path so the
-     * complete container is never downloaded into memory.
+     * Reads the bounded root manifest needed to decorate a WebDAV list row.
+     *
+     * The 512-byte TAR header, the CBOR index and the manifest are fetched with
+     * exact ranges (kilobytes for a multi-gigabyte `.m3u8sp`), and a `.m3u8s`
+     * manifest is capped at [MANIFEST_METADATA_PREFIX_BYTES]. The identifier is
+     * safe to show from the manifest alone, so rows still get a code when the
+     * device has no matching TSSL yet; the original filename appears only after
+     * the manifest and a local package authenticate each other.
      */
     suspend fun resolveWebDavMetadata(
         server: ServerConfig,
@@ -82,39 +96,21 @@ class EncryptedHlsManager @Inject constructor(
                 "Not an encrypted HLS manifest"
             }
             val inspection = inspectWebDavManifest(server, path)
-            val metadata = parseM3u8sManifestMetadata(inspection.manifest)
-                ?: throw IllegalStateException("Manifest has invalid M3U8S metadata")
-
-            // A package may be browsed before its TSSL has been restored. Keep
-            // the identifier visible in that case, but never guess/decrypt a
-            // source filename without a fully matching local package.
-            val document = try {
-                matchingDocument(inspection.manifest)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
+            val identifier = parseM3u8sManifestMetadata(inspection.manifest)?.identifier
+                ?: parseM3u8sIdentifierPrefix(inspection.manifest)
+            if (identifier == null) {
+                return@withContext Result.success(EncryptedHlsMetadata(null, null))
             }
-            val sourceName = document
-                ?.takeIf { doc ->
-                    if (inspection.containerLength == null) {
-                        doc.version != 4
-                    } else {
-                        doc.version == 4 &&
-                            doc.containerFormat == TsslDocument.V4_CONTAINER_FORMAT &&
-                            doc.containerLength == inspection.containerLength &&
-                            doc.containerIndexSha256 == inspection.containerIndexSha256
-                    }
-                }
-                ?.let(::recoverSourceName)
-
-            Result.success(
-                EncryptedHlsMetadata(
-                    identifierPreview = TsslDocument.identifierPreview(metadata.identifier)
-                        ?: throw IllegalStateException("Manifest has invalid M3U8S identifier"),
-                    sourceFileName = sourceName
-                )
-            )
+            val preview = TsslDocument.identifierPreview(identifier)
+                ?: return@withContext Result.success(EncryptedHlsMetadata(null, null))
+            // A truncated prefix cannot satisfy the manifest digest, so the
+            // authenticated filename is only attempted for complete reads.
+            val sourceName = if (inspection.complete) {
+                localDocument(inspection.manifest, identifier)
+                    ?.takeIf { matchesContainer(it, inspection) }
+                    ?.let(::recoverSourceName)
+            } else null
+            Result.success(EncryptedHlsMetadata(preview, sourceName))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -122,11 +118,19 @@ class EncryptedHlsManager @Inject constructor(
         }
     }
 
+    private fun matchesContainer(document: TsslDocument, inspection: WebDavManifestInspection): Boolean =
+        if (inspection.containerLength == null) {
+            document.version != 4
+        } else {
+            document.version == 4 &&
+                document.containerFormat == TsslDocument.V4_CONTAINER_FORMAT &&
+                document.containerLength == inspection.containerLength &&
+                document.containerIndexSha256 == inspection.containerIndexSha256
+        }
+
     private suspend fun prepareContainer(container: SeekableHlsContainerSource): EncryptedHlsPlayback {
         require(container.length > 0) { "M3U8SP container length is unavailable" }
-        val prefixLength = minOf(container.length, EncryptedHlsTarContainer.PREFIX_LIMIT.toLong())
-        val prefix = container.read(0, prefixLength).getOrThrow()
-        val index = EncryptedHlsTarContainer.readIndexPrefix(prefix, container.length)
+        val index = container.readIndex()
         val source = IndexedTarHlsSource(container, index)
         val manifest = source.load(index.manifestPath).getOrThrow()
         require(manifest.size <= MAX_MANIFEST_BYTES) { "M3U8SP manifest is too large" }
@@ -146,22 +150,20 @@ class EncryptedHlsManager @Inject constructor(
         path: String
     ): WebDavManifestInspection {
         if (path.endsWith(".m3u8sp", ignoreCase = true)) {
-            val initial = webDavRepository.downloadInitialRange(
+            val header = webDavRepository.downloadInitialRange(
                 server,
                 path,
-                EncryptedHlsTarContainer.PREFIX_LIMIT.toLong()
+                EncryptedHlsTarContainer.BLOCK_SIZE.toLong()
             ).getOrThrow()
             val container = WebDavContainerSource(
                 webDavRepository,
                 server,
                 path,
-                initial.totalLength,
-                initial.etag,
-                initial.bytes
+                header.totalLength,
+                header.etag,
+                header.bytes
             )
-            val prefixLength = minOf(container.length, EncryptedHlsTarContainer.PREFIX_LIMIT.toLong())
-            val prefix = container.read(0, prefixLength).getOrThrow()
-            val index = EncryptedHlsTarContainer.readIndexPrefix(prefix, container.length)
+            val index = container.readIndex()
             val manifest = IndexedTarHlsSource(container, index)
                 .load(index.manifestPath)
                 .getOrThrow()
@@ -173,9 +175,11 @@ class EncryptedHlsManager @Inject constructor(
             )
         }
 
-        val manifest = webDavRepository.download(server, path).getOrThrow()
-        require(manifest.size <= MAX_MANIFEST_BYTES) { "M3U8S manifest is too large" }
-        return WebDavManifestInspection(manifest)
+        val prefix = webDavRepository.downloadPrefix(server, path, MANIFEST_METADATA_PREFIX_BYTES).getOrThrow()
+        require(prefix.bytes.size <= MAX_MANIFEST_BYTES) { "M3U8S manifest is too large" }
+        // An over-limit manifest still yields its identifier header; only the
+        // digest-authenticated filename needs the complete bytes.
+        return WebDavManifestInspection(manifest = prefix.bytes, complete = prefix.complete)
     }
 
     private suspend fun prepareDirectory(source: HlsByteSource, rootName: String): EncryptedHlsPlayback {
@@ -194,12 +198,23 @@ class EncryptedHlsManager @Inject constructor(
         val metadata = parseM3u8sManifestMetadata(manifest)
             ?: throw IllegalStateException("Manifest has invalid M3U8S metadata")
         val identifier = metadata.identifier
-        val doc = tsslStore.list().mapNotNull { pkg ->
+        val digest = TsslCrypto.sha256Hex(manifest)
+        val documents = tsslStore.list().mapNotNull { pkg ->
             tsslStore.read(pkg.fileName)?.let(TsslDocument::parse)
-        }.firstOrNull { it.identifier == identifier }
-            ?: throw IllegalStateException("No matching local TSSL package for this manifest")
-        require(doc.identifier.length == TsslDocument.IDENTIFIER_LENGTH)
-        require(TsslCrypto.sha256Hex(manifest) == doc.rootManifestSha256) {
+        }
+        // The desktop resolves the package by root-manifest digest and only then
+        // cross-checks the identifier. Selecting by identifier first made an
+        // unrelated local package shadow this one, so playback failed with a
+        // "digest mismatch" even though the matching TSSL was installed.
+        val doc = documents.firstOrNull { it.rootManifestSha256 == digest }
+            ?: throw IllegalStateException(
+                if (documents.any { it.identifier == identifier }) {
+                    "The local TSSL for this video does not match the remote package"
+                } else {
+                    "No matching local TSSL package for this manifest"
+                }
+            )
+        require(doc.identifier == identifier && doc.identifier.length == TsslDocument.IDENTIFIER_LENGTH) {
             "Root manifest digest mismatch (tampered or stale)"
         }
         if (doc.version >= 3) {
@@ -212,6 +227,20 @@ class EncryptedHlsManager @Inject constructor(
             }
         }
         return doc
+    }
+
+    /**
+     * Local package that owns [manifest], matched by root-manifest digest with
+     * the identifier as a cross-check. Returns null (never throws) so a list row
+     * can still show the identifier before the TSSL has been restored.
+     */
+    private suspend fun localDocument(manifest: ByteArray, identifier: String): TsslDocument? {
+        val digest = TsslCrypto.sha256Hex(manifest)
+        for (pkg in tsslStore.list()) {
+            val document = tsslStore.read(pkg.fileName)?.let(TsslDocument::parse) ?: continue
+            if (document.rootManifestSha256 == digest && document.identifier == identifier) return document
+        }
+        return null
     }
 
     private fun startPlayback(
@@ -250,6 +279,7 @@ class EncryptedHlsManager @Inject constructor(
 
     private data class WebDavManifestInspection(
         val manifest: ByteArray,
+        val complete: Boolean = true,
         val containerLength: Long? = null,
         val containerIndexSha256: String? = null
     )
@@ -257,6 +287,9 @@ class EncryptedHlsManager @Inject constructor(
     companion object {
         private const val VIRTUAL_ROOT_NAME = "index.m3u8"
         private const val MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+
+        /** Enough for the identifier header of any realistic M3U8S manifest. */
+        const val MANIFEST_METADATA_PREFIX_BYTES = 256L * 1024L
         private const val SOURCE_NAME_AAD = "vibeEmbyPlayerQT/M3U8S/source-name/v1\n"
     }
 }

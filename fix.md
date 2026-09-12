@@ -625,3 +625,69 @@ Media3 的 `DefaultDataSource` 会把非 HTTP scheme（`content://`、`file://`�
 ### 遗留说明
 - `PrivacyManager` 仍使用 `EncryptedSharedPreferences`（PIN 哈希）。未一并改动，避免让用户已设置的隐私 PIN 失效；
   若后续要求，可按同样方式迁移（需要 PIN 迁移策略）。
+
+---
+
+## 2026-09-10 WebDAV 返回层级 / M3U8S 元数据 / 加密 HLS 播放（三项复现后修复）
+
+### A. WebDAV 浏览：系统返回键回到错误层级
+- 现象：进入 `a → b → c` 后按系统返回，直接离开 WebDAV（或跳到根目录），而不是 `c → b`；从播放页返回也会掉回根目录。
+- 根因：
+  1. `WebDavBrowseScreen` 没有 `BackHandler`，系统返回由导航层直接 pop 整条 WebDAV 路由；
+  2. `LaunchedEffect(serverId) { viewModel.load(serverId) }` 在从播放页返回重新进入组合时再次执行 `load()`，
+     而 `load()` 无条件 `browse(server, "")`，把用户重置到根目录。
+- 修改：
+  - `ui/webdav/WebDavBrowseViewModel.kt`：`WebDavUiState` 增加 `backStack` / `canNavigateBack`；
+    `navigateTo()` 入栈，新增 `navigateBack()`（出栈；已在根目录则返回 false 让界面退出）与栈感知的 `goUp()`；
+    `load()` 记录 `loadedServerId`，重复进入只 `retryCurrent()`（刷新当前目录并保留栈），
+    `retryCurrent()` 在等待密码时不发请求；上传/建目录后的刷新也保持原栈。
+  - `ui/webdav/WebDavBrowseScreen.kt`：新增 `BackHandler(enabled = canNavigateBack && !needPassword)`，
+    工具栏返回箭头与系统返回共用 `navigateBack()`。
+- 实测（emulator-5554 + 本地 WebDAV）：`movies → a → b → c` 后连按返回依次为
+  `c → b → a → movies → 根 → 退出到服务页`；从播放页返回仍停留在进入前的目录。
+
+### B. `.m3u8s` / `.m3u8sp` 元数据抓取浪费流量且失败时无任何提示
+- 现象：列目录时每个加密包都发大请求；`.m3u8sp` 每行按 16 MiB+512 预读（logcat 实测单次 1,024,512 字节 Range 体），
+  慢且易超时；解析失败时「识别码 / 原始文件」两行直接消失，看不出任何原因。
+- 根因：
+  - `EncryptedHlsTarContainer` 读索引固定预读 `PREFIX_LIMIT`；
+  - 元数据链路复用播放期的严格校验：没有本机 TSSL 时 `require` 直接抛异常 → 连识别码都不显示；
+  - 每个加密行串行解析，一个目录里的包数量线性放大等待时间。
+- 修改：
+  - `player/hls/EncryptedHlsTarContainer.kt`：新增 `indexLength(header)`（只校验首个 512 字节 TAR 头并给出 CBOR 长度）
+    与公开 `BLOCK_SIZE`；校验只作用于 512 字节块，不再对整个 Range 体求校验和。
+  - `player/hls/M3u8spSources.kt`：`SeekableHlsContainerSource.readIndex()` = header(512) + index 本体，两次范围读。
+  - `data/remote/webdav/WebDavClient.kt`、`data/repository/WebDavRepository.kt`：新增 `WebDavPrefix` / `downloadPrefix()`
+    （`Range: bytes=0-(n-1)`；206 正常、200 也接受并按实际长度收敛，回报 `complete`）。
+  - `player/hls/M3u8sManifestMetadata.kt`：新增宽松 `parseM3u8sIdentifierPrefix()`（Latin-1 容错，只接受唯一一行
+    4096 字符 Base64URL identifier），被截断的前缀也能拿到识别码。
+  - `player/hls/EncryptedHlsManager.kt`：识别码只依赖 manifest，本机 TSSL 仅用于「原始文件名」；
+    `.m3u8s` 最多预读 `MANIFEST_METADATA_PREFIX_BYTES`(256 KiB)；prepare/resolve 全部走 `Dispatchers.IO`；
+    `EncryptedHlsMetadata(identifierPreview, sourceFileName)` + `available` 表达「已读完但不可用」。
+  - `ui/webdav/WebDavBrowseViewModel.kt`：并行解析（`Semaphore(METADATA_PARALLEL_READS=4)`）+ 本服务会话内按路径缓存 +
+    目录代次校验（慢响应不能覆盖新目录）；`model/WebDavItem.kt` 增加 `metadataUnavailable`；
+    `WebDavBrowseScreen.kt` 的 `EncryptedMetadataLine` 三态渲染（值 / 加载转圈 / 「不可用」），
+    新增 `webdav_metadata_unavailable`（中英）。原始文件名依赖本机 TSSL，缺失时按桌面端习惯不显示。
+- 实测：1 MB 的 `.m3u8sp` 包元数据从 1,024,512 字节降到 512 + 613 + 512 + 4435 ≈ 6 KB（约 170 倍）；
+  识别码与解密后的原始文件名正常显示；故意放一个非 HLS 的 `broken.m3u8s`，该行显示「识别码： 不可用」而不是空白。
+
+### C. 进入 `.m3u8s` / `.m3u8sp` 后无画面，随后报错
+- 根因 1（解密代理并发）：`EncryptedHlsServer` 用 `Executors.newFixedThreadPool(4)` 且 `soTimeout=30s`。
+  Media3 会保留空闲 keep-alive 连接，每个空闲连接占死一个工作线程，真正的 manifest/分片请求排在队尾直到超时
+  （JVM 探针脚本稳定复现 `SocketTimeoutException`）。
+  改为弹性 `newCachedThreadPool` + daemon 线程工厂 + `MAX_CONCURRENT_CONNECTIONS=32` 信号量 + `BACKLOG=64`；
+  请求行读超时 `REQUEST_TIMEOUT_MS=10s`（快速回收空闲 socket），读到请求后提升到 `RESPONSE_TIMEOUT_MS=120s` 以容纳慢速远端取片。
+- 根因 2（本机包选择）：`matchingDocument` 先按 identifier 命中本机 TSSL 再校验 digest，本机存在多个包时会被相邻包顶替，
+  报「Root manifest digest mismatch (tampered or stale)」而根本不放画面。改为与 Qt 桌面端一致：
+  先按 root manifest digest 选包（`localDocument` 摘要优先），identifier 只作交叉校验，
+  并区分「本机 TSSL 与远端包不匹配」和「没有对应 TSSL」两种文案。
+- 附带修正：`domain/tssl/EncryptedHlsPackager.kt` 生成的根 manifest 之前缺少 `#EXT-X-TARGETDURATION`
+  （RFC 8216 必需项，ExoPlayer 比 libmpv 严格），现按分段时长上取整写入。
+- 实测：`.m3u8sp` 与 `.m3u8s` 目录包都能起播（约 2–3 s 出画，标题为解密后的原始文件名）；
+  播放器内向前/向后拖动进度条均能恢复播放，解密代理无超时报错。
+
+### 验证方式
+- 设备：`emulator-5554`；数据源：本机 Python WebDAV（PROPFIND / GET / Range / ETag，`adb reverse tcp:8080 tcp:8080`），
+  内容为 ffmpeg 生成的真实 TSSL v3 目录包与 TSSL v4 `.m3u8sp` 容器包，TSSL 置于应用 `files/tssl/`。
+- `./gradlew testDebugUnitTest assembleDebug lintDebug` 全部通过；
+  调试期间使用的探针与夹具单元测试（复现代理饥饿、校验夹具）已按要求删除，未留下常驻测试。

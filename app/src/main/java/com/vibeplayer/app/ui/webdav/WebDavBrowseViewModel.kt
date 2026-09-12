@@ -13,18 +13,21 @@ import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.MessageTone
 import com.vibeplayer.app.model.WebDavItem
 import com.vibeplayer.app.player.hls.EncryptedHlsManager
+import com.vibeplayer.app.player.hls.EncryptedHlsMetadata
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 data class WebDavUiState(
@@ -35,10 +38,20 @@ data class WebDavUiState(
     val error: String? = null,
     val message: String? = null,
     val messageTone: MessageTone = MessageTone.INFO,
-    val needPassword: Boolean = false
+    val needPassword: Boolean = false,
+    /**
+     * Directories visited on the way to [path]. Browsing is a stack, so the
+     * system back button returns to the folder the user actually came from
+     * instead of leaving the service or jumping to its root.
+     */
+    val backStack: List<String> = emptyList()
 ) {
     val currentDirectoryName: String
         get() = path.split("/").filter { it.isNotBlank() }.lastOrNull() ?: server?.name ?: "/"
+
+    /** True while a back press should step into the previous folder. */
+    val canNavigateBack: Boolean
+        get() = backStack.isNotEmpty() || path.isNotEmpty()
 }
 
 @HiltViewModel
@@ -55,13 +68,28 @@ class WebDavBrowseViewModel @Inject constructor(
     private var browseJob: Job? = null
     private var metadataJob: Job? = null
     private var browseRequestId = 0L
+    private var loadedServerId: String? = null
+
+    /** Encrypted-HLS metadata already read in this service session. */
+    private val metadataCache = mutableMapOf<String, EncryptedHlsMetadata>()
 
     fun load(serverId: String) {
+        if (loadedServerId == serverId) {
+            // Compose re-enters this screen when the player is popped. Reloading
+            // the root here used to discard the folder the user was browsing, so
+            // only the current directory is refreshed.
+            retryCurrent()
+            return
+        }
+        loadedServerId = serverId
         viewModelScope.launch {
-            val server = repository.getServer(serverId) ?: return@launch
+            val server = repository.getServer(serverId) ?: run {
+                loadedServerId = null
+                return@launch
+            }
             val needPassword = !webDavRepository.hasPassword(server)
             _uiState.update { it.copy(server = server, needPassword = needPassword) }
-            if (!needPassword) browse(server, "")
+            if (!needPassword) browse(server, "", emptyList())
         }
     }
 
@@ -75,24 +103,51 @@ class WebDavBrowseViewModel @Inject constructor(
                 messageTone = MessageTone.SUCCESS
             )
         }
-        browse(server, "")
+        browse(server, "", emptyList())
     }
 
+    /** Enters [path], remembering where the user came from. */
     fun navigateTo(path: String) {
-        val server = _uiState.value.server ?: return
-        browse(server, path)
+        val state = _uiState.value
+        val server = state.server ?: return
+        if (path == state.path) return
+        browse(server, path, state.backStack + state.path)
     }
 
+    /**
+     * Steps to the previously visited folder. Returns false when the user is
+     * already at the service root so the caller can leave the screen instead.
+     */
+    fun navigateBack(): Boolean {
+        val state = _uiState.value
+        val server = state.server ?: return false
+        if (state.backStack.isNotEmpty()) {
+            browse(server, state.backStack.last(), state.backStack.dropLast(1))
+            return true
+        }
+        val parent = parentPath(state.path) ?: return false
+        browse(server, parent, emptyList())
+        return true
+    }
+
+    /** Toolbar up affordance: same stack semantics, but never leaves the screen. */
     fun goUp() {
-        val path = _uiState.value.path
-        val parent = path.trimEnd('/').substringBeforeLast('/')
-        navigateTo(if (parent.isEmpty()) "" else parent)
+        val state = _uiState.value
+        if (state.backStack.isNotEmpty()) {
+            navigateBack()
+            return
+        }
+        val server = state.server ?: return
+        val parent = parentPath(state.path) ?: return
+        browse(server, parent, emptyList())
     }
 
     /** Retries the current directory without changing the navigation stack. */
     fun retryCurrent() {
-        val server = _uiState.value.server ?: return
-        browse(server, _uiState.value.path)
+        val state = _uiState.value
+        val server = state.server ?: return
+        if (state.needPassword) return
+        browse(server, state.path, state.backStack)
     }
 
     fun clearError() {
@@ -103,7 +158,7 @@ class WebDavBrowseViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 
-    private fun browse(server: ServerConfig, path: String) {
+    private fun browse(server: ServerConfig, path: String, backStack: List<String>) {
         browseJob?.cancel()
         metadataJob?.cancel()
         metadataJob = null
@@ -111,12 +166,27 @@ class WebDavBrowseViewModel @Inject constructor(
         browseJob = viewModelScope.launch {
             // Clear stale rows immediately. Keeping the previous directory on
             // screen made a failed child PROPFIND look like a frozen navigation.
-            _uiState.update { it.copy(path = path, items = emptyList(), loading = true, error = null) }
+            _uiState.update {
+                it.copy(path = path, items = emptyList(), loading = true, error = null, backStack = backStack)
+            }
             webDavRepository.list(server, path).fold(
                 onSuccess = { items ->
                     if (requestId == browseRequestId) {
-                        _uiState.update { it.copy(path = path, items = items, loading = false) }
-                        resolveEncryptedMetadata(server, path, items, requestId)
+                        // Show encrypted-HLS rows immediately. Their identifier
+                        // and authenticated source name resolve in the
+                        // background, so the UI can render an explicit loading
+                        // placeholder instead of leaving those fields blank.
+                        val visibleItems = items.map { item ->
+                            if (item.isEncryptedHls) item.copy(metadataLoading = true) else item
+                        }
+                        _uiState.update { state ->
+                            if (state.path != path || state.server?.id != server.id) {
+                                state
+                            } else {
+                                state.copy(items = visibleItems, loading = false)
+                            }
+                        }
+                        resolveEncryptedMetadata(server, path, visibleItems, requestId)
                     }
                 },
                 onFailure = { e ->
@@ -134,10 +204,13 @@ class WebDavBrowseViewModel @Inject constructor(
     }
 
     /**
-     * Enriches encrypted-HLS rows after the directory itself is visible.  The
-     * work is cancellable when the user changes directory, and every update is
-     * guarded by the browse generation so a slow response cannot overwrite a
-     * newer directory's rows.
+     * Enriches encrypted-HLS rows after the directory itself is visible. Reads
+     * run with bounded parallelism (a sequential loop made a folder full of
+     * packages load one round trip at a time) and every result is cached for the
+     * rest of this service session. Updates are guarded by the browse generation
+     * so a slow response cannot overwrite a newer directory, and a row that
+     * cannot be read ends in an explicit unavailable state instead of silently
+     * disappearing.
      */
     private fun resolveEncryptedMetadata(
         server: ServerConfig,
@@ -149,29 +222,41 @@ class WebDavBrowseViewModel @Inject constructor(
         if (encryptedItems.isEmpty()) return
 
         metadataJob = viewModelScope.launch {
-            for (item in encryptedItems) {
-                ensureActive()
-                val metadata = encryptedHlsManager
-                    .resolveWebDavMetadata(server, item.path)
-                    .getOrNull()
-                    ?: continue
-                if (!isActive || requestId != browseRequestId) return@launch
-                _uiState.update { state ->
-                    if (state.path != path || state.server?.id != server.id) {
-                        state
-                    } else {
-                        state.copy(
-                            items = state.items.map { current ->
-                                if (current.path == item.path) {
-                                    current.copy(
-                                        identifierPreview = metadata.identifierPreview,
-                                        sourceFileName = metadata.sourceFileName
-                                    )
+            coroutineScope {
+                val limit = Semaphore(METADATA_PARALLEL_READS)
+                encryptedItems.forEach { item ->
+                    launch {
+                        limit.withPermit {
+                            if (!isActive || requestId != browseRequestId) return@withPermit
+                            val metadata = metadataCache[item.path]
+                                ?: encryptedHlsManager
+                                    .resolveWebDavMetadata(server, item.path)
+                                    .getOrNull()
+                                    ?.also { metadataCache[item.path] = it }
+                            if (!isActive || requestId != browseRequestId) return@withPermit
+                            _uiState.update { state ->
+                                if (state.path != path || state.server?.id != server.id) {
+                                    state
                                 } else {
-                                    current
+                                    state.copy(
+                                        items = state.items.map { current ->
+                                            if (current.path == item.path) {
+                                                current.copy(
+                                                    identifierPreview = metadata?.identifierPreview
+                                                        ?: current.identifierPreview,
+                                                    sourceFileName = metadata?.sourceFileName
+                                                        ?: current.sourceFileName,
+                                                    metadataLoading = false,
+                                                    metadataUnavailable = metadata?.available == false
+                                                )
+                                            } else {
+                                                current
+                                            }
+                                        }
+                                    )
                                 }
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -223,7 +308,7 @@ class WebDavBrowseViewModel @Inject constructor(
                             messageTone = MessageTone.SUCCESS
                         )
                     }
-                    browse(server, base)
+                    browse(server, base, _uiState.value.backStack)
                 },
                 onFailure = { e ->
                     _uiState.update {
@@ -265,7 +350,7 @@ class WebDavBrowseViewModel @Inject constructor(
                             messageTone = MessageTone.SUCCESS
                         )
                     }
-                    browse(server, base)
+                    browse(server, base, _uiState.value.backStack)
                 },
                 onFailure = { e ->
                     _uiState.update {
@@ -290,5 +375,18 @@ class WebDavBrowseViewModel @Inject constructor(
                 }
         }
         return uri.lastPathSegment ?: ""
+    }
+
+    /** Parent directory of [path], or null when already at the service root. */
+    private fun parentPath(path: String): String? {
+        if (path.isEmpty()) return null
+        val trimmed = path.trimEnd('/')
+        val separator = trimmed.lastIndexOf('/')
+        return if (separator < 0) "" else trimmed.substring(0, separator)
+    }
+
+    private companion object {
+        /** Bounded concurrent metadata reads per directory listing. */
+        const val METADATA_PARALLEL_READS = 4
     }
 }

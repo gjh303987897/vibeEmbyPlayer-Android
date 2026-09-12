@@ -1,5 +1,6 @@
 package com.vibeplayer.app.ui.webdav
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -100,6 +101,15 @@ fun WebDavBrowseScreen(
         viewModel.load(serverId)
     }
 
+    /*
+     * The system back button must step into the folder the user came from
+     * (a/b/c -> a/b). Only the service root leaves the screen; otherwise back
+     * popped the whole WebDAV route and dropped the user on the services list.
+     */
+    BackHandler(enabled = uiState.canNavigateBack && !uiState.needPassword) {
+        if (!viewModel.navigateBack()) navController.popBackStack()
+    }
+
     LaunchedEffect(uiState.message) {
         uiState.message?.let { message ->
             snackbarHostState.showAppSnackbar(message, tone = uiState.messageTone)
@@ -115,13 +125,12 @@ fun WebDavBrowseScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            if (uiState.path.isEmpty()) {
-                                // navigateUp handles nested graphs and restored
-                                // state more reliably than a raw pop on some
-                                // Android navigation versions.
+                            // Stack-aware up: go to the folder the user came from.
+                            // navigateUp handles nested graphs and restored state
+                            // more reliably than a raw pop on some nav versions.
+                            if (!viewModel.navigateBack()) {
                                 if (!navController.navigateUp()) navController.popBackStack()
                             }
-                            else viewModel.goUp()
                         }
                     ) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Go up")
@@ -282,6 +291,9 @@ fun WebDavBrowseScreen(
 
 @Composable
 private fun WebDavRow(item: WebDavItem, onOpen: () -> Unit, onDownload: () -> Unit) {
+    val hasEncryptedMetadata = item.isEncryptedHls &&
+        (item.metadataLoading || item.identifierPreview != null || item.sourceFileName != null ||
+            item.metadataUnavailable)
     ListItem(
         modifier = Modifier.clickable(onClick = onOpen),
         leadingContent = {
@@ -300,31 +312,34 @@ private fun WebDavRow(item: WebDavItem, onOpen: () -> Unit, onDownload: () -> Un
         headlineContent = { Text(item.name) },
         supportingContent = {
             if (item.isDirectory || item.size > 0 ||
-                item.identifierPreview != null || item.sourceFileName != null) {
+                hasEncryptedMetadata) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (item.isDirectory) {
                         Text(stringResource(R.string.webdav_folder))
                     } else if (item.size > 0) {
                         Text(formatBytes(item.size))
                     }
-                    item.identifierPreview?.let { identifier ->
-                        Text(
-                            text = stringResource(R.string.webdav_identifier, identifier),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    if (item.isEncryptedHls) {
+                        EncryptedMetadataLine(
+                            label = stringResource(R.string.webdav_identifier, "").trimEnd(),
+                            value = item.identifierPreview,
+                            loading = item.metadataLoading,
+                            unavailable = item.metadataUnavailable,
+                            unavailableText = stringResource(R.string.webdav_metadata_unavailable),
+                            monospace = true
                         )
-                    }
-                    item.sourceFileName?.let { sourceName ->
-                        Text(
-                            text = stringResource(R.string.webdav_original_file_name, sourceName),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        // The filename requires a matching local TSSL, so an
+                        // absent value is normal (Qt hides it too) and stays
+                        // hidden rather than implying an error.
+                        item.sourceFileName?.takeIf { it.isNotBlank() }?.let { sourceName ->
+                            Text(
+                                text = stringResource(R.string.webdav_original_file_name, sourceName),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }
@@ -340,6 +355,64 @@ private fun WebDavRow(item: WebDavItem, onOpen: () -> Unit, onDownload: () -> Un
             }
         }
     )
+}
+
+@Composable
+private fun EncryptedMetadataLine(
+    label: String,
+    value: String?,
+    loading: Boolean,
+    unavailable: Boolean = false,
+    unavailableText: String = "",
+    monospace: Boolean = false
+) {
+    val resolvedValue = value?.takeIf { it.isNotBlank() }
+    val style = MaterialTheme.typography.bodySmall
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    val family = if (monospace) FontFamily.Monospace else FontFamily.Default
+    when {
+        resolvedValue != null -> {
+            Text(
+                text = "$label $resolvedValue",
+                style = style,
+                color = color,
+                fontFamily = family,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        loading -> {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = label,
+                    style = style,
+                    color = color,
+                    fontFamily = family,
+                    maxLines = 1
+                )
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        unavailable -> {
+            // Explicit terminal state: a package whose manifest cannot be read
+            // still explains itself instead of looking like a missing field.
+            Text(
+                text = "$label $unavailableText",
+                style = style,
+                color = MaterialTheme.colorScheme.error,
+                fontFamily = family,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 private fun formatBytes(bytes: Long): String {
