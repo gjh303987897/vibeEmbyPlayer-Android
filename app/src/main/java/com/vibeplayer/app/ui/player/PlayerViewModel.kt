@@ -63,12 +63,17 @@ class PlayerViewModel @Inject constructor(
     private var historySubtitle: String = ""
 
     init {
+        // The player instance is shared by every source screen, so a new session
+        // must drop the previous item's identity immediately - before the first
+        // frame - otherwise the incoming item shows the old title, progress and
+        // track list while it is still loading.
+        playerManager.beginLoading()
         viewModelScope.launch {
             playerManager.state.collect { p ->
                 _uiState.update {
                     it.copy(
-                        title = p.title ?: it.title,
-                        subtitle = p.subtitle ?: it.subtitle,
+                        title = p.title.orEmpty(),
+                        subtitle = p.subtitle.orEmpty(),
                         isPlaying = p.isPlaying,
                         isPrepared = p.isPrepared,
                         positionMs = p.positionMs,
@@ -89,8 +94,9 @@ class PlayerViewModel @Inject constructor(
 
     /** Fetches the stream URL and starts playback, reporting start/progress. */
     fun play(itemId: String) {
+        // beginLoading also clears any failure from the previous attempt, so the
+        // status overlay cannot show an old error before anything was tried.
         playerManager.beginLoading()
-        playerManager.clearError()
         session = activeSessionManager.activeSession.value
         val s = session ?: return
         viewModelScope.launch {

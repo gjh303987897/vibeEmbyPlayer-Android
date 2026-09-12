@@ -44,12 +44,17 @@ class LinkPlayerViewModel @Inject constructor(
     private var started = false
 
     init {
+        // The player instance is shared by every source screen, so a new session
+        // must drop the previous item's identity immediately - before the first
+        // frame - otherwise the incoming item shows the old title, progress and
+        // track list while it is still loading.
+        playerManager.beginLoading()
         viewModelScope.launch {
             playerManager.state.collect { p ->
                 _uiState.update {
                     it.copy(
-                        title = p.title ?: it.title,
-                        subtitle = p.subtitle ?: it.subtitle,
+                        title = p.title.orEmpty(),
+                        subtitle = p.subtitle.orEmpty(),
                         isPlaying = p.isPlaying,
                         isPrepared = p.isPrepared,
                         positionMs = p.positionMs,
@@ -65,10 +70,13 @@ class LinkPlayerViewModel @Inject constructor(
     }
 
     fun play(encodedUrl: String) {
-        // A new attempt must never inherit the previous source's failure;
-        // otherwise the status overlay shows an error before anything was tried.
-        playerManager.clearError()
         val url = Routes.decodeLinkUrl(encodedUrl)
+        // Reset the shared player (and its error) before validating the link, so
+        // the loading UI can never show the previously played item.
+        playerManager.beginLoading(
+            title = url?.substringAfterLast('/')?.substringBefore('?')?.takeIf { it.isNotBlank() },
+            subtitle = BUILTIN_LINK_SERVER.name
+        )
         if (url.isNullOrBlank()) {
             _uiState.update { it.copy(error = "Invalid playback address") }
             return

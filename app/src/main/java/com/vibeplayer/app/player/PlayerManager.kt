@@ -93,6 +93,16 @@ class PlayerManager @Inject constructor(
 
     fun setPlaybackHeaders(headers: Map<String, String>) = headerFactory.configure(headers, false)
     fun clearError() { _state.update { it.copy(error = null) } }
+    /**
+     * Starts a new playback session on the shared player: stops the current item
+     * and replaces every per-item field of [state] with a blank slate.
+     *
+     * [PlayerManager] is a singleton, so its state outlives a player screen.
+     * Each player ViewModel therefore calls this as soon as it is created - and
+     * again with the real title before any asynchronous preparation - and mirrors
+     * [state] verbatim. A screen that skipped this call would keep showing the
+     * title, subtitle, progress and track list of the item the user just left.
+     */
     fun beginLoading(title: String? = null, subtitle: String? = null) {
         player.pause(); player.stop(); player.clearMediaItems()
         _state.value = PlayerState(

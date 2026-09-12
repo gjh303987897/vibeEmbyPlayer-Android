@@ -46,12 +46,17 @@ class IptvPlayerViewModel @Inject constructor(
     private var started = false
 
     init {
+        // The player instance is shared by every source screen, so a new session
+        // must drop the previous item's identity immediately - before the first
+        // frame - otherwise the incoming item shows the old title, progress and
+        // track list while it is still loading.
+        playerManager.beginLoading()
         viewModelScope.launch {
             playerManager.state.collect { p ->
                 _uiState.update {
                     it.copy(
-                        title = p.title ?: it.title,
-                        subtitle = p.subtitle ?: it.subtitle,
+                        title = p.title.orEmpty(),
+                        subtitle = p.subtitle.orEmpty(),
                         isPlaying = p.isPlaying,
                         isPrepared = p.isPrepared,
                         positionMs = p.positionMs,
@@ -67,15 +72,15 @@ class IptvPlayerViewModel @Inject constructor(
     }
 
     fun play(serverId: String, encodedUrl: String, encodedName: String) {
-        // A new attempt must never inherit the previous source's failure;
-        // otherwise the status overlay shows an error before anything was tried.
-        playerManager.clearError()
         val decodedUrl = Routes.decodeIptvUrl(encodedUrl)
+        val name = Routes.decodeIptvName(encodedName)?.ifBlank { "IPTV Channel" } ?: "IPTV Channel"
+        // Reset the shared player (and its error) before anything else so the
+        // loading UI cannot keep showing the previously played channel.
+        playerManager.beginLoading(title = name)
         if (decodedUrl.isNullOrBlank()) {
             _uiState.update { it.copy(error = "Invalid stream address") }
             return
         }
-        val name = Routes.decodeIptvName(encodedName)?.ifBlank { "IPTV Channel" } ?: "IPTV Channel"
         val url = decodedUrl
         this.streamUrl = url
         this.channelName = name

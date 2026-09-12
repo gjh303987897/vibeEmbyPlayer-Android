@@ -48,12 +48,17 @@ class WebDavPlayerViewModel @Inject constructor(
     private var started = false
 
     init {
+        // The player instance is shared by every source screen, so a new session
+        // must drop the previous item's identity immediately - before the first
+        // frame - otherwise the incoming item shows the old title, progress and
+        // track list while it is still loading.
+        playerManager.beginLoading()
         viewModelScope.launch {
             playerManager.state.collect { p ->
                 _uiState.update {
                     it.copy(
-                        title = p.title ?: it.title,
-                        subtitle = p.subtitle ?: it.subtitle,
+                        title = p.title.orEmpty(),
+                        subtitle = p.subtitle.orEmpty(),
                         isPlaying = p.isPlaying,
                         isPrepared = p.isPrepared,
                         positionMs = p.positionMs,
@@ -73,11 +78,14 @@ class WebDavPlayerViewModel @Inject constructor(
     }
 
     fun play(serverId: String, encodedPath: String) {
-        // A new attempt must never inherit the previous source's failure;
-        // otherwise the status overlay shows an error before anything was tried.
-        playerManager.clearError()
         this.serverId = serverId
         val path = com.vibeplayer.app.ui.navigation.Routes.decodeWebDavPath(encodedPath)
+        // Reset the shared player state before any (possibly slow) preparation:
+        // this also clears the previous source's error, so neither an old
+        // failure nor the old item's title can appear while this one loads.
+        playerManager.beginLoading(
+            title = path?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+        )
         if (path.isNullOrBlank()) {
             _uiState.update { it.copy(error = "Invalid server path") }
             return

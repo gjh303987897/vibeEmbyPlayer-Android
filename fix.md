@@ -691,3 +691,36 @@ Media3 的 `DefaultDataSource` 会把非 HTTP scheme（`content://`、`file://`�
   内容为 ffmpeg 生成的真实 TSSL v3 目录包与 TSSL v4 `.m3u8sp` 容器包，TSSL 置于应用 `files/tssl/`。
 - `./gradlew testDebugUnitTest assembleDebug lintDebug` 全部通过；
   调试期间使用的探针与夹具单元测试（复现代理饥饿、校验夹具）已按要求删除，未留下常驻测试。
+
+---
+
+## 2026-09-11 播放新视频时仍显示上一个视频的信息
+
+### 现象
+播放视频 A → 退出 → 播放视频 B，在 B 还在加载（或准备失败）的这段时间里，播放页顶栏仍显示 A 的片名与服务器名，
+进度条也停在 A 的播放位置（实测 `00:08 / 00:24`）。
+
+### 根因
+1. `PlayerManager` 是 `@Singleton`，它的 `PlayerState` 跨播放页存活；退出时 `stopPlayback()` 只 `pause()`，不清状态；
+2. `WebDavPlayerViewModel` / `LinkPlayerViewModel` / `IptvPlayerViewModel` 的 `play()` 从不调用 `beginLoading()`，
+   只有等 `playerManager.play()` 才覆盖旧状态——加密 HLS 的 prepare、SAF 预检、链接校验都要跑几百毫秒到几秒，
+   这段窗口就是用户看到的「残留」；
+3. 五个播放页 ViewModel 的收集器都写成 `title = p.title ?: it.title`，即使上层把标题清空，界面也永远清不掉，
+   旧片名会被永久钉住。
+
+### 修改
+- `ui/player/PlayerViewModel.kt`、`ui/webdav/WebDavPlayerViewModel.kt`、`ui/local/LocalPlayerViewModel.kt`、
+  `ui/link/LinkPlayerViewModel.kt`、`ui/iptv/IptvPlayerViewModel.kt`
+  - `init` 里先 `playerManager.beginLoading()` 再开始收集（新页面一创建就接管共享播放器，第一帧就不会带出上一个条目）；
+  - 收集器改为 `p.title.orEmpty()` / `p.subtitle.orEmpty()`：`PlayerManager` 是标题/副标题的唯一来源，清空能真正反映到界面；
+  - `play()` 在任何异步准备之前调用 `beginLoading(title = 本条目名, subtitle = …)`
+    （WebDAV 用文件名、本地用 SAF 名、链接用 URL 末段、IPTV 用频道名），
+    并取代原来的 `clearError()`——`beginLoading()` 本身会重置 error，旧错误也不可能先于本次尝试出现。
+- `player/PlayerManager.kt`：给 `beginLoading()` 补上文档，写明「单例状态 + 页面接管即重置」的所有权约定，避免复发。
+
+### 实测（emulator-5554 + 本地 WebDAV）
+- 修复前（stash 掉上述改动后重编同一条用例）：A = `.m3u8sp`（`The.Matrix.1999.1080p.mkv`，播放中）→ 退出 →
+  B = `broken.m3u8s`：顶栏 `The.Matrix.1999.1080p.mkv | LocalDAV`，进度 `00:08 / 00:24`，全是 A 的信息。
+- 修复后同一操作序列：B 界面显示 `broken.m3u8s`、`00:00 / 00:00` 与 B 自己的失败文案，无任何 A 残留。
+- 回归：`.m3u8s` 目录包与 `.m3u8sp` 均正常起播并显示解密恢复的原始文件名；WebDAV 返回栈 `c→b→a→root` 不受影响；
+  `testDebugUnitTest` / `assembleDebug` / `lintDebug` 通过。

@@ -59,12 +59,17 @@ class LocalPlayerViewModel @Inject constructor(
     private var hlsPlayback: EncryptedHlsPlayback? = null
 
     init {
+        // The player instance is shared by every source screen, so a new session
+        // must drop the previous item's identity immediately - before the first
+        // frame - otherwise the incoming item shows the old title, progress and
+        // track list while it is still loading.
+        playerManager.beginLoading()
         viewModelScope.launch {
             playerManager.state.collect { p ->
                 _uiState.update {
                     it.copy(
-                        title = p.title ?: it.title,
-                        subtitle = p.subtitle ?: it.subtitle,
+                        title = p.title.orEmpty(),
+                        subtitle = p.subtitle.orEmpty(),
                         isPlaying = p.isPlaying,
                         isPrepared = p.isPrepared,
                         positionMs = p.positionMs,
@@ -82,15 +87,15 @@ class LocalPlayerViewModel @Inject constructor(
     fun play(encodedUri: String) {
         // Clear the previous source before the asynchronous SAF / HLS preparation.
         // Local and Emby screens share the application-scoped player instance.
-        playerManager.beginLoading(title = "Local video", subtitle = "Local")
-        playerManager.clearError()
         val uri = Routes.decodeLocalUrl(encodedUri)
+        val name = uri?.let { Uri.parse(it).lastPathSegment?.substringAfterLast('/') }
+            ?.takeIf { it.isNotBlank() } ?: "Local video"
+        playerManager.beginLoading(title = name, subtitle = "Local")
         if (uri.isNullOrBlank()) {
             _uiState.update { it.copy(error = context.getString(R.string.player_invalid_url)) }
             return
         }
         this.contentUri = uri
-        val name = Uri.parse(uri).lastPathSegment?.substringAfterLast('/') ?: "Local video"
         this.recordTitle = name
         if (LocalPlaybackService.isEncryptedHlsManifest(name)) {
             playEncryptedHls(uri, name)
