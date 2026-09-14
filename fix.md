@@ -761,3 +761,41 @@ Media3 的 `DefaultDataSource` 会把非 HTTP scheme（`content://`、`file://`�
 - 继续观看显示片名 + 剧集名 + `第 N 季 第 N 集` + `TV-MA`/`34%` 徽章 + 底部进度条。
 - 回归：WebDAV 返回栈 `c→b→a→root`、`.m3u8s` 目录包与 `.m3u8sp` 起播、播放页无上一条残留均不受影响；
   `testDebugUnitTest` / `assembleDebug` / `lintDebug` 通过，`lint-results-debug.html` 未涉及本文件。
+
+---
+
+## 2026-09-13 真机安装提示「没有证书 / 未签名」
+
+### 现象
+用官方 Android Debug 证书编出的 `app-debug.apk`，模拟器 `adb install` 正常，
+但拷到真机（文件管理器 / 侧载工具）安装时报「不包含证书」「未签名」。
+
+### 根因
+`minSdk = 26`，而 AGP 8 在 `minSdk >= 24` 时默认**不写 v1（JAR）签名块**，产物只有 APK Signature Scheme v2/v3。
+`unzip -l` 里看不到 `META-INF/MANIFEST.MF`、`CERT.SF`、`CERT.RSA`。
+不少真机安装路径（OEM 自带文件管理器、部分侧载/第三方安装器、某些 `pm install` 分支）
+先读 JAR 签名块，读不到就判定为无证书；v2/v3 只在系统安装器路径下生效，所以模拟器看不出问题。
+
+### 修改
+- `app/build.gradle.kts`：给 debug buildType 显式打开三种方案，v1/v2/v3 同时写，仍然只用共享的 debug key：
+  ```kotlin
+  getByName("debug") {
+      signingConfig?.apply {
+          enableV1Signing = true
+          enableV2Signing = true
+          enableV3Signing = true
+          enableV4Signing = false   // v4 需要旁挂 .idsig，独立安装包用不到
+      }
+  }
+  ```
+  （`enableV1Signing` 等是 AGP 8.x `ApkSigningConfig` 上的可空 Boolean 属性，会覆盖 minSdk 推断。）
+- 不改 minSdk、不换证书、不影响 release 签名流程。
+
+### 实测
+- 干净重编（删 `app/build` + `--offline assembleDebug`）后 APK 内含 `MANIFEST.MF`(498 条摘要) / `CERT.SF`(498) / `CERT.RSA`；
+- `apksigner verify --min-sdk-version 18 --max-sdk-version 23`（强制走只认 v1 的路径）→ `Verified using v1 scheme (JAR signing): true`；
+- `jarsigner -verify -strict` → 「jar 已验证」，唯一提示是预期的自签证书链告警；
+- `apksigner verify --print-certs` 默认路径 → v2 true、v3 true，证书仍是
+  `C=US, O=Android, CN=Android Debug`（SHA-256 `cb18b2f4…4fca3561`，与 `~/.android/debug.keystore` 一致）；
+- `zipalign -c 4` 通过；emulator-5554 `install -r` 成功、启动无 `FATAL EXCEPTION`、界面正常。
+- 唯一 apksigner 警告是 `META-INF/services/*` 不受 JAR 签名保护——JVM 元数据条目的固有提示，Android 不加载，非缺陷。

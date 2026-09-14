@@ -41,6 +41,22 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // AGP stops writing the v1 (JAR) signature block once minSdk >= 24, leaving
+            // v2 only. A lot of on-device installers - OEM file managers, sideload tools,
+            // some `pm install` paths - look at the JAR block first and then refuse the
+            // APK as "no certificate / unsigned". Keep v1 + v2 + v3 on the shared debug
+            // key so the same APK installs on every device.
+            signingConfig?.apply {
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                // v4 exists only to speed up incremental ADB installs and needs a
+                // matching .idsig next to the APK; standalone installers ignore it,
+                // so keep the artifact self-contained instead of producing a sidecar.
+                enableV4Signing = false
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
