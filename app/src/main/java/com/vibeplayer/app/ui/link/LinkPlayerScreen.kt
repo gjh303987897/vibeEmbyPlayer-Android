@@ -40,11 +40,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
-import java.util.concurrent.TimeUnit
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
+import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.player.PlayerExtraActions
 import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
-import com.vibeplayer.app.ui.player.playerTopBarInsets
+import java.util.concurrent.TimeUnit
 
 @Composable
 fun LinkPlayerScreen(
@@ -129,7 +129,7 @@ private fun LinkTopBar(title: String, subtitle: String, onBack: () -> Unit, acti
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .playerTopBarInsets()
+            .topEdgeInsets()
             .background(Color.Black.copy(alpha = 0.5f))
             .padding(vertical = 8.dp)
             .zIndex(1f)

@@ -879,3 +879,25 @@ AC-3: /Videos/series1/stream?...&static=false&Context=Streaming
                                                                     → 日志出现 audio/mp4a-latm ✅
 ```
 
+---
+
+## 2026-09-14 视频详情页顶部返回按钮被状态栏/挖孔遮挡
+
+### 现象
+Emby/Jellyfin 视频详情页左上角的返回按钮，在部分机型上被状态栏或前置挖孔挡住，点不到或只露一半。
+
+### 根因
+`ui/details/MediaDetailsScreen.kt` 的悬浮返回按钮只写了 `.padding(8.dp)`，**没有叠加任何窗口 inset**。
+App 走 `enableEdgeToEdge()`，且 `VibePlayerNavHost` 刻意把 `contentWindowInsets = WindowInsets(0,0,0,0)`
+下放给各子页面自己处理，所以这个按钮的顶边直接贴在屏幕物理顶端。
+会不会被挡住完全取决于该机型状态栏高度与挖孔位置，这正是"只有部分机型复现"的原因。
+同目录的 `LibraryScreen` 用 `CenterAlignedTopAppBar`（自带 inset）所以不受影响。
+
+### 修改
+- 把原先定义在 `ui/player/PlayerExtraControls.kt` 里的 `playerTopBarInsets()` 提升为共享组件
+  `ui/components/TopEdgeInsets.kt` 的 `Modifier.topEdgeInsets()`（`statusBarsPadding().displayCutoutPadding()`），
+  播放器与详情页共用同一份实现，播放器文件不再自己持有这个 helper。
+- 6 个播放页（Emby/WebDAV/本地/链接/IPTV + `PlayerExtraControls`）改为引用共享 helper，行为不变；
+  详情页返回按钮改为 `.topEdgeInsets().padding(8.dp)`。
+- 顺带排查其余 13 个页面：`SearchScreen` 内层 `Scaffold` 未覆盖 `contentWindowInsets`（自管 inset），
+  其余均用 `TopAppBar`，都没有同类问题，未改动。

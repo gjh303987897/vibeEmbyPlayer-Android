@@ -5,8 +5,6 @@ import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.displayCutoutPadding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Fullscreen
@@ -31,6 +29,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.vibeplayer.app.R
 import com.vibeplayer.app.player.AudioTrack
+import com.vibeplayer.app.ui.components.topEdgeInsets
 
 /** Applies Android immersive mode while a player screen's fullscreen toggle is active. */
 @Composable
@@ -59,10 +58,6 @@ fun PlayerFullscreenEffect(fullscreen: Boolean) {
         }
     }
 }
-
-/** Keeps player controls below notches, camera cutouts, and status bars. */
-fun Modifier.playerTopBarInsets(): Modifier =
-    statusBarsPadding().displayCutoutPadding()
 
 /** Shared fullscreen and audio-track actions used by every video source. */
 @Composable

@@ -60,8 +60,9 @@ import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.player.SubtitleTrack
-import java.util.concurrent.TimeUnit
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
+import com.vibeplayer.app.ui.components.topEdgeInsets
+import java.util.concurrent.TimeUnit
 
 @Composable
 fun PlayerScreen(
@@ -171,7 +172,7 @@ private fun PlayerTopBar(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .playerTopBarInsets()
+            .topEdgeInsets()
             .background(Color.Black.copy(alpha = 0.5f))
             .padding(vertical = 8.dp)
             .zIndex(1f)

@@ -53,6 +53,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.components.AppMessageCard
+import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.navigation.Routes
 import com.vibeplayer.app.util.seasonEpisodeText
 
@@ -165,10 +166,14 @@ fun MediaDetailsScreen(
                     }
                 }
             }
+            // The screen draws edge to edge, so the floating back button has to
+            // clear the status bar and any cutout itself; a bare padding put it
+            // under the clock on notched devices.
             IconButton(
                 onClick = { navController.popBackStack() },
                 modifier = Modifier
                     .align(Alignment.TopStart)
+                    .topEdgeInsets()
                     .padding(8.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(Color.Black.copy(alpha = 0.4f))
