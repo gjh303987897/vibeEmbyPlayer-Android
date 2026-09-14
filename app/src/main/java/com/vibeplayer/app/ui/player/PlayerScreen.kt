@@ -1,5 +1,6 @@
 package com.vibeplayer.app.ui.player
 
+import android.content.res.Configuration
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -12,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,7 +48,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
@@ -200,6 +205,7 @@ private fun ControlsBottom(
     selectedSubtitleKey: String?,
     modifier: Modifier = Modifier
 ) {
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var sliderPosition by remember { mutableStateOf(0f) }
     LaunchedEffect(positionMs, durationMs) {
         if (durationMs > 0) sliderPosition = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
@@ -210,38 +216,99 @@ private fun ControlsBottom(
         modifier = modifier
             .fillMaxWidth()
             .background(Color.Black.copy(alpha = 0.6f))
-            .padding(horizontal = 8.dp)
+            .padding(
+                horizontal = if (landscape) 16.dp else 8.dp,
+                vertical = if (landscape) 2.dp else 0.dp
+            )
     ) {
-        Slider(
-            value = sliderPosition,
-            onValueChange = { sliderPosition = it },
-            onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) }
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(text = formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
-            Text(text = formatTime(durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            IconButton(onClick = onTogglePlay, modifier = Modifier.padding(8.dp)) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                    contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
-                    tint = Color.White
+        if (landscape) {
+            // In landscape the window is barely taller than the status-bar-free
+            // video, so the six stacked portrait rows would cover most of the
+            // picture. Scrubber + primary controls share compact rows instead.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                PlayPauseButton(isPlaying, onTogglePlay)
+                Slider(
+                    value = sliderPosition,
+                    onValueChange = { sliderPosition = it },
+                    onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) },
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                )
+                Text(
+                    text = "${formatTime(positionMs)} / ${formatTime(durationMs)}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall
                 )
             }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                SpeedSelector(
+                    current = playbackSpeed,
+                    onSpeedChange = onSpeedChange,
+                    modifier = Modifier.weight(1.15f),
+                    compact = true
+                )
+                if (subtitleTracks.isNotEmpty()) {
+                    SubtitleSelector(
+                        subtitleTracks,
+                        selectedSubtitleKey,
+                        onSubtitleChange,
+                        compact = true
+                    )
+                }
+                VolumeControl(
+                    volume = volume,
+                    onVolumeChange = onVolumeChange,
+                    modifier = Modifier.weight(1f),
+                    compact = true
+                )
+            }
+        } else {
+            Slider(
+                value = sliderPosition,
+                onValueChange = { sliderPosition = it },
+                onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+                Text(text = formatTime(durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                PlayPauseButton(isPlaying, onTogglePlay, contentPadding = 8.dp)
+            }
+            SpeedSelector(current = playbackSpeed, onSpeedChange = onSpeedChange)
+            VolumeControl(volume = volume, onVolumeChange = onVolumeChange)
+            if (subtitleTracks.isNotEmpty()) {
+                SubtitleSelector(subtitleTracks, selectedSubtitleKey, onSubtitleChange)
+            }
         }
-        SpeedSelector(current = playbackSpeed, onSpeedChange = onSpeedChange)
-        VolumeControl(volume = volume, onVolumeChange = onVolumeChange)
-        if (subtitleTracks.isNotEmpty()) {
-            SubtitleSelector(subtitleTracks, selectedSubtitleKey, onSubtitleChange)
-        }
+    }
+}
+
+@Composable
+private fun PlayPauseButton(
+    isPlaying: Boolean,
+    onTogglePlay: () -> Unit,
+    contentPadding: Dp = 4.dp
+) {
+    IconButton(onClick = onTogglePlay, modifier = Modifier.padding(contentPadding)) {
+        Icon(
+            imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+            contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
+            tint = Color.White
+        )
     }
 }
 
@@ -251,13 +318,25 @@ private val speedOptions = listOf(0.5f, 1f, 1.25f, 1.5f, 2f)
 private fun SubtitleSelector(
     tracks: List<SubtitleTrack>,
     selectedKey: String?,
-    onSelect: (SubtitleTrack?) -> Unit
+    onSelect: (SubtitleTrack?) -> Unit,
+    compact: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Button(onClick = { expanded = true }) {
+    Button(
+        onClick = { expanded = true },
+        contentPadding = PaddingValues(
+            horizontal = if (compact) 8.dp else 12.dp,
+            vertical = if (compact) 2.dp else 8.dp
+        )
+    ) {
         Icon(Icons.Outlined.Subtitles, contentDescription = null)
         Spacer(Modifier.width(6.dp))
-        Text(tracks.firstOrNull { it.key == selectedKey }?.label ?: "Subtitles")
+        Text(
+            text = tracks.firstOrNull { it.key == selectedKey }?.label ?: "Subtitles",
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
     if (expanded) {
         AlertDialog(
@@ -279,41 +358,55 @@ private fun SubtitleSelector(
 }
 
 @Composable
-private fun SpeedSelector(current: Float, onSpeedChange: (Float) -> Unit) {
+private fun SpeedSelector(
+    current: Float,
+    onSpeedChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = if (compact) {
+            Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+        } else {
+            Arrangement.SpaceEvenly
+        },
+        verticalAlignment = Alignment.CenterVertically
     ) {
         speedOptions.forEach { speed ->
             val selected = current == speed
             val label = if (speed == 1f) "1x" else "${if (speed % 1f == 0f) speed.toInt() else speed}x"
-            Box(
-                contentAlignment = Alignment.Center,
+            Text(
+                text = label,
+                color = if (selected) Color.Black else Color.White,
+                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
                 modifier = Modifier
-                    .clickable { onSpeedChange(speed) }
                     .background(
                         color = if (selected) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.15f),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(if (compact) 12.dp else 16.dp)
                     )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = label,
-                    color = if (selected) Color.Black else Color.White,
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
+                    .clickable { onSpeedChange(speed) }
+                    .padding(
+                        horizontal = if (compact) 6.dp else 12.dp,
+                        vertical = if (compact) 4.dp else 6.dp
+                    )
+            )
         }
     }
 }
 
 @Composable
-private fun VolumeControl(volume: Float, onVolumeChange: (Float) -> Unit) {
+private fun VolumeControl(
+    volume: Float,
+    onVolumeChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp)
+            .padding(horizontal = if (compact) 0.dp else 8.dp)
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Outlined.VolumeDown,
@@ -323,7 +416,7 @@ private fun VolumeControl(volume: Float, onVolumeChange: (Float) -> Unit) {
         Slider(
             value = volume,
             onValueChange = onVolumeChange,
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+            modifier = Modifier.weight(1f).padding(horizontal = if (compact) 4.dp else 8.dp)
         )
         Icon(
             imageVector = Icons.AutoMirrored.Outlined.VolumeUp,

@@ -799,3 +799,38 @@ Media3 的 `DefaultDataSource` 会把非 HTTP scheme（`content://`、`file://`�
   `C=US, O=Android, CN=Android Debug`（SHA-256 `cb18b2f4…4fca3561`，与 `~/.android/debug.keystore` 一致）；
 - `zipalign -c 4` 通过；emulator-5554 `install -r` 成功、启动无 `FATAL EXCEPTION`、界面正常。
 - 唯一 apksigner 警告是 `META-INF/services/*` 不受 JAR 签名保护——JVM 元数据条目的固有提示，Android 不加载，非缺陷。
+
+---
+
+## 2026-09-13 Emby/Jellyfin 播放页横屏时控制层几乎占满整屏
+
+### 现象
+Emby/Jellyfin 播放页（`ui/player/PlayerScreen.kt`）点全屏进入横屏后，底部控制面板把画面吃掉一半以上，
+视频可见区域被压得很小，看起来"播放器 UI 占据了几乎整个屏幕"。
+
+### 根因
+`ControlsBottom` 不区分横竖屏，永远竖着叠 6 行：进度条 → 时间行 → 播放键行 → 倍速 5 个按钮 → 音量条 → 字幕按钮。
+竖屏时屏幕够高无所谓；横屏可视高度只有 1080px，这 6 行连同上下边距实测从 `y=524` 一直排到底部，
+控制面板独占 **51.5%** 屏高（含顶栏则 52% 以上），视频只剩一半不到。
+WebDAV 播放页早就有横屏压缩分支，Emby 这一路一直没有。
+
+### 修改（`ui/player/PlayerScreen.kt`）
+- `ControlsBottom` 按 `LocalConfiguration.current.orientation` 分横竖屏：
+  - **横屏压成两行**：第一行 播放/暂停 + 进度条 + `当前/总时长`；第二行 倍速 + 字幕 + 音量（横向 `weight` 分配）；
+  - **竖屏保持原样**，逐行布局、间距、按钮尺寸全部不动；
+- `SpeedSelector` / `VolumeControl` / `SubtitleSelector` 增加 `compact` 参数（横屏用小号字、更紧的内边距），
+  倍速从 `Box`+`SpaceEvenly` 改成 `Text`+按内容排布，横屏不再把 5 个按钮摊满整屏宽；
+- 抽出 `PlayPauseButton`（竖屏沿用原来的 8dp 内边距，横屏用 4dp），避免两处图标尺寸不一致。
+
+### 实测（emulator-5554 + 本地假 Emby 服务器：真 MP4 + PlaybackInfo + Range）
+- 横屏控制面板顶边：修复前 `y=524`，修复后 `y=799`；
+  **UI 纵向占比 51.5% → 26.0%**，视频可见带从 524px 增至 799px（屏高 1080px）。
+- 横屏控制行：从 8 个（进度条/时间/播放/倍速/音量…）缩到 2 行；控件仍全部可用：
+  - 暂停↔播放：`Pause → Play → Pause` 正常切换；
+  - 拖动进度条：`01:15 → 01:45`（seek 生效）；
+  - 倍速 `2x` 可点，播放继续；
+  - 返回键回首页。
+- 竖屏零回归：逐行 Y 坐标与修复前完全一致
+  （`1784 / 1910 / 1976 / 1987 / 2009 / 2103 / 2208 / 2214`，倍速按钮外框 `136×132 / 132×111 / 156×111 / 136×111 / 132×132`）。
+- `testDebugUnitTest` / `assembleDebug` / `lintDebug` 通过；
+  lint 报的 `DefaultLocale`(435) 与 `AutoboxingStateCreation`(209) 在 HEAD 同样存在，非本次引入。
