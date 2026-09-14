@@ -834,3 +834,48 @@ WebDAV 播放页早就有横屏压缩分支，Emby 这一路一直没有。
   （`1784 / 1910 / 1976 / 1987 / 2009 / 2103 / 2208 / 2214`，倍速按钮外框 `136×132 / 132×111 / 156×111 / 136×111 / 132×132`）。
 - `testDebugUnitTest` / `assembleDebug` / `lintDebug` 通过；
   lint 报的 `DefaultLocale`(435) 与 `AutoboxingStateCreation`(209) 在 HEAD 同样存在，非本次引入。
+
+---
+
+## 2026-09-14 Emby/Jellyfin 部分影片有画面没声音
+
+### 现象
+同一个 Emby 服务器里，部分影片播放时完全没有声音，而且不报任何错误，界面看着像正常播放（进度在走、进度条能动）。
+
+### 根因
+`data/remote/MediaServerClientBase.kt` 的 `streamUrl()` 对任何条目都写死 `static=true`，即永远要求服务器直接回传原始文件（direct play）。
+AC-3 / E-AC-3 / DTS / Dolby TrueHD 这类是授权解码器，很多手机根本没带；此时 Media3 的处理方式是**静默丢弃解不了的音频轨**——
+播放器只渲染视频，既不报错也不提示，于是就成了"有画面没声音"。
+
+实测对照（emulator-5554，同一条片子只换音轨编码）：
+
+| | AAC 片 | AC-3 片 |
+|---|---|---|
+| 画面 / 进度 | 正常 | 正常 |
+| 实际选中的音频解码器 | `audio/mp4a-latm` | **完全没有** |
+| 报错 | 无 | **无** |
+
+### 修改
+- 新增 `data/remote/AudioPlaybackCapability.kt`：用系统 `MediaCodecList(REGULAR_CODECS)` 探测本机解码能力，
+  不写死编解码表；只判断"播放器实际会选的那条音轨"（`IsDefault` 那条，没有则第一条），
+  因此"首轨 DTS + 次轨 AAC"的片子也会被正确判定为需要处理。
+  - 关键坑：两侧 codec 拼法完全不同——服务端报 `ac-3` / `DCA` / `truehd`，框架侧是
+    `audio/ac3` / `audio/vnd.dts` / `audio/vnd.dolby.mlp`。先反射读取 `android.media.MediaFormat` 常量核实真实 MIME，
+    再做双向归一化映射。若直接用原始字符串比较，`audio/mp4a-latm` 永远匹配不上服务端的 `aac`，
+    会把所有片子都误判成"不支持"从而全库转码。
+  - 解码器查询失败（返回空集合）时一律退回 direct，保持原行为，绝不因为一次日志异常就开始转码。
+- `streamUrl()`：能解码 → 仍然 `static=true`（零回归、零额外服务器负载）；不能解码 → 要求服务器**只转音频、视频 stream copy**
+  到 `aac` / 2 声道。参数名先查 Jellyfin 官方 `VideosController.cs` 源码与 Emby 官方
+  `getVideosByIdStreamByContainer` 文档确认（`static` / `Context` / `EnableAutoStreamCopy` /
+  `AllowVideoStreamCopy` / `AllowAudioStreamCopy` / `AudioCodec` / `MaxAudioChannels`）。
+- `MediaStreamDto` 补 `Codec` / `Channels` 字段（此前没解析，才导致根本无法判断）；补上 `DeviceId` 参数。
+
+### 实测（假 Emby 服务器按所服务文件声明真实 codec，并落盘收到的 stream 请求）
+```
+AAC:  /Videos/series1/stream?...&static=true                        → 日志出现 audio/mp4a-latm ✅
+AC-3: /Videos/series1/stream?...&static=false&Context=Streaming
+        &EnableAutoStreamCopy=true&AllowVideoStreamCopy=true
+        &AllowAudioStreamCopy=false&AudioCodec=aac&MaxAudioChannels=2
+                                                                    → 日志出现 audio/mp4a-latm ✅
+```
+

@@ -13,7 +13,7 @@ object EmbyAuth {
 
     private const val CLIENT = "VibePlayer"
     private const val DEVICE = "Android"
-    private const val DEVICE_ID = "vibe-player-android"
+    const val DEVICE_ID = "vibe-player-android"
     private const val VERSION = "0.1.0"
 
     fun schemeFor(serviceType: ServiceType): String = when (serviceType) {

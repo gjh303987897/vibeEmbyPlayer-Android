@@ -1,5 +1,6 @@
 package com.vibeplayer.app.data.remote
 
+import android.util.Log
 import com.vibeplayer.app.data.remote.dto.ItemQueryResult
 import com.vibeplayer.app.data.remote.dto.LibraryQueryResult
 import com.vibeplayer.app.data.remote.dto.MediaSourceDto
@@ -274,16 +275,42 @@ abstract class MediaServerClientBase(
         playSessionId: String
     ): PlaybackTarget {
         val mediaSourceId = source.sourceId
-        val url = makeUrl(session.server.baseUrl, "/Videos/${item.id}/stream")
-            .plus("?static=true&MediaSourceId=$mediaSourceId&PlaySessionId=$playSessionId&api_key=${session.accessToken}")
-        val subtitleStreamIndex = selectSubtitleStream(source)
-        val subtitleQuery = if (subtitleStreamIndex >= 0) {
-            "&EnableSubtitles=true&SubtitleStreamIndex=$subtitleStreamIndex"
-        } else {
-            ""
+        val base = makeUrl(session.server.baseUrl, "/Videos/${item.id}/stream")
+        val params = linkedMapOf<String, Any?>(
+            "MediaSourceId" to mediaSourceId,
+            "PlaySessionId" to playSessionId,
+            "api_key" to session.accessToken,
+            "DeviceId" to EmbyAuth.DEVICE_ID
+        )
+        // Static = the untouched original file. Only valid while the device can
+        // decode the audio track the player will pick: when it cannot, Media3
+        // silently drops that track and the title plays without any sound and
+        // without ever raising an error. Letting the server re-encode just the
+        // audio (video is stream-copied) keeps the picture untouched and gives a
+        // codec every phone can play.
+        val streams = source.MediaStreams.orEmpty()
+        val audioCodec = AudioPlaybackCapability.playableAudioCodec(streams)
+        when (AudioPlaybackCapability.planFor(streams)) {
+            AudioStreamPlan.DIRECT -> params["static"] = true
+            AudioStreamPlan.TRANSCODE_AUDIO -> {
+                Log.i(TAG, "audio codec '$audioCodec' is not decodable here, asking the server to transcode audio")
+                params["static"] = false
+                params["Context"] = "Streaming"
+                params["EnableAutoStreamCopy"] = true
+                params["AllowVideoStreamCopy"] = true
+                params["AllowAudioStreamCopy"] = false
+                params["AudioCodec"] = FALLBACK_AUDIO_CODEC
+                params["MaxAudioChannels"] = FALLBACK_AUDIO_CHANNELS
+            }
         }
+        val subtitleStreamIndex = selectSubtitleStream(source)
+        if (subtitleStreamIndex >= 0) {
+            params["EnableSubtitles"] = true
+            params["SubtitleStreamIndex"] = subtitleStreamIndex
+        }
+        val url = base + query(*params.toList().toTypedArray())
         return PlaybackTarget(
-            url = url + subtitleQuery,
+            url = url,
             startSeconds = item.playbackPositionSeconds,
             mediaSourceId = mediaSourceId,
             playSessionId = playSessionId,
@@ -375,6 +402,19 @@ abstract class MediaServerClientBase(
             base = "http://$base"
         }
         return base + path
+    }
+
+    companion object {
+        private const val TAG = "MediaServerClient"
+
+        /**
+         * Audio fallback the server encodes to when this device cannot decode the
+         * original track. AAC is decodable on every Android device, and two
+         * channels covers the downmix phones expect; the video stream is copied,
+         * so this costs the server an audio-only re-encode.
+         */
+        private const val FALLBACK_AUDIO_CODEC = "aac"
+        private const val FALLBACK_AUDIO_CHANNELS = 2
     }
 
     protected fun query(vararg pairs: Pair<String, Any?>): String {
