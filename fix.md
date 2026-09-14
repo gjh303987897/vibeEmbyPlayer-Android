@@ -724,3 +724,40 @@ Media3 的 `DefaultDataSource` 会把非 HTTP scheme（`content://`、`file://`�
 - 修复后同一操作序列：B 界面显示 `broken.m3u8s`、`00:00 / 00:00` 与 B 自己的失败文案，无任何 A 残留。
 - 回归：`.m3u8s` 目录包与 `.m3u8sp` 均正常起播并显示解密恢复的原始文件名；WebDAV 返回栈 `c→b→a→root` 不受影响；
   `testDebugUnitTest` / `assembleDebug` / `lintDebug` 通过。
+
+---
+
+## 2026-09-12 首页「每日推荐」没有切换动画 / 「继续观看」与推荐位风格不一致
+
+### 现象 / 需求
+1. 「每日推荐」大图每 10 秒换一部片子，但内容是瞬间跳变的：`SuggestedHero` 只保存一个 `index`，
+   换片时标题、简介、海报同时硬切，没有任何过渡动画；
+2. 「继续观看」是一条 268dp 的横向小卡片列表（`LazyRow`），与上面的电影级大图推荐位风格完全脱节。
+   经确认按「完全同款」处理：继续观看也改成自动轮播大图 + 圆点指示 + 断点进度条。
+
+### 修改（`ui/home/HomeScreen.kt`）
+- 新增共用的 `PosterHeroCarousel`，两个模块都用它，`SuggestedHero` / `ContinueWatchingHero` 只负责各自的叠加内容：
+  - `HorizontalPager` + `graphicsLayer`（`scaleX/Y 0.90→1.0`、`alpha 0.45→1.0`，按 `currentPageOffsetFraction` 插值），
+    换片时新海报滑入并放大/提亮，旧海报退出，替代原来的瞬间跳变；
+  - 自动轮播改为「空闲计时」：每 `HERO_TICK_MS`(250ms) 累加，`isScrollInProgress` 期间直接跳过，
+    并且任何一次落页（自己播到的或用户手滑的）都把计时清零 → 手动滑动后重新计满 10 秒，绝不打架；
+    列表只有一项时不起定时器；
+  - 到片尾不回头（`step` 触底反向 ping-pong），避免「倒着飞回第一页」的观感；
+  - 右下角圆点用 `animateDpAsState`/`animateFloatAsState` 做胶囊宽度和透明度过渡（最多 8 个，仅 `count > 1` 时显示）；
+  - `showResumeProgress` 时底部叠 4dp 观看进度条（`animateFloatAsState`，主题主色），
+    并在 meta 行加 `NN%` 徽章，保留旧卡片列表里的百分比信息；
+  - 点海报进详情页，动作按钮（播放 / 继续）进播放页；`firstAdvanceDelayMillis` 让两个轮播错开半个周期，不会同帧跳。
+- 顺带修掉一个既有显示缺陷：推荐位对 `Series` 条目会把同一个名字打印两行
+  （`itemName` 只判断 `!= seriesName`，而 Series 的 `seriesName` 为空）——现在只有在确实属于某个剧集时才打印第二行；
+  `HeroMetaRow` 也不再因为缺少 ★/年份/时长就把分级和百分比徽章一起跳过。
+- 删除已不用的 `ContinueWatchingRail`、`LazyRow` / `PagerState` 导入；字符串全部复用现有资源
+  （`play` / `resume` / `continue_watching`），无新增文案。
+
+### 实测（emulator-5554 + 本地假 Emby 服务器 8099，8 条 Suggestions + 8 条 IsResumable）
+- 自动轮播：每 ~10.7s 换一部；两个轮播分别在 6.2/16.7/27.4/38.2/48.9s 与 13.2/23.8/34.5/45.2s 触发，永不同帧。
+- 手动滑动：左右滑立即换页；滑动后 10 秒内不再自动跳（计时已清零重算），10 秒后恢复自动轮播。
+- 过渡确为多帧动画而非瞬间跳变：静止时 1 秒内渲染 0 帧，包含换片的 1.2 秒窗口内渲染 13 帧（`dumpsys gfxinfo`）。
+- 交互：点海报进详情（标题/元信息/简介/类型正常）→ 返回；「播放」「继续」都进播放页；返回后仍在首页。
+- 继续观看显示片名 + 剧集名 + `第 N 季 第 N 集` + `TV-MA`/`34%` 徽章 + 底部进度条。
+- 回归：WebDAV 返回栈 `c→b→a→root`、`.m3u8s` 目录包与 `.m3u8sp` 起播、播放页无上一条残留均不受影响；
+  `testDebugUnitTest` / `assembleDebug` / `lintDebug` 通过，`lint-results-debug.html` 未涉及本文件。

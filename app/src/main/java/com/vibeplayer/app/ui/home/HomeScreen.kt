@@ -1,5 +1,15 @@
 package com.vibeplayer.app.ui.home
 
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.util.lerp
+import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
+import kotlinx.coroutines.isActive
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,7 +30,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -123,9 +132,15 @@ fun HomeScreen(
                         if (state.continueWatching.isNotEmpty()) {
                             item { RailHeader(stringResource(R.string.continue_watching)) }
                             item {
-                                ContinueWatchingRail(items = state.continueWatching) { item ->
-                                    navController.navigate(Routes.details(state.serverId, item.id))
-                                }
+                                ContinueWatchingHero(
+                                    items = state.continueWatching,
+                                    onOpen = { item ->
+                                        navController.navigate(Routes.details(state.serverId, item.id))
+                                    },
+                                    onResume = { item ->
+                                        navController.navigate(Routes.player(state.serverId, item.id))
+                                    }
+                                )
                             }
                         }
                         if (state.libraries.isNotEmpty()) {
@@ -168,134 +183,160 @@ fun HomeScreen(
 }
 
 /**
- * Cinematic featured hero for the recommended-series module, mirroring the
- * desktop client's "trendy" home: a full-width backdrop with overlaid title,
- * metadata, overview, a play action and a dot page indicator. Auto-advances
- * every few seconds and taps through to the item's details.
+ * Shared cinematic poster carousel used by both home modules: a full-bleed
+ * backdrop per page with overlaid metadata, an auto-advance that never fights a
+ * manual swipe, a depth transition (the incoming poster slides in while easing up
+ * to full size and opacity) and an animated pill page indicator.
  */
 @Composable
-private fun SuggestedHero(
+private fun PosterHeroCarousel(
     items: List<MediaItem>,
+    modifier: Modifier = Modifier,
+    showResumeProgress: Boolean = false,
+    firstAdvanceDelayMillis: Long = HERO_AUTO_ADVANCE_MS,
     onItemClick: (MediaItem) -> Unit,
-    onPlay: (MediaItem) -> Unit
+    overlay: @Composable (MediaItem) -> Unit
 ) {
     val count = items.size
-    var index by remember { mutableIntStateOf(0) }
-    val current = items.getOrNull(index % count.coerceAtLeast(1)) ?: return
-    val seriesName = current.seriesName.takeIf { it.isNotBlank() }
-    val title = seriesName ?: current.name.takeIf { it.isNotBlank() }
-    val itemName = current.name.takeIf { it.isNotBlank() && it != seriesName }
-
+    if (count == 0) return
+    val pagerState = rememberPagerState { count }
+    // The lists refresh in place, so a page index that no longer exists is dropped.
+    LaunchedEffect(items) {
+        if (pagerState.currentPage >= count) pagerState.scrollToPage(0)
+    }
+    var step by remember { mutableIntStateOf(1) }
     LaunchedEffect(count) {
-        if (count > 1) {
-            while (true) {
-                delay(10_000)
-                index = (index + 1) % count
+        if (count < 2) return@LaunchedEffect
+        // Count idle time instead of scheduling fixed ticks: any settled page
+        // change (our own advance or a manual swipe) restarts the countdown, and
+        // the carousel never moves while the user is dragging.
+        var elapsed = 0L
+        var settledPage = pagerState.currentPage
+        var first = true
+        while (isActive) {
+            delay(HERO_TICK_MS)
+            if (pagerState.isScrollInProgress) continue
+            val page = pagerState.currentPage
+            if (page != settledPage) {
+                settledPage = page
+                elapsed = 0L
+            }
+            elapsed += HERO_TICK_MS
+            val interval = if (first) firstAdvanceDelayMillis else HERO_AUTO_ADVANCE_MS
+            if (elapsed < interval) continue
+            first = false
+            elapsed = 0L
+            var next = settledPage + step
+            if (next !in 0 until count) {
+                // Bounce at the ends: flying backwards past every page reads as a glitch.
+                step = -step
+                next = settledPage + step
+            }
+            if (next in 0 until count) {
+                settledPage = next
+                pagerState.animateScrollToPage(next)
             }
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(260.dp)
-            .background(Color.Black)
-    ) {
-        AsyncImage(
-            model = current.backdropImageUrl.takeIf { it.isNotBlank() }
-                ?: current.seriesImageUrl.takeIf { it.isNotBlank() }
-                ?: current.imageUrl.takeIf { it.isNotBlank() },
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-        // Left-to-right scrim + bottom-up scrim, mirroring the desktop hero's
-        // dark gradient so the overlaid text stays legible over any artwork.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Black.copy(alpha = 0.20f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.35f),
-                            Color.Black.copy(alpha = 0.88f)
-                        )
-                    )
-                )
-        )
-        // Tap the artwork to open details (mirrors desktop hero navigation).
-        // Drawn below the action column so the play button stays interactive.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                    onItemClick(current)
-                }
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 16.dp, end = 88.dp, bottom = 20.dp)
-        ) {
-            title?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            itemName?.let {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.92f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (title != null || itemName != null) {
-                Spacer(Modifier.height(8.dp))
-                HeroMetaRow(current)
-            }
-            current.overview.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.88f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            // Play action, mirroring the desktop hero's primary button.
-            Button(
-                onClick = { onPlay(current) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+    Box(modifier = modifier.fillMaxWidth().height(260.dp).background(Color.Black)) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = count > 1
+        ) { page ->
+            val item = items.getOrNull(page) ?: return@HorizontalPager
+            // 0 for the settled page, 1 for its neighbour: drives the depth effect.
+            val distance = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                .absoluteValue.coerceIn(0f, 1f)
+            val settled = 1f - distance
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = lerp(0.90f, 1f, settled)
+                        scaleY = lerp(0.90f, 1f, settled)
+                        alpha = lerp(0.45f, 1f, settled)
+                    }
             ) {
-                Icon(Icons.Outlined.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = stringResource(R.string.play),
-                    style = MaterialTheme.typography.labelLarge
+                AsyncImage(
+                    model = item.backdropImageUrl.takeIf { it.isNotBlank() }
+                        ?: item.seriesImageUrl.takeIf { it.isNotBlank() }
+                        ?: item.imageUrl.takeIf { it.isNotBlank() },
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
+                // Left-to-right scrim + bottom-up scrim keep the overlaid text
+                // legible over any artwork, mirroring the desktop client's hero.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.55f),
+                                    Color.Black.copy(alpha = 0.20f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.35f),
+                                    Color.Black.copy(alpha = 0.88f)
+                                )
+                            )
+                        )
+                )
+                // Tap the artwork to open details (mirrors desktop hero navigation).
+                // Drawn below the action column so the button stays interactive.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                            onItemClick(item)
+                        }
+                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = 16.dp,
+                            end = 88.dp,
+                            bottom = if (showResumeProgress) 24.dp else 20.dp
+                        )
+                ) {
+                    overlay(item)
+                }
+                if (showResumeProgress) {
+                    val watched = (item.playedPercentage.coerceIn(0.0, 100.0) / 100.0).toFloat()
+                    val progressWidth by animateFloatAsState(
+                        targetValue = watched,
+                        animationSpec = tween(420),
+                        label = "resumeProgress"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .background(Color.White.copy(alpha = 0.28f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(progressWidth)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
             }
         }
         if (count > 1) {
@@ -303,16 +344,27 @@ private fun SuggestedHero(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(bottom = 16.dp, end = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                repeat(count.coerceAtMost(8)) { dot ->
-                    val active = dot == (index % count)
+                repeat(count.coerceAtMost(HERO_MAX_DOTS)) { dot ->
+                    val active = dot == pagerState.currentPage
+                    val dotWidth by animateDpAsState(
+                        targetValue = if (active) 22.dp else 7.dp,
+                        animationSpec = tween(280),
+                        label = "heroDotWidth"
+                    )
+                    val dotAlpha by animateFloatAsState(
+                        targetValue = if (active) 1f else 0.55f,
+                        animationSpec = tween(280),
+                        label = "heroDotAlpha"
+                    )
                     Box(
                         modifier = Modifier
                             .height(7.dp)
-                            .width(if (active) 22.dp else 7.dp)
+                            .width(dotWidth)
                             .clip(RoundedCornerShape(50))
-                            .background(if (active) Color.White else Color.White.copy(alpha = 0.55f))
+                            .background(Color.White.copy(alpha = dotAlpha))
                     )
                 }
             }
@@ -320,9 +372,117 @@ private fun SuggestedHero(
     }
 }
 
-/** Rating, year, official rating and runtime, mirroring the desktop hero meta. */
+/** Recommended-series hero: overview plus a play action. */
 @Composable
-private fun HeroMetaRow(item: MediaItem) {
+private fun SuggestedHero(
+    items: List<MediaItem>,
+    onItemClick: (MediaItem) -> Unit,
+    onPlay: (MediaItem) -> Unit
+) {
+    PosterHeroCarousel(items = items, onItemClick = onItemClick) { item ->
+        HeroTitles(item)
+        HeroMetaRow(item)
+        HeroOverview(item)
+        HeroActionButton(R.string.play) { onPlay(item) }
+    }
+}
+
+/**
+ * Continue watching now uses the same poster carousel as the recommended series,
+ * with a watched-progress bar and a resume action instead of a plain play button.
+ */
+@Composable
+private fun ContinueWatchingHero(
+    items: List<MediaItem>,
+    onOpen: (MediaItem) -> Unit,
+    onResume: (MediaItem) -> Unit
+) {
+    PosterHeroCarousel(
+        items = items,
+        showResumeProgress = true,
+        // Offset by half the interval so the two home carousels never switch on
+        // the same frame.
+        firstAdvanceDelayMillis = HERO_AUTO_ADVANCE_MS / 2,
+        onItemClick = onOpen
+    ) { item ->
+        HeroTitles(item)
+        HeroMetaRow(item, progressPercent = percentWatched(item))
+        HeroOverview(item)
+        HeroActionButton(R.string.resume) { onResume(item) }
+    }
+}
+
+/** Whole percent watched, or null when there is no progress to report. */
+private fun percentWatched(item: MediaItem): Int? =
+    item.playedPercentage.takeIf { it > 0.0 && it < 100.0 }?.roundToInt()?.coerceAtLeast(1)
+
+/**
+ * Series (or item) title plus the episode line. The second line only exists when
+ * the item belongs to a series - a bare Series entry would otherwise print its
+ * own name twice.
+ */
+@Composable
+private fun HeroTitles(item: MediaItem) {
+    val seriesName = item.seriesName.takeIf { it.isNotBlank() }
+    val title = seriesName ?: item.name.takeIf { it.isNotBlank() }
+    val itemName = if (seriesName != null) {
+        item.name.takeIf { it.isNotBlank() && it != seriesName }
+    } else null
+    title?.let {
+        Text(
+            text = it,
+            style = MaterialTheme.typography.headlineSmall,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+    itemName?.let {
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = it,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.92f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+    if (title != null || itemName != null) {
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun HeroOverview(item: MediaItem) {
+    item.overview.takeIf { it.isNotBlank() }?.let { overview ->
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = overview,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.88f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/** White pill action shared by both home carousels. */
+@Composable
+private fun HeroActionButton(labelRes: Int, onClick: () -> Unit) {
+    Spacer(Modifier.height(12.dp))
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+    ) {
+        Icon(Icons.Outlined.PlayArrow, contentDescription = null)
+        Spacer(Modifier.width(4.dp))
+        Text(text = stringResource(labelRes), style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** Rating, year, official rating, runtime and watched progress, as on desktop. */
+@Composable
+private fun HeroMetaRow(item: MediaItem, progressPercent: Int? = null) {
     val symbols = buildList {
         item.communityRating.takeIf { it.isNotBlank() }?.let { add("★ $it") }
         item.productionYear.takeIf { it.isNotBlank() }?.let { add(it) }
@@ -330,28 +490,33 @@ private fun HeroMetaRow(item: MediaItem) {
         val seasonEp = seasonEpisodeText(item)
         if (seasonEp.isNotBlank()) add(seasonEp)
     }
-    if (symbols.isEmpty()) return
-    Text(
-        text = symbols.joinToString("  ·  "),
-        style = MaterialTheme.typography.bodySmall,
-        color = Color.White.copy(alpha = 0.9f),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
+    if (symbols.isNotEmpty()) {
+        Text(
+            text = symbols.joinToString("  ·  "),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.9f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+    val chips = listOfNotNull(
+        item.officialRating.takeIf { it.isNotBlank() },
+        progressPercent?.let { "$it%" }
     )
-    item.officialRating.takeIf { it.isNotBlank() }?.let { rating ->
+    if (chips.isNotEmpty()) {
         Spacer(Modifier.height(6.dp))
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color.White.copy(alpha = 0.18f))
-                .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 7.dp, vertical = 2.dp)
-        ) {
-            Text(
-                text = rating,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            chips.forEach { chip ->
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.White.copy(alpha = 0.18f))
+                        .border(1.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(text = chip, style = MaterialTheme.typography.labelSmall, color = Color.White)
+                }
+            }
         }
     }
 }
@@ -364,108 +529,6 @@ private fun RailHeader(title: String) {
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
     )
 }
-
-/**
- * Continue-watching rail. Episodes prefer the parent series poster (not the
- * episode's own thumbnail) and show the season / episode index plus a watched
- * progress bar, matching the desktop client.
- */
-@Composable
-private fun ContinueWatchingRail(items: List<MediaItem>, onItemClick: (MediaItem) -> Unit) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(items) { item ->
-            val interactionSource = remember { MutableInteractionSource() }
-            val progress = (item.playedPercentage.coerceIn(0.0, 100.0) / 100.0).toFloat()
-            Column(
-                modifier = Modifier
-                    .animateItem()
-                    .width(268.dp)
-                    .pressScale(interactionSource)
-                    .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onItemClick(item) }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                ) {
-                    AsyncImage(
-                        model = item.backdropImageUrl.takeIf { it.isNotBlank() }
-                            ?: item.seriesImageUrl.takeIf { it.isNotBlank() }
-                            ?: item.imageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(58.dp)
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
-                                )
-                            )
-                    )
-                    if (progress > 0f) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 9.dp)
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(Color.White.copy(alpha = 0.34f))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(progress)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = continueWatchingTitle(item),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = seasonEpisodeText(item),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (progress > 0f) {
-                        Text(
-                            text = "${(progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Title: parent series name for episodes, otherwise the item name. */
-private fun continueWatchingTitle(item: MediaItem): String =
-    item.seriesName.takeIf { it.isNotBlank() } ?: item.name
 
 @Composable
 private fun LibraryRow(
@@ -511,3 +574,12 @@ private fun LibraryRow(
         }
     }
 }
+
+/** Poster auto-advance interval for the home carousels. */
+private const val HERO_AUTO_ADVANCE_MS = 10_000L
+
+/** Idle countdown resolution for the home carousels. */
+private const val HERO_TICK_MS = 250L
+
+/** Page dots beyond this count would clutter the poster. */
+private const val HERO_MAX_DOTS = 8
