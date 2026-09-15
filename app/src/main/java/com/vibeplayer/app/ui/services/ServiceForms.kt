@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -53,7 +56,8 @@ import com.vibeplayer.app.util.normalizeUrlInput
 private fun ServiceTypePicker(
     selected: ServiceType,
     onSelect: (ServiceType) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     val options = ServiceType.entries
     Column(modifier = modifier.fillMaxWidth()) {
@@ -75,6 +79,7 @@ private fun ServiceTypePicker(
                         )
                         .selectable(
                             selected = isSelected,
+                            enabled = enabled,
                             onClick = { onSelect(option) },
                             role = Role.RadioButton
                         ),
@@ -111,13 +116,15 @@ private fun ServerAddressFields(
     onHostChange: (String) -> Unit,
     port: String,
     onPortChange: (String) -> Unit,
-    serviceType: ServiceType
+    serviceType: ServiceType,
+    enabled: Boolean = true
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             listOf("http", "https").forEachIndexed { index, value ->
                 SegmentedButton(
                     selected = scheme == value,
+                    enabled = enabled,
                     onClick = { onSchemeChange(value) },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
                     modifier = Modifier.weight(1f)
@@ -144,6 +151,7 @@ private fun ServerAddressFields(
                 label = { Text(stringResource(R.string.server_host)) },
                 placeholder = { Text("example.com/dav") },
                 singleLine = true,
+                enabled = enabled,
                 modifier = Modifier.weight(1f)
             )
             OutlinedTextField(
@@ -153,14 +161,41 @@ private fun ServerAddressFields(
                 placeholder = { Text(defaultServerPort(serviceType, scheme)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
+                enabled = enabled,
                 modifier = Modifier.width(112.dp)
             )
         }
     }
 }
 
+/**
+ * Submit button for the server dialogs. While [busy] it becomes a disabled
+ * progress button, so a slow save / first login is visible and repeated taps
+ * cannot submit the form twice.
+ */
+@Composable
+private fun DialogSubmitButton(
+    enabled: Boolean,
+    busy: Boolean,
+    @StringRes busyText: Int,
+    onClick: () -> Unit
+) {
+    TextButton(enabled = enabled && !busy, onClick = onClick) {
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(stringResource(if (busy) busyText else R.string.save))
+    }
+}
+
 @Composable
 fun AddServerDialog(
+    busy: Boolean,
     onDismiss: () -> Unit,
     onSave: (ServerForm, password: String) -> Unit
 ) {
@@ -182,7 +217,11 @@ fun AddServerDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
-                ServiceTypePicker(selected = type, onSelect = { type = it })
+                ServiceTypePicker(
+                    selected = type,
+                    onSelect = { type = it },
+                    enabled = !busy
+                )
                 if (type == ServiceType.EMBY || type == ServiceType.JELLYFIN || type == ServiceType.WEBDAV) {
                     ServerAddressFields(
                         scheme = scheme,
@@ -195,7 +234,8 @@ fun AddServerDialog(
                         onHostChange = { host = it },
                         port = port,
                         onPortChange = { port = it },
-                        serviceType = type
+                        serviceType = type,
+                        enabled = !busy
                     )
                 }
                 OutlinedTextField(
@@ -203,6 +243,7 @@ fun AddServerDialog(
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.server_name)) },
                     singleLine = true,
+                    enabled = !busy,
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (type == ServiceType.EMBY || type == ServiceType.JELLYFIN || type == ServiceType.WEBDAV) {
@@ -211,6 +252,7 @@ fun AddServerDialog(
                         onValueChange = { username = it },
                         label = { Text(stringResource(R.string.username)) },
                         singleLine = true,
+                        enabled = !busy,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
@@ -218,6 +260,7 @@ fun AddServerDialog(
                         onValueChange = { password = it },
                         label = { Text(stringResource(R.string.password)) },
                         singleLine = true,
+                        enabled = !busy,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -230,7 +273,8 @@ fun AddServerDialog(
                         ) {
                             Checkbox(
                                 checked = savePassword,
-                                onCheckedChange = { savePassword = it }
+                                onCheckedChange = { savePassword = it },
+                                enabled = !busy
                             )
                             Text(
                                 text = stringResource(R.string.save_password_auto_enter),
@@ -240,7 +284,8 @@ fun AddServerDialog(
                     }
                     SelfSignedCertificateOption(
                         checked = trustSelfSignedCertificate,
-                        onCheckedChange = { trustSelfSignedCertificate = it }
+                        onCheckedChange = { trustSelfSignedCertificate = it },
+                        enabled = !busy
                     )
                 } else {
                     Text(
@@ -252,7 +297,9 @@ fun AddServerDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            DialogSubmitButton(
+                busy = busy,
+                busyText = R.string.services_saving,
                 enabled = when (type) {
                     ServiceType.EMBY, ServiceType.JELLYFIN, ServiceType.WEBDAV ->
                         host.isNotBlank() && port.isNotBlank() && username.isNotBlank() && password.isNotBlank()
@@ -273,12 +320,10 @@ fun AddServerDialog(
                         password
                     )
                 }
-            ) {
-                Text(stringResource(R.string.save))
-            }
+            )
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !busy) {
                 Text(stringResource(R.string.cancel))
             }
         }
@@ -288,6 +333,7 @@ fun AddServerDialog(
 @Composable
 fun EditServerDialog(
     server: ServerConfig,
+    busy: Boolean,
     onDismiss: () -> Unit,
     onSave: (ServerForm, password: String, savePassword: Boolean) -> Unit
 ) {
@@ -339,7 +385,8 @@ fun EditServerDialog(
                         onHostChange = { host = it },
                         port = port,
                         onPortChange = { port = it },
-                        serviceType = server.serviceType
+                        serviceType = server.serviceType,
+                        enabled = !busy
                     )
                 }
                 OutlinedTextField(
@@ -347,6 +394,7 @@ fun EditServerDialog(
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.server_name)) },
                     singleLine = true,
+                    enabled = !busy,
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (isCredentialServer) {
@@ -355,6 +403,7 @@ fun EditServerDialog(
                         onValueChange = { username = it },
                         label = { Text(stringResource(R.string.username)) },
                         singleLine = true,
+                        enabled = !busy,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (server.serviceType == ServiceType.EMBY || server.serviceType == ServiceType.JELLYFIN) {
@@ -363,6 +412,7 @@ fun EditServerDialog(
                             onValueChange = { password = it },
                             label = { Text(stringResource(R.string.password)) },
                             singleLine = true,
+                            enabled = !busy,
                             visualTransformation = PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -372,7 +422,8 @@ fun EditServerDialog(
                         ) {
                             Checkbox(
                                 checked = savePassword,
-                                onCheckedChange = { savePassword = it }
+                                onCheckedChange = { savePassword = it },
+                                enabled = !busy
                             )
                             Text(
                                 text = stringResource(R.string.save_password_auto_enter),
@@ -382,13 +433,19 @@ fun EditServerDialog(
                     }
                     SelfSignedCertificateOption(
                         checked = trustSelfSignedCertificate,
-                        onCheckedChange = { trustSelfSignedCertificate = it }
+                        onCheckedChange = { trustSelfSignedCertificate = it },
+                        enabled = !busy
                     )
                 }
             }
         },
         confirmButton = {
-            TextButton(
+            DialogSubmitButton(
+                busy = busy,
+                busyText = R.string.services_saving,
+                // Same client-side check as the add dialog, so a cleared address
+                // never submits (and therefore never closes) the form.
+                enabled = !isCredentialServer || (host.isNotBlank() && port.isNotBlank()),
                 onClick = {
                     onSave(
                         ServerForm(
@@ -404,12 +461,10 @@ fun EditServerDialog(
                         savePassword
                     )
                 }
-            ) {
-                Text(stringResource(R.string.save))
-            }
+            )
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !busy) {
                 Text(stringResource(R.string.cancel))
             }
         }
@@ -419,14 +474,15 @@ fun EditServerDialog(
 @Composable
 private fun SelfSignedCertificateOption(
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+            Checkbox(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
             Text(
                 text = stringResource(R.string.trust_self_signed_certificate),
                 style = MaterialTheme.typography.bodyMedium
@@ -444,6 +500,7 @@ private fun SelfSignedCertificateOption(
 @Composable
 fun LoginDialog(
     server: ServerConfig,
+    busy: Boolean,
     onDismiss: () -> Unit,
     onLogin: (password: String, savePassword: Boolean) -> Unit
 ) {
@@ -476,6 +533,7 @@ fun LoginDialog(
                     onValueChange = { password = it },
                     label = { Text(stringResource(R.string.password)) },
                     singleLine = true,
+                    enabled = !busy,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -486,7 +544,8 @@ fun LoginDialog(
                     ) {
                         Checkbox(
                             checked = savePassword,
-                            onCheckedChange = { savePassword = it }
+                            onCheckedChange = { savePassword = it },
+                            enabled = !busy
                         )
                         Text(
                             text = stringResource(R.string.save_password_auto_enter),
@@ -497,12 +556,12 @@ fun LoginDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            DialogSubmitButton(
+                busy = busy,
+                busyText = R.string.services_signing_in,
                 enabled = password.isNotBlank(),
                 onClick = { onLogin(password, savePassword) }
-            ) {
-                Text(stringResource(R.string.sign_in))
-            }
+            )
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {

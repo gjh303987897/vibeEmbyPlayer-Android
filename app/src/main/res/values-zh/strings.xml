@@ -19,6 +19,8 @@
     <string name="cancel">取消</string>
     <string name="sign_in">登录</string>
     <string name="signed_in">已登录</string>
+    <string name="services_signing_in">正在登录…</string>
+    <string name="services_saving">正在保存…</string>
     <string name="remove">移除</string>
     <string name="open">打开</string>
     <string name="save_password_auto_enter">保存密码，下次直接进入</string>
@@ -154,7 +156,7 @@
     <string name="webdav_download">下载</string>
     <string name="webdav_identifier">识别码：%1$s</string>
     <string name="webdav_original_file_name">原始文件：%1$s</string>
-    <string name="webdav_metadata_unavailable">ä¸å¯ç¨</string>
+    <string name="webdav_metadata_unavailable">不可用</string>
 
     <!-- 播放反馈 -->
     <string name="player_loading">加载中…</string>

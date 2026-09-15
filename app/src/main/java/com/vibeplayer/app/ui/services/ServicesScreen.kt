@@ -84,6 +84,12 @@ fun ServicesScreen(
 
     var loginTarget by remember { mutableStateOf<ServerConfig?>(null) }
     var editTarget by remember { mutableStateOf<ServerConfig?>(null) }
+    // Set once a sign-in was submitted from the dialog: it keeps the dialog open
+    // (with progress) while the request runs and closes it when the request ends.
+    var submittedLoginServerId by remember { mutableStateOf<String?>(null) }
+    // Same for the "edit server" dialog: it stays open with progress until the
+    // save finished, so a slow write is visible and one tap cannot save twice.
+    var submittedEditServerId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uiState.lastLoggedInServerId) {
         if (uiState.lastLoggedInServerId != null) {
@@ -128,6 +134,24 @@ fun ServicesScreen(
                 tone = MessageTone.WARNING
             )
             viewModel.acknowledgePasswordWarning()
+        }
+    }
+
+    // The sign-in dialog closes when its request finishes; while it runs its
+    // submit button shows progress instead of the dialog silently disappearing.
+    LaunchedEffect(submittedLoginServerId, uiState.signingInServerId) {
+        val submitted = submittedLoginServerId ?: return@LaunchedEffect
+        if (uiState.signingInServerId != submitted) {
+            submittedLoginServerId = null
+            if (loginTarget?.id == submitted) loginTarget = null
+        }
+    }
+
+    LaunchedEffect(submittedEditServerId, uiState.savingServerId) {
+        val submitted = submittedEditServerId ?: return@LaunchedEffect
+        if (uiState.savingServerId != submitted) {
+            submittedEditServerId = null
+            if (editTarget?.id == submitted) editTarget = null
         }
     }
 
@@ -191,13 +215,17 @@ fun ServicesScreen(
                 onLoginClick = { loginTarget = item.server },
                 onEditClick = { editTarget = item.server },
                 onRemoveClick = { viewModel.removeServer(item.server) },
-                isEntering = uiState.enteringServerId == item.server.id
+                // Spinner for one-tap entry and for an explicit sign-in, so a slow
+                // server always shows that something is happening.
+                isEntering = uiState.enteringServerId == item.server.id ||
+                    uiState.signingInServerId == item.server.id
             )
         }
     }
 
     if (showAddDialog) {
         AddServerDialog(
+            busy = uiState.addingServer,
             onDismiss = viewModel::dismissAddDialog,
             onSave = { form, password -> viewModel.addServer(form, password) }
         )
@@ -206,20 +234,34 @@ fun ServicesScreen(
     loginTarget?.let { server ->
         LoginDialog(
             server = server,
-            onDismiss = { loginTarget = null },
-            onLogin = { password, savePassword ->
+            busy = uiState.signingInServerId == server.id,
+            // The dialog can still be dismissed while the request runs (the card
+            // keeps its spinner); only the submit button is locked.
+            onDismiss = {
+                submittedLoginServerId = null
                 loginTarget = null
+            },
+            onLogin = { password, savePassword ->
+                submittedLoginServerId = server.id
                 viewModel.loginServer(server, password, savePassword)
             }
         )
     }
 
     editTarget?.let { server ->
+        val saving = uiState.savingServerId == server.id
         EditServerDialog(
             server = server,
-            onDismiss = { editTarget = null },
+            busy = saving,
+            onDismiss = {
+                // Keep the dialog mounted while saving so its progress stays visible.
+                if (!saving) {
+                    submittedEditServerId = null
+                    editTarget = null
+                }
+            },
             onSave = { form, password, savePassword ->
-                editTarget = null
+                submittedEditServerId = server.id
                 viewModel.editServer(server, form, password, savePassword)
             }
         )

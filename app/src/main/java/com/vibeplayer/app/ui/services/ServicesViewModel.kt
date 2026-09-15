@@ -37,6 +37,25 @@ data class ServicesUiState(
     val navigationServerId: String? = null,
     val enteringServerId: String? = null,
     /**
+     * Set while the "add server" dialog submits (persist + first login). The dialog
+     * shows a progress indicator and locks its inputs / buttons while this is true:
+     * without it a slow first login looked like a frozen screen, and repeated taps
+     * on "Save" created the same server several times.
+     */
+    val addingServer: Boolean = false,
+    /**
+     * Server whose sign-in request is running. The sign-in dialog shows progress
+     * instead of closing silently (a login can take as long as the network timeout,
+     * which previously looked like a dead UI), and the card shows its spinner.
+     */
+    val signingInServerId: String? = null,
+    /**
+     * Server whose "edit server" submission is running. Same reason as
+     * [signingInServerId]: the dialog keeps its progress indicator instead of
+     * closing without any visible result.
+     */
+    val savingServerId: String? = null,
+    /**
      * Set when the user asked to save a password but secure storage refused the
      * write (unavailable Keystore). The screen turns it into a snackbar, because
      * "saved" that quietly does nothing is exactly how this bug used to hide.
@@ -76,6 +95,18 @@ class ServicesViewModel @Inject constructor(
         }
 
     private var pendingEntryServerId: String? = null
+
+    /**
+     * Sign-in submissions still running, keyed by server id. Set synchronously (not
+     * inside the coroutine) so two taps in the same frame cannot start two logins.
+     */
+    private val inFlightLogins = mutableSetOf<String>()
+
+    /** Server ids whose edit submission is still running. */
+    private val inFlightEdits = mutableSetOf<String>()
+
+    /** True while an "add server" submission runs (see [ServicesUiState.addingServer]). */
+    private var addInFlight = false
 
     private val _showAddDialog = MutableStateFlow(false)
     val showAddDialog: StateFlow<Boolean> = _showAddDialog.asStateFlow()
@@ -132,11 +163,24 @@ class ServicesViewModel @Inject constructor(
     }
 
     fun dismissAddDialog() {
+        // While the submission runs the dialog stays mounted with its inputs locked:
+        // dismissing it (back gesture or tap outside) would hide the only progress
+        // indicator and throw away the typed form.
+        if (addInFlight) return
         _showAddDialog.value = false
     }
 
-    /** Saves a new server and attempts an initial login. */
+    /**
+     * Saves a new server and attempts an initial login.
+     *
+     * The dialog stays open and its buttons are disabled until this completes, so
+     * the slow first login after checking "save password" is visible instead of
+     * looking like a frozen UI, and repeated taps cannot add the same server twice.
+     */
     fun addServer(form: ServerForm, password: String) {
+        // Guarded synchronously, before the coroutine starts, so a fast double tap
+        // cannot queue two submissions (that is what created duplicate servers).
+        if (addInFlight) return
         val requiresAddress = form.serviceType == ServiceType.EMBY ||
             form.serviceType == ServiceType.JELLYFIN ||
             form.serviceType == ServiceType.WEBDAV
@@ -159,18 +203,25 @@ class ServicesViewModel @Inject constructor(
             trustSelfSignedCertificate = form.trustSelfSignedCertificate,
             privateMode = false
         )
+        addInFlight = true
+        _uiState.update { it.copy(addingServer = true, errorMessage = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, errorMessage = null) }
+            // Every exit path has to release the busy flag, otherwise one failing
+            // save would lock the dialog in the "saving" state forever. The dialog
+            // cannot be dismissed while submitting, so it is safe to reopen it here.
+            fun finish(keepDialogOpen: Boolean) {
+                addInFlight = false
+                _uiState.update { it.copy(addingServer = false) }
+                if (!keepDialogOpen) _showAddDialog.value = false
+            }
             try {
                 repository.addServer(config)
             } catch (t: Throwable) {
                 // Persisting the new account must never crash the save. Surface
                 // the error and keep the dialog so the user can retry.
+                finish(keepDialogOpen = true)
                 _uiState.update {
-                    it.copy(
-                        loading = false,
-                        errorMessage = t.message ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
-                    )
+                    it.copy(errorMessage = t.message ?: context.getString(com.vibeplayer.app.R.string.message_error_generic))
                 }
                 return@launch
             }
@@ -194,9 +245,12 @@ class ServicesViewModel @Inject constructor(
                                 passwordWarning = true
                             }
                         }
+                        // The row is already saved, so close the dialog and let the
+                        // card's "sign in" action retry the login; keeping the dialog
+                        // open would invite a second submission that adds a duplicate.
+                        finish(keepDialogOpen = false)
                         _uiState.update {
                             it.copy(
-                                loading = false,
                                 lastLoggedInServerId = if (loginResult.isSuccess) config.id else null,
                                 errorMessage = message
                             )
@@ -208,23 +262,21 @@ class ServicesViewModel @Inject constructor(
                     }
                     ServiceType.WEBDAV -> {
                         webDavRepository.saveCredentials(config, password)
-                        _uiState.update { it.copy(loading = false, lastLoggedInServerId = config.id) }
+                        finish(keepDialogOpen = false)
+                        _uiState.update { it.copy(lastLoggedInServerId = config.id) }
                     }
                     else -> {
-                        _uiState.update { it.copy(loading = false, lastLoggedInServerId = config.id) }
+                        finish(keepDialogOpen = false)
+                        _uiState.update { it.copy(lastLoggedInServerId = config.id) }
                     }
                 }
             } catch (t: Throwable) {
                 // The initial login / credential step must never crash the save.
+                finish(keepDialogOpen = true)
                 _uiState.update {
-                    it.copy(
-                        loading = false,
-                        errorMessage = t.message ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
-                    )
+                    it.copy(errorMessage = t.message ?: context.getString(com.vibeplayer.app.R.string.message_error_generic))
                 }
-                return@launch
             }
-            _showAddDialog.value = false
         }
     }
 
@@ -236,6 +288,10 @@ class ServicesViewModel @Inject constructor(
      */
     fun loginServer(server: ServerConfig, password: String, savePassword: Boolean? = null) {
         val persistPassword = savePassword ?: server.autoLogin
+        // A sign-in can take as long as the network timeout allows; ignore a
+        // second tap for the same server while the first one is still running.
+        if (!inFlightLogins.add(server.id)) return
+        _uiState.update { it.copy(signingInServerId = server.id) }
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, errorMessage = null) }
             try {
@@ -281,6 +337,7 @@ class ServicesViewModel @Inject constructor(
             } catch (t: Throwable) {
                 // A login failure / unexpected error must never crash the app.
                 if (pendingEntryServerId == server.id) pendingEntryServerId = null
+                inFlightLogins.remove(server.id)
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -288,6 +345,18 @@ class ServicesViewModel @Inject constructor(
                         errorMessage = t.message
                             ?: context.getString(com.vibeplayer.app.R.string.message_error_generic)
                     )
+                }
+                return@launch
+            } finally {
+                // Also released on cancellation, so an abandoned login can never
+                // block the server forever.
+                inFlightLogins.remove(server.id)
+                _uiState.update { state ->
+                    if (state.signingInServerId == server.id) {
+                        state.copy(signingInServerId = null, loading = false)
+                    } else {
+                        state.copy(loading = false)
+                    }
                 }
             }
         }
@@ -336,6 +405,9 @@ class ServicesViewModel @Inject constructor(
     }
 
     fun removeServer(server: ServerConfig) {
+        // Deleting a row whose save is still running would let the pending
+        // updateServer re-create it (ServiceStore.upsert appends a missing id).
+        if (server.id in inFlightEdits) return
         viewModelScope.launch {
             repository.logout(server)
             repository.removeServer(server.id)
@@ -357,38 +429,55 @@ class ServicesViewModel @Inject constructor(
         password: String = "",
         savePassword: Boolean = false
     ) {
-        viewModelScope.launch {
-            val requiresAddress = server.serviceType == ServiceType.EMBY ||
-                server.serviceType == ServiceType.JELLYFIN ||
-                server.serviceType == ServiceType.WEBDAV
-            val baseUrl = if (requiresAddress) {
-                buildServerBaseUrl(form.scheme, form.host, form.port)
-            } else {
-                server.baseUrl
-            }
-            if (requiresAddress && baseUrl == null) {
-                _uiState.update { it.copy(errorMessage = context.getString(com.vibeplayer.app.R.string.server_address_required)) }
-                return@launch
-            }
-            val credentialServer = server.serviceType == ServiceType.EMBY ||
-                server.serviceType == ServiceType.JELLYFIN
-            // Save the password before the services list updates so that when the
-            // services DataStore emits, the collect re-reads hasSavedPassword and
-            // the card already reflects one-tap entry.
-            if (credentialServer && savePassword && password.isNotBlank()) {
-                repository.savePassword(server, password)
-            } else if (credentialServer && !savePassword) {
-                repository.clearSavedPassword(server)
-            }
-            repository.updateServer(
-                server.copy(
-                    name = form.name.ifBlank { if (requiresAddress) form.host else server.name },
-                    baseUrl = baseUrl.orEmpty(),
-                    username = form.username.ifBlank { server.username },
-                    autoLogin = if (credentialServer) savePassword else server.autoLogin,
-                    trustSelfSignedCertificate = form.trustSelfSignedCertificate
+        // Two saves for the same server would race each other's DataStore write,
+        // so a repeat tap while one is running is ignored.
+        if (!inFlightEdits.add(server.id)) return
+        _uiState.update { it.copy(savingServerId = server.id, errorMessage = null) }
+        val requiresAddress = server.serviceType == ServiceType.EMBY ||
+            server.serviceType == ServiceType.JELLYFIN ||
+            server.serviceType == ServiceType.WEBDAV
+        val baseUrl = if (requiresAddress) {
+            buildServerBaseUrl(form.scheme, form.host, form.port)
+        } else {
+            server.baseUrl
+        }
+        if (requiresAddress && baseUrl == null) {
+            inFlightEdits.remove(server.id)
+            _uiState.update {
+                it.copy(
+                    savingServerId = null,
+                    errorMessage = context.getString(com.vibeplayer.app.R.string.server_address_required)
                 )
-            )
+            }
+            return
+        }
+        val credentialServer = server.serviceType == ServiceType.EMBY ||
+            server.serviceType == ServiceType.JELLYFIN
+        viewModelScope.launch {
+            try {
+                // Save the password before the services list updates so that when the
+                // services DataStore emits, the collect re-reads hasSavedPassword and
+                // the card already reflects one-tap entry.
+                if (credentialServer && savePassword && password.isNotBlank()) {
+                    repository.savePassword(server, password)
+                } else if (credentialServer && !savePassword) {
+                    repository.clearSavedPassword(server)
+                }
+                repository.updateServer(
+                    server.copy(
+                        name = form.name.ifBlank { if (requiresAddress) form.host else server.name },
+                        baseUrl = baseUrl.orEmpty(),
+                        username = form.username.ifBlank { server.username },
+                        autoLogin = if (credentialServer) savePassword else server.autoLogin,
+                        trustSelfSignedCertificate = form.trustSelfSignedCertificate
+                    )
+                )
+            } finally {
+                inFlightEdits.remove(server.id)
+                _uiState.update { state ->
+                    if (state.savingServerId == server.id) state.copy(savingServerId = null) else state
+                }
+            }
             refreshItems()
         }
     }

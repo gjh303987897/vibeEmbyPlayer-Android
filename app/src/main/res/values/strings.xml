@@ -20,6 +20,8 @@
     <string name="cancel">Cancel</string>
     <string name="sign_in">Sign in</string>
     <string name="signed_in">Signed in</string>
+    <string name="services_signing_in">Signing in…</string>
+    <string name="services_saving">Saving…</string>
     <string name="remove">Remove</string>
     <string name="open">Open</string>
     <string name="save_password_auto_enter">Save password and enter directly next time</string>
@@ -129,7 +131,7 @@
     <string name="services_link_playback_sub">Play HTTP/HTTPS media or HLS links</string>
     <string name="services_global_history">Global History</string>
     <string name="services_global_history_sub">Unified playback history across all sources</string>
-    <string name="services_tssl">M3U8S视频管理</string>
+    <string name="services_tssl">M3U8S Manager</string>
     <string name="services_tssl_sub">Manage TSSL / M3U8S packages and back up to WebDAV</string>
 
     <!-- TSSL manager -->
