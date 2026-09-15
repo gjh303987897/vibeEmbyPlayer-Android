@@ -901,3 +901,39 @@ App 走 `enableEdgeToEdge()`，且 `VibePlayerNavHost` 刻意把 `contentWindowI
   详情页返回按钮改为 `.topEdgeInsets().padding(8.dp)`。
 - 顺带排查其余 13 个页面：`SearchScreen` 内层 `Scaffold` 未覆盖 `contentWindowInsets`（自管 inset），
   其余均用 `TopAppBar`，都没有同类问题，未改动。
+
+---
+
+## 2026-09-15 播放视频时长时间不操作自动黑屏
+
+### 现象
+播放视频过程中什么都不做，到系统屏幕超时后屏幕熄灭（音频可能还在继续），看起来像"播放中途黑屏"。
+暂停后反而无所谓，但播放中必须保持屏幕常亮。
+
+### 根因
+5 个播放页（`ui/player/PlayerScreen`、`ui/webdav/WebDavPlayerScreen`、`ui/local/LocalPlayerScreen`、
+`ui/link/LinkPlayerScreen`、`ui/iptv/IptvPlayerScreen`）都用 `AndroidView` 承载 `PlayerView`，
+但全项目从未设置过 `FLAG_KEEP_SCREEN_ON` / `keepScreenOn`（已全库检索确认为 0 处）。
+`useController = false` 又关掉了 Media3 自带的控制器，所以没有任何地方替我们申请保持常亮。
+
+注意：Media3 1.5.0 的 `PlayerView` 根本没有 keep-screen-on 相关 API（反编译
+`media3-ui-1.5.0` 只有 `setKeepContentOnPlayerReset`），Compose 1.7.6 也没有 `keepScreenOn`
+Modifier（同样反编译确认），所以必须自己申请。
+
+### 修改
+- 新增共享组件 `ui/components/KeepScreenOn.kt`：
+  `KeepScreenOnDuringPlayback(isPlaying, buffering)`，内部用 `LocalView.current` 调
+  `View.keepScreenOn`（平台原生方案，`SurfaceView` 自己也是这么做的），并在
+  `DisposableEffect` 的 `onDispose` 里释放。
+- **只在真正在看的时候**申请：条件为 `player.isPlaying || buffering`。
+  - 暂停时 ExoPlayer 的 `onIsPlayingChanged(false)` 会把 `isPlaying` 置回 false
+    （`buffering` 只在播放态清除），因此暂停 → 立即允许息屏，满足"暂停不阻止黑屏"。
+  - 缓冲算"正在观看"：播放头仍属于当前观看会话，边下边看时息屏同样不可接受。
+    （在缓冲中暂停这一瞬时状态里，`buffering` 会保留到播放器进入 READY，随后即释放；
+    远短于任何屏幕超时时间，不影响"暂停可息屏"。）
+  - 退出播放页时 effect 被 dispose，标志自动清除；因此后台纯音频播放（没有播放页
+    在组合中）不会占用屏幕常亮，与 `PlaybackService` 的后台播放语义一致。
+- 5 个播放页在 `PlayerFullscreenEffect(fullscreen)` 之后各加一行调用，未改动播放器逻辑。
+
+### 验证
+`./gradlew :app:compileDebugKotlin :app:lintDebug` 通过。

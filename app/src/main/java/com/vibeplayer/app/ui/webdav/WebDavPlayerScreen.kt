@@ -44,6 +44,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
+import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.player.PlayerExtraActions
@@ -61,6 +62,8 @@ fun WebDavPlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var fullscreen by remember { mutableStateOf(false) }
     PlayerFullscreenEffect(fullscreen)
+    // Playing keeps the display awake; pausing lets it sleep again.
+    KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
 
     LaunchedEffect(serverId, encodedPath) { viewModel.play(serverId, encodedPath) }
 
