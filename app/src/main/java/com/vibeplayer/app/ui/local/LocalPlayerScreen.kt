@@ -2,7 +2,6 @@ package com.vibeplayer.app.ui.local
 
 import android.view.ViewGroup
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +40,9 @@ import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
+import com.vibeplayer.app.ui.player.PlayerGestureOverlay
+import com.vibeplayer.app.ui.player.playerGestureSurface
+import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.player.PlayerExtraActions
@@ -56,6 +58,7 @@ fun LocalPlayerScreen(
     val state by viewModel.uiState.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
     var fullscreen by remember { mutableStateOf(false) }
+    val gestures = rememberPlayerGestureState()
     PlayerFullscreenEffect(fullscreen)
     // Playing keeps the display awake; pausing lets it sleep again.
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
@@ -71,7 +74,6 @@ fun LocalPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .clickable { controlsVisible = !controlsVisible }
     ) {
         AndroidView(
             factory = { ctx ->
@@ -86,6 +88,27 @@ fun LocalPlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Transparent gesture layer: below the control overlays (so a touch on a
+        // button or the scrubber never reaches it), above the video surface.
+        Box(
+            Modifier
+                .matchParentSize()
+                .playerGestureSurface(
+                    gesture = gestures,
+                    onToggleControls = { controlsVisible = !controlsVisible },
+                    onTogglePlayPause = viewModel::togglePlayPause,
+                    onLongPressSpeedStart = viewModel::beginLongPressSpeed,
+                    onLongPressSpeedEnd = viewModel::endLongPressSpeed,
+                    onVolumeChange = viewModel::setVolume
+                )
+        )
+
+        PlayerGestureOverlay(
+            indicator = gestures.indicator,
+            modifier = Modifier.align(Alignment.Center)
+        )
+
 
         // Loading + failure feedback: a playback error must never look like an
         // endless spinner.

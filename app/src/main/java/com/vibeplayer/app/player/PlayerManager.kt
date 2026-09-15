@@ -58,8 +58,9 @@ class PlayerManager @Inject constructor(
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private var positionTicker: Job? = null
     private var lastSpeed = 1f
+    private var speedBeforeTemporary = 1f
+    private var temporarySpeedActive = false
     private var autoSubtitleSelected = false
-
     init {
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
@@ -141,7 +142,40 @@ class PlayerManager @Inject constructor(
     }
     fun togglePlayPause() { if (player.isPlaying) player.pause() else player.play() }
     fun seekTo(positionMs: Long) { player.seekTo(positionMs.coerceAtLeast(0L)); updateDerived() }
-    fun setPlaybackSpeed(speed: Float) { lastSpeed = speed.coerceIn(.25f, 4f); player.setPlaybackSpeed(lastSpeed); _state.update { it.copy(playbackSpeed = lastSpeed) } }
+    /**
+     * Starts a temporary speed-up (long press to fast-forward). The speed the user
+     * had picked is remembered so [endTemporarySpeed] can restore it; starting twice
+     * is safe because only the first call captures the original speed.
+     */
+    fun beginTemporarySpeed(speed: Float) {
+        if (temporarySpeedActive) return
+        speedBeforeTemporary = lastSpeed
+        temporarySpeedActive = true
+        applySpeed(speed)
+    }
+
+    /** Leaves a temporary speed-up, back to the speed selected before it. */
+    fun endTemporarySpeed() {
+        if (!temporarySpeedActive) return
+        temporarySpeedActive = false
+        applySpeed(speedBeforeTemporary)
+    }
+
+    /**
+     * A deliberate speed choice always wins over a long-press speed-up: picking a
+     * speed while one is running ends it instead of having the release revert it.
+     */
+    fun setPlaybackSpeed(speed: Float) {
+        temporarySpeedActive = false
+        applySpeed(speed)
+    }
+
+    private fun applySpeed(speed: Float) {
+        lastSpeed = speed.coerceIn(.25f, 4f)
+        player.setPlaybackSpeed(lastSpeed)
+        _state.update { it.copy(playbackSpeed = lastSpeed) }
+    }
+
     fun setVolume(volume: Float) { val safe = volume.coerceIn(0f, 1f); player.volume = safe; _state.update { it.copy(volume = safe) } }
     fun selectSubtitle(track: SubtitleTrack?) {
         val b = player.trackSelectionParameters.buildUpon()

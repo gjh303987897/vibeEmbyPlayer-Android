@@ -167,9 +167,14 @@ class WebDavPlayerViewModel @Inject constructor(
 
     fun togglePlayPause() = playerManager.togglePlayPause()
 
-    fun setPlaybackSpeed(speed: Float) = playerManager.setPlaybackSpeed(speed)
+    /** Long-press fast-forward: speeds up until [endLongPressSpeed] restores the pick. */
+    fun beginLongPressSpeed(speed: Float) = playerManager.beginTemporarySpeed(speed)
+
+    fun endLongPressSpeed() = playerManager.endTemporarySpeed()
 
     fun setVolume(volume: Float) = playerManager.setVolume(volume)
+
+    fun setPlaybackSpeed(speed: Float) = playerManager.setPlaybackSpeed(speed)
 
     fun selectSubtitle(track: com.vibeplayer.app.player.SubtitleTrack?) = playerManager.selectSubtitle(track)
 

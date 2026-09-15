@@ -141,6 +141,11 @@ class PlayerViewModel @Inject constructor(
 
     fun togglePlayPause() = playerManager.togglePlayPause()
 
+    /** Long-press fast-forward: speeds up until [endLongPressSpeed] restores the pick. */
+    fun beginLongPressSpeed(speed: Float) = playerManager.beginTemporarySpeed(speed)
+
+    fun endLongPressSpeed() = playerManager.endTemporarySpeed()
+
     fun setPlaybackSpeed(speed: Float) = playerManager.setPlaybackSpeed(speed)
 
     fun setVolume(volume: Float) = playerManager.setVolume(volume)

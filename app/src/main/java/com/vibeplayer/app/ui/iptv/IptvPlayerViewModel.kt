@@ -104,6 +104,14 @@ class IptvPlayerViewModel @Inject constructor(
 
     fun togglePlayPause() = playerManager.togglePlayPause()
 
+    /** Long-press fast-forward: speeds up until [endLongPressSpeed] restores the pick. */
+    fun beginLongPressSpeed(speed: Float) = playerManager.beginTemporarySpeed(speed)
+
+    fun endLongPressSpeed() = playerManager.endTemporarySpeed()
+
+    /** Volume is driven by the right-edge swipe gesture on the player surface. */
+    fun setVolume(volume: Float) = playerManager.setVolume(volume)
+
     fun selectAudioTrack(track: AudioTrack) = playerManager.selectAudioTrack(track)
 
     fun seekTo(positionMs: Long) = playerManager.seekTo(positionMs)
