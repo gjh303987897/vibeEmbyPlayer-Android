@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.vibeplayer.app.di.OkHttpClientFactory
+import com.vibeplayer.app.data.local.datastore.SettingsDataStore
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -58,7 +59,8 @@ data class PlayerState(
 @Singleton
 class PlayerManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    clientFactory: OkHttpClientFactory
+    clientFactory: OkHttpClientFactory,
+    private val settingsDataStore: SettingsDataStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val headerFactory = AuthHeaderDataSourceFactory(clientFactory)
@@ -72,17 +74,31 @@ class PlayerManager @Inject constructor(
     private var lastSpeed = 1f
     private var speedBeforeTemporary = 1f
     private var temporarySpeedActive = false
+    private var subtitleSelectionApplied = false
+    private var preferredTextLanguage = ""
+    private var preferredTextLanguageLoaded = false
     private val downloadedBytes = AtomicLong(0L)
 
     fun drainDownloadedBytes(): Long = downloadedBytes.getAndSet(0L).coerceAtLeast(0L)
 
     init {
+        scope.launch {
+            settingsDataStore.preferredTextLanguage.collect {
+                preferredTextLanguage = it
+                preferredTextLanguageLoaded = true
+                if (!subtitleSelectionApplied) selectInitialSubtitle(player.currentTracks)
+            }
+        }
         // Reading the MediaCodec registry and probing the FFmpeg native library is cheap but
         // not free; do it off the main thread once, before the first track callback arrives.
         scope.launch(Dispatchers.Default) { warmUpAudioDecodeSupport() }
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 updateTracks(tracks)
+                if (!subtitleSelectionApplied && preferredTextLanguageLoaded) {
+                    subtitleSelectionApplied = true
+                    selectInitialSubtitle(tracks)
+                }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 updateDerived()
@@ -127,6 +143,7 @@ class PlayerManager @Inject constructor(
      */
     fun beginLoading(title: String? = null, subtitle: String? = null) {
         player.pause(); player.stop(); player.clearMediaItems()
+        subtitleSelectionApplied = false
         _state.value = PlayerState(
             title = title,
             subtitle = subtitle,
@@ -141,9 +158,11 @@ class PlayerManager @Inject constructor(
         startPositionMs: Long = 0L,
         headers: Map<String, String> = emptyMap(),
         trustSelfSignedCertificate: Boolean = false,
-        privatePlayback: Boolean = false
+        privatePlayback: Boolean = false,
+        subtitleConfigurations: List<PlayerMediaItem.SubtitleConfiguration> = emptyList()
     ) {
         downloadedBytes.set(0L)
+        subtitleSelectionApplied = false
         headerFactory.configure(headers, trustSelfSignedCertificate); player.stop(); player.clearMediaItems()
         _state.value = PlayerState(
             title = title,
@@ -158,7 +177,13 @@ class PlayerManager @Inject constructor(
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
             .build()
-        player.setMediaItem(PlayerMediaItem.Builder().setUri(url).setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(subtitle).build()).build())
+        player.setMediaItem(
+            PlayerMediaItem.Builder()
+                .setUri(url)
+                .setSubtitleConfigurations(subtitleConfigurations)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(subtitle).build())
+                .build()
+        )
         runCatching { context.startForegroundService(android.content.Intent(context, com.vibeplayer.app.service.PlaybackService::class.java)) }
         player.prepare(); if (lastSpeed != 1f) player.setPlaybackSpeed(lastSpeed); if (startPositionMs > 0) player.seekTo(startPositionMs); player.play()
     }
@@ -199,7 +224,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun setVolume(volume: Float) { val safe = volume.coerceIn(0f, 1f); player.volume = safe; _state.update { it.copy(volume = safe) } }
-    fun selectSubtitle(track: SubtitleTrack?) {
+    fun selectSubtitle(track: SubtitleTrack?, persist: Boolean = true) {
         val b = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, track == null)
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
@@ -214,6 +239,12 @@ class PlayerManager @Inject constructor(
             }
         }
         player.trackSelectionParameters = b.build(); updateTracks(player.currentTracks)
+        if (persist) scope.launch(Dispatchers.IO) {
+            when {
+                track == null -> settingsDataStore.setPreferredTextLanguage("off")
+                !track.language.isNullOrBlank() -> settingsDataStore.setPreferredTextLanguage(track.language)
+            }
+        }
     }
     fun selectAudioTrack(track: AudioTrack) {
         val (groupIndex, trackIndex) = parseTrackKey(track.key) ?: return
@@ -279,6 +310,29 @@ class PlayerManager @Inject constructor(
                 SubtitleTrack("$gi:$ti", label, f.language, group.isTrackSelected(ti))
             }
     }.flatten()
+
+    private fun selectInitialSubtitle(tracks: Tracks) {
+        val preferred = preferredTextLanguage.trim().lowercase()
+        if (preferred == "off") return
+        val candidates = tracks.groups.flatMapIndexed { gi, group ->
+            if (group.type != C.TRACK_TYPE_TEXT) return@flatMapIndexed emptyList<Triple<String, androidx.media3.common.Format, Tracks.Group>>()
+            (0 until group.length).mapNotNull { ti ->
+                if (!group.isTrackSupported(ti)) return@mapNotNull null
+                val format = group.getTrackFormat(ti)
+                Triple("$gi:$ti", format, group)
+            }
+        }
+        val selected = candidates.firstOrNull {
+            preferred.isNotEmpty() && it.second.language?.lowercase()?.let { language ->
+                language == preferred || language.startsWith("$preferred-")
+            } == true
+        }
+            ?: candidates.firstOrNull { it.second.selectionFlags and C.SELECTION_FLAG_FORCED != 0 }
+            ?: candidates.firstOrNull { it.second.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0 }
+        if (selected != null) {
+            selectSubtitle(SubtitleTrack(selected.first, selected.second.label.orEmpty(), selected.second.language, false), persist = false)
+        }
+    }
     private fun audioTracks(tracks: Tracks): List<AudioTrack> = tracks.groups.mapIndexedNotNull { gi, group ->
         if (group.type != C.TRACK_TYPE_AUDIO) return@mapIndexedNotNull null
         (0 until group.length).mapNotNull { ti ->

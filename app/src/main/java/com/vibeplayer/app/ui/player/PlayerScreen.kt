@@ -124,6 +124,7 @@ fun PlayerScreen(
                     onTogglePlayPause = viewModel::togglePlayPause,
                     onLongPressSpeedStart = viewModel::beginLongPressSpeed,
                     onLongPressSpeedEnd = viewModel::endLongPressSpeed,
+                    volume = state.volume,
                     onVolumeChange = viewModel::setVolume
                 )
         )

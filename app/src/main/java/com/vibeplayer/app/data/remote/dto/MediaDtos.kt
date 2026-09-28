@@ -120,5 +120,9 @@ data class MediaStreamDto(
     val Index: Int? = null,
     val IsDefault: Boolean? = null,
     val IsForced: Boolean? = null,
-    val IsExternal: Boolean? = null
+    val IsExternal: Boolean? = null,
+    val Codec: String? = null,
+    val Language: String? = null,
+    val DisplayLanguage: String? = null,
+    val Title: String? = null
 )

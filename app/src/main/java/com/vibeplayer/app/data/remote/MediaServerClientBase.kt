@@ -9,6 +9,7 @@ import com.vibeplayer.app.data.remote.mapper.MediaDtoMapper
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
 import com.vibeplayer.app.model.ServerConfig
+import androidx.media3.common.C
 import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.UserSession
 import kotlinx.serialization.json.Json
@@ -277,17 +278,27 @@ abstract class MediaServerClientBase(
         val url = makeUrl(session.server.baseUrl, "/Videos/${item.id}/stream")
             .plus("?static=true&MediaSourceId=$mediaSourceId&PlaySessionId=$playSessionId")
         val subtitleStreamIndex = selectSubtitleStream(source)
-        val subtitleQuery = if (subtitleStreamIndex >= 0) {
-            "&EnableSubtitles=true&SubtitleStreamIndex=$subtitleStreamIndex"
-        } else {
-            ""
+        val externalSubtitles = (source.MediaStreams ?: emptyList()).mapNotNull { stream ->
+            if (!stream.Type.equals("Subtitle", ignoreCase = true) || stream.Index == null || stream.IsExternal != true) {
+                return@mapNotNull null
+            }
+            val format = if (stream.Codec.equals("srt", ignoreCase = true)) "srt" else "vtt"
+            val uri = makeUrl(session.server.baseUrl, "/Videos/${item.id}/${mediaSourceId}/Subtitles/${stream.Index}/Stream.$format")
+                .plus("?PlaySessionId=$playSessionId")
+            val flags = when {
+                stream.IsForced == true -> C.SELECTION_FLAG_FORCED
+                stream.IsDefault == true -> C.SELECTION_FLAG_DEFAULT
+                else -> 0
+            }
+            SubtitleConfiguration(uri, stream.Language, stream.Title ?: stream.DisplayLanguage, flags, if (format == "srt") "application/x-subrip" else "text/vtt")
         }
         return PlaybackTarget(
-            url = url + subtitleQuery,
+            url = url,
             startSeconds = item.playbackPositionSeconds,
             mediaSourceId = mediaSourceId,
             playSessionId = playSessionId,
-            subtitleStreamIndex = selectSubtitleStream(source)
+            subtitleStreamIndex = selectSubtitleStream(source),
+            subtitleConfigurations = externalSubtitles
         )
     }
 

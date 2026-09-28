@@ -39,6 +39,7 @@ class SettingsDataStore @Inject constructor(
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val LANGUAGE = stringPreferencesKey("language")
         val PAGE_TRANSITIONS = booleanPreferencesKey("page_transitions")
+        val PREFERRED_TEXT_LANGUAGE = stringPreferencesKey("preferred_text_language")
     }
 
     val themeMode: Flow<String?> = dataStore.data
@@ -52,6 +53,10 @@ class SettingsDataStore @Inject constructor(
 
     val pageTransitions: Flow<Boolean> = dataStore.data
         .map { it[Keys.PAGE_TRANSITIONS] ?: true }
+
+    /** Empty means that subtitle selection follows only forced/default flags. */
+    val preferredTextLanguage: Flow<String> = dataStore.data
+        .map { it[Keys.PREFERRED_TEXT_LANGUAGE].orEmpty() }
 
     suspend fun setThemeMode(value: String) {
         dataStore.edit { it[Keys.THEME_MODE] = value }
@@ -70,5 +75,13 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setPageTransitions(enabled: Boolean) {
         dataStore.edit { it[Keys.PAGE_TRANSITIONS] = enabled }
+    }
+
+    suspend fun setPreferredTextLanguage(language: String?) {
+        dataStore.edit { preferences ->
+            val value = language?.trim().orEmpty()
+            if (value.isEmpty()) preferences.remove(Keys.PREFERRED_TEXT_LANGUAGE)
+            else preferences[Keys.PREFERRED_TEXT_LANGUAGE] = value
+        }
     }
 }

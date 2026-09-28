@@ -127,6 +127,7 @@ fun Modifier.playerGestureSurface(
     onTogglePlayPause: () -> Unit,
     onLongPressSpeedStart: (Float) -> Unit,
     onLongPressSpeedEnd: () -> Unit,
+    volume: Float,
     onVolumeChange: (Float) -> Unit,
     speedWhilePressed: Float = PLAYER_GESTURE_SPEED
 ): Modifier {
@@ -140,6 +141,7 @@ fun Modifier.playerGestureSurface(
     val currentSpeedEnd by rememberUpdatedState(onLongPressSpeedEnd)
     val currentSpeedWhilePressed by rememberUpdatedState(speedWhilePressed)
     val currentVolumeChange by rememberUpdatedState(onVolumeChange)
+    val currentVolume by rememberUpdatedState(volume)
     DisposableEffect(brightness) {
         // Leaving the player mid-gesture must not leave the window dimmed, and a
         // long press that was still held when the screen went away must not leave
@@ -166,6 +168,8 @@ fun Modifier.playerGestureSurface(
             val pointerId: PointerId = down.id
             var axis: PlayerGestureKind? = null
             var speedBoosted = false
+            var dragOrigin: Offset? = null
+            var dragInitialValue = 0f
             var done = false
             while (!done) {
                 // While nothing is decided the long-press timeout is the deadline,
@@ -216,6 +220,8 @@ fun Modifier.playerGestureSurface(
                     axis != null -> applyGestureDrag(
                         axis = axis,
                         position = change.position,
+                        origin = dragOrigin ?: down.position,
+                        initialValue = dragInitialValue,
                         surfaceHeightPx = size.height.toFloat(),
                         brightness = brightness,
                         gesture = gesture,
@@ -242,9 +248,17 @@ fun Modifier.playerGestureSurface(
                             } else {
                                 PlayerGestureKind.Volume
                             }
+                            dragOrigin = change.position
+                            dragInitialValue = if (axis == PlayerGestureKind.Brightness) {
+                                brightness.currentValue
+                            } else {
+                                currentVolume
+                            }
                             applyGestureDrag(
                                 axis = axis,
                                 position = change.position,
+                                origin = dragOrigin,
+                                initialValue = dragInitialValue,
                                 surfaceHeightPx = size.height.toFloat(),
                                 brightness = brightness,
                                 gesture = gesture,
@@ -265,13 +279,15 @@ fun Modifier.playerGestureSurface(
 private fun applyGestureDrag(
     axis: PlayerGestureKind,
     position: Offset,
+    origin: Offset,
+    initialValue: Float,
     surfaceHeightPx: Float,
     brightness: PlayerBrightnessController,
     gesture: PlayerGestureState,
     onVolumeChange: (Float) -> Unit
 ) {
-    // Top of the surface is the brightest / loudest, the bottom the dimmest / quietest.
-    val fraction = (1f - position.y / surfaceHeightPx).coerceIn(0f, 1f)
+    // Map relative movement onto the value captured when the drag started.
+    val fraction = (initialValue + (origin.y - position.y) / surfaceHeightPx).coerceIn(0f, 1f)
     when (axis) {
         PlayerGestureKind.Brightness -> {
             // An app cannot read the system slider, so the top of the range means
@@ -372,6 +388,19 @@ internal class PlayerBrightnessController(context: Context) {
     val canControl: Boolean get() = window != null
 
     private var lowered = false
+
+    val currentValue: Float
+        get() {
+            val value = window?.attributes?.screenBrightness ?: return 1f
+            if (value >= 0f) return value
+            val system = runCatching {
+                android.provider.Settings.System.getInt(
+                    window?.context?.contentResolver,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS
+                ) / 255f
+            }.getOrNull()
+            return system ?: 1f
+        }
 
     fun setBrightness(value: Float) {
         val attributes = window?.attributes ?: return

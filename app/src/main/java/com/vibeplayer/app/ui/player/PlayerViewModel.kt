@@ -134,7 +134,15 @@ class PlayerViewModel @Inject constructor(
                 startPositionMs = startMs,
                 headers = mapOf("X-Emby-Token" to s.accessToken),
                 trustSelfSignedCertificate = s.server.trustSelfSignedCertificate,
-                privatePlayback = s.server.privateMode
+                privatePlayback = s.server.privateMode,
+                subtitleConfigurations = target.subtitleConfigurations.map { subtitle ->
+                    androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitle.uri))
+                        .setMimeType(subtitle.mimeType)
+                        .setLanguage(subtitle.language)
+                        .setLabel(subtitle.label)
+                        .setSelectionFlags(subtitle.selectionFlags)
+                        .build()
+                }
             )
             report = PlaybackReport(
                 itemId = item.id,

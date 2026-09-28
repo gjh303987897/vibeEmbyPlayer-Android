@@ -17,7 +17,16 @@ data class PlaybackTarget(
     val startSeconds: Double = 0.0,
     val mediaSourceId: String = "",
     val playSessionId: String = "",
-    val subtitleStreamIndex: Int = -1
+    val subtitleStreamIndex: Int = -1,
+    val subtitleConfigurations: List<SubtitleConfiguration> = emptyList()
+)
+
+data class SubtitleConfiguration(
+    val uri: String,
+    val language: String?,
+    val label: String?,
+    val selectionFlags: Int,
+    val mimeType: String
 )
 
 /**
