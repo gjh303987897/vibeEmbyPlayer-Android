@@ -11,7 +11,7 @@ Emby / Jellyfin / WebDAV / 本地 / IPTV 的播放地址一律是 `static=true` 
 | Dolby Digital (AC-3) | `audio/ac3` | 无 Dolby 授权的机型没有硬解 |
 | Dolby Digital Plus (E-AC-3 / Atmos) | `audio/eac3`、`audio/eac3-joc` | 同上 |
 | Dolby TrueHD | `audio/true-hd` | 手机侧几乎都没有 |
-| DTS / DTS-HD HR / DTS-HD MA | `audio/vnd.dts`、`audio/vnd.dts.hd` | 无 DTS 授权的机型没有 |
+| DTS / DTS-HD（使用 DTS 核心） | `audio/vnd.dts`、`audio/vnd.dts.hd` | FFmpeg 6.0 解码 DTS 核心；不承诺 DTS-HD 无损扩展 |
 
 原先尝试过的方案是「按本机解码能力回退到服务器只转音频」，已被明确要求移除
 （见 `fix.md` 2026-09-15 条目）：那会给服务器增加转码负载、依赖服务器装 ffmpeg，并且放弃直连。

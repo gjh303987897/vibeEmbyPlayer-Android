@@ -46,14 +46,14 @@ fun PlayerFullscreenEffect(fullscreen: Boolean) {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
         } else {
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
         onDispose {
             // Navigation away must never leave the rest of the app in immersive mode.
             controller.show(WindowInsetsCompat.Type.systemBars())
             if (fullscreen) {
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
     }

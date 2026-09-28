@@ -7,8 +7,6 @@ import com.vibeplayer.app.data.local.datastore.SettingsDataStore
 import com.vibeplayer.app.util.CrashLogger
 import com.vibeplayer.app.util.LocaleHelper
 import dagger.hilt.android.HiltAndroidApp
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -52,11 +50,10 @@ class VibePlayerApp : Application(), ImageLoaderFactory {
         // Write any uncaught crash to a file so it can be inspected / pulled
         // off the device, which makes hard-to-reproduce crashes diagnosable.
         CrashLogger.install(this)
-        // Load the persisted language synchronously so MainActivity's
-        // attachBaseContext can apply it before any UI is created.
-        runBlocking {
-            LocaleHelper.currentLocaleTag = settingsDataStore.language.first()
-        }
+        // DataStore is asynchronous and cannot be awaited from Application.onCreate.
+        // The settings store keeps a tiny non-sensitive bootstrap mirror for the
+        // Activity locale hook; the canonical value remains in DataStore.
+        LocaleHelper.currentLocaleTag = settingsDataStore.initialLanguage
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) = privacyManager.scheduleBackgroundRelock()
             override fun onStart(owner: LifecycleOwner) = privacyManager.cancelBackgroundRelock()

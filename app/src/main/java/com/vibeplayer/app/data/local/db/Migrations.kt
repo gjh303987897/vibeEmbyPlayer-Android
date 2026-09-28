@@ -6,9 +6,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Hand-written Room migrations for [VibePlayerDatabase].
  *
- * The database uses `fallbackToDestructiveMigration()` as a last-resort safety
- * net, but each known version boundary gets an explicit migration here so a
- * schema change does not silently wipe user data (history, stats, IPTV, etc.).
+ * Every known version boundary gets an explicit migration. There is deliberately
+ * no destructive fallback: an omitted migration must fail loudly instead of
+ * silently deleting history, stats, IPTV, or transfer data.
  */
 object Migrations {
 

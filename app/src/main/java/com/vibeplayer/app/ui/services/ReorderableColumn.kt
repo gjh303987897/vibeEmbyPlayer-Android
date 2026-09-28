@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -41,7 +42,7 @@ fun <T> ReorderableLazyColumn(
 ) {
     val listState = rememberLazyListState()
     var draggingKey by remember { mutableStateOf<Any?>(null) }
-    var dragOffsetY by remember { mutableStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val itemBounds = remember { mutableStateMapOf<Any, Rect>() }
 
     val currentItems by rememberUpdatedState(items)

@@ -30,7 +30,6 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): VibePlayerDatabase =
         Room.databaseBuilder(context, VibePlayerDatabase::class.java, "vibeplayer.db")
             .addMigrations(Migrations.MIGRATION_1_2)
-            .fallbackToDestructiveMigration()
             .build()
 
     @Provides

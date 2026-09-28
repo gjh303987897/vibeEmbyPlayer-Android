@@ -9,7 +9,6 @@
 
     <string name="add_server">添加服务器</string>
     <string name="edit_server">编辑服务器</string>
-    <string name="server_url">服务器地址</string>
     <string name="server_host">主机或路径</string>
     <string name="server_port">端口</string>
     <string name="server_name">服务器名称</string>
@@ -43,7 +42,6 @@
     <string name="transfer_status_failed">失败</string>
     <string name="transfer_status_canceled">已取消</string>
     <string name="transfer_cancel">取消</string>
-    <string name="transfer_download">下载</string>
 
     <string name="back">返回</string>
     <string name="play">播放</string>
@@ -62,14 +60,12 @@
     <string name="no_results">未找到结果</string>
 
     <string name="continue_watching">继续观看</string>
-    <string name="suggested">为您推荐</string>
     <string name="libraries">媒体库</string>
     <string name="home_empty">这里还没有内容。</string>
 
     <string name="history_replay">重播</string>
     <string name="history_delete">删除</string>
     <string name="history_no_entries">暂无播放历史。</string>
-    <string name="history_usage">用量</string>
     <string name="history_watch_time">观看时长</string>
     <string name="history_download">已下载</string>
     <string name="history_all">全部来源</string>
@@ -95,7 +91,6 @@
     <string name="settings_set_pin">设置隐私 PIN</string>
     <string name="settings_change_pin">修改隐私 PIN</string>
     <string name="settings_enter_privacy">进入隐私模式</string>
-    <string name="settings_exit_privacy">退出隐私模式</string>
     <string name="settings_privacy_active">隐私模式已开启</string>
     <string name="settings_enter_pin_dialog">输入 PIN</string>
     <string name="settings_set_pin_dialog">设置 4–16 位数字 PIN</string>
@@ -124,7 +119,6 @@
     <string name="iptv_import_m3u">导入 M3U 播放列表</string>
 
     <!-- 本地媒体 -->
-    <string name="local_folder">本地文件夹</string>
     <string name="local_add_folder_hint">添加一个本地文件夹以浏览和播放其中的视频。</string>
     <string name="local_no_folders">还没有本地文件夹。</string>
     <string name="local_pick_again">不可用 - 请重新选择文件夹</string>
@@ -192,7 +186,7 @@
     <string name="tssl_backup_target_s3">S3</string>
     <string name="tssl_backup_remote_path">远程文件夹</string>
     <string name="tssl_backup_trust_self_signed">信任自签发证书</string>
-    <string name="tssl_s3_endpoint">S3 端点（https://...）</string>
+    <string name="tssl_s3_endpoint">S3 端点（https://…）</string>
     <string name="tssl_s3_bucket">Bucket</string>
     <string name="tssl_s3_region">区域</string>
     <string name="tssl_s3_prefix">对象前缀</string>

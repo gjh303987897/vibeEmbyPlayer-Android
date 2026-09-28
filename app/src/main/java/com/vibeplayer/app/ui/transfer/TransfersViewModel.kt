@@ -9,6 +9,8 @@ import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import androidx.annotation.StringRes
+import com.vibeplayer.app.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,12 +73,13 @@ class TransfersViewModel @Inject constructor(
         viewModelScope.launch { transferRepository.clearFinished() }
     }
 
-    fun statusLabel(status: TransferStatus): String = when (status) {
-        TransferStatus.QUEUED -> "Queued"
-        TransferStatus.RUNNING -> "Running"
-        TransferStatus.PAUSED -> "Paused"
-        TransferStatus.DONE -> "Done"
-        TransferStatus.FAILED -> "Failed"
-        TransferStatus.CANCELED -> "Canceled"
+    @StringRes
+    fun statusLabel(status: TransferStatus): Int = when (status) {
+        TransferStatus.QUEUED -> R.string.transfer_status_queued
+        TransferStatus.RUNNING -> R.string.transfer_status_running
+        TransferStatus.PAUSED -> R.string.transfer_status_paused
+        TransferStatus.DONE -> R.string.transfer_status_done
+        TransferStatus.FAILED -> R.string.transfer_status_failed
+        TransferStatus.CANCELED -> R.string.transfer_status_canceled
     }
 }

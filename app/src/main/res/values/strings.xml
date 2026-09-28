@@ -9,7 +9,6 @@
 
     <string name="add_server">Add server</string>
     <string name="edit_server">Edit server</string>
-    <string name="server_url">Server URL</string>
     <string name="server_host">Host or path</string>
     <string name="server_port">Port</string>
     <string name="server_address_required">Enter a valid host and port.</string>
@@ -44,7 +43,6 @@
     <string name="transfer_status_failed">Failed</string>
     <string name="transfer_status_canceled">Canceled</string>
     <string name="transfer_cancel">Cancel</string>
-    <string name="transfer_download">Download</string>
 
     <string name="back">Back</string>
     <string name="play">Play</string>
@@ -65,14 +63,12 @@
     <string name="no_results">No results found</string>
 
     <string name="continue_watching">Continue watching</string>
-    <string name="suggested">Suggested for you</string>
     <string name="libraries">Libraries</string>
     <string name="home_empty">Nothing to play here yet.</string>
 
     <string name="history_replay">Replay</string>
     <string name="history_delete">Delete</string>
     <string name="history_no_entries">No playback history yet.</string>
-    <string name="history_usage">Usage</string>
     <string name="history_watch_time">Watch time</string>
     <string name="history_download">Downloaded</string>
     <string name="history_all">All sources</string>
@@ -98,7 +94,6 @@
     <string name="settings_set_pin">Set privacy PIN</string>
     <string name="settings_change_pin">Change privacy PIN</string>
     <string name="settings_enter_privacy">Enter privacy mode</string>
-    <string name="settings_exit_privacy">Exit privacy mode</string>
     <string name="settings_privacy_active">Privacy mode active</string>
     <string name="settings_enter_pin_dialog">Enter PIN</string>
     <string name="settings_set_pin_dialog">Set a 4–16 digit PIN</string>
@@ -128,7 +123,6 @@
     <string name="iptv_imported_channels">Imported channels: %1$d.</string>
 
     <!-- Local media -->
-    <string name="local_folder">Local folder</string>
     <string name="local_add_folder_hint">Add a local folder to browse and play videos from it.</string>
     <string name="local_no_folders">No local folders yet.</string>
     <string name="local_pick_again">Unavailable - pick the folder again</string>
@@ -162,7 +156,7 @@
     <string name="tssl_backup_target_s3">S3</string>
     <string name="tssl_backup_remote_path">Remote folder</string>
     <string name="tssl_backup_trust_self_signed">Trust self-signed certificate</string>
-    <string name="tssl_s3_endpoint">S3 endpoint (https://...)</string>
+    <string name="tssl_s3_endpoint">S3 endpoint (https://…)</string>
     <string name="tssl_s3_bucket">Bucket</string>
     <string name="tssl_s3_region">Region</string>
     <string name="tssl_s3_prefix">Object prefix</string>

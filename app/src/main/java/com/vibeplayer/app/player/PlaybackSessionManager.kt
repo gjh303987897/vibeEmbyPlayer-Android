@@ -32,9 +32,4 @@ class PlaybackSessionManager @Inject constructor(
     /** The session is exposed to [com.vibeplayer.app.service.PlaybackService]. */
     val session: MediaSession = MediaSession.Builder(context, playerManager.player).build()
 
-    /**
-     * Returns whether playback is currently ongoing, used by the foreground
-     * service to decide whether to keep the app alive in the background.
-     */
-    fun isPlaying(): Boolean = session.player.isPlaying
 }

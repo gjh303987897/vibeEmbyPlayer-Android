@@ -25,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +52,7 @@ import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.player.PlayerExtraActions
 import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
 import java.util.concurrent.TimeUnit
+import java.util.Locale
 
 @Composable
 fun IptvPlayerScreen(
@@ -190,7 +192,7 @@ private fun IptvControls(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var sliderPosition by remember { mutableStateOf(0f) }
+    var sliderPosition by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(positionMs, durationMs) {
         if (durationMs > 0) sliderPosition = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
     }
@@ -225,5 +227,5 @@ private fun fmt(ms: Long): String {
     val h = TimeUnit.SECONDS.toHours(totalSeconds)
     val m = TimeUnit.SECONDS.toMinutes(totalSeconds) % 60
     val s = totalSeconds % 60
-    return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+    return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s) else String.format(Locale.US, "%02d:%02d", m, s)
 }

@@ -255,7 +255,6 @@ class PlayerManager @Inject constructor(
             .build()
         updateTracks(player.currentTracks)
     }
-    fun release() { positionTicker?.cancel(); player.release(); scope.cancel() }
     private fun startPositionTicker() { if (positionTicker != null) return; positionTicker = scope.launch { while (true) { updateDerived(); delay(500) } } }
     private fun stopPositionTicker() { updateDerived(); positionTicker?.cancel(); positionTicker = null }
     private fun updateTracks(tracks: Tracks) {
@@ -345,20 +344,12 @@ class PlayerManager @Inject constructor(
         }
     }.flatten()
     private fun updateDerived() {
-        val tracks = player.currentTracks
-        val subtitles = subtitleTracks(tracks)
-        val audio = audioTracks(tracks)
         _state.update {
             it.copy(
                 isPlaying = player.isPlaying,
                 isPrepared = player.playbackState != Player.STATE_IDLE,
                 positionMs = player.currentPosition,
-                durationMs = player.duration.takeIf { duration -> duration > 0 } ?: it.durationMs,
-                subtitleTracks = subtitles,
-                selectedSubtitleKey = subtitles.firstOrNull { track -> track.selected }?.key,
-                audioTracks = audio,
-                selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key,
-                audioDecode = audioDecodeInfo(tracks)
+                durationMs = player.duration.takeIf { duration -> duration > 0 } ?: it.durationMs
             )
         }
     }

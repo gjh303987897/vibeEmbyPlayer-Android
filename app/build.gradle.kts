@@ -193,7 +193,7 @@ dependencies {
     // Tests
     testImplementation(libs.junit)
     // Android provides org.json at runtime; JVM unit tests need its reference implementation.
-    testImplementation("org.json:json:20240303")
+    testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

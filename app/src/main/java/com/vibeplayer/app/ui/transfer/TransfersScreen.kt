@@ -93,7 +93,7 @@ fun TransfersScreen(viewModel: TransfersViewModel = hiltViewModel()) {
                 items(state.tasks, key = { it.id }) { task ->
                     TransferRow(
                         task = task,
-                        statusLabel = viewModel.statusLabel(task.status),
+                        statusLabel = stringResource(viewModel.statusLabel(task.status)),
                         onPause = { viewModel.pause(task.id) },
                         onResume = { viewModel.resume(task.id) },
                         onRetry = { viewModel.retry(task.id) },

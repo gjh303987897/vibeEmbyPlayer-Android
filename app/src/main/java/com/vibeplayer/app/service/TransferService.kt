@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.vibeplayer.app.R
@@ -117,27 +116,21 @@ class TransferService : Service() {
 
         /** Starts the foreground transfer service, tolerating background start restrictions. */
         fun start(context: Context) {
-            val intent = Intent(context, TransferService::class.java)
-            runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            }
+        val intent = Intent(context, TransferService::class.java)
+        runCatching {
+                context.startForegroundService(intent)
+        }
         }
 
         fun createChannel(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    context.getString(R.string.transfer_channel_name),
-                    NotificationManager.IMPORTANCE_LOW
-                )
-                val manager =
-                    context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                manager.createNotificationChannel(channel)
-            }
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                context.getString(R.string.transfer_channel_name),
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
         }
     }
 }

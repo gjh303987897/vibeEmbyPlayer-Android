@@ -29,8 +29,8 @@ import androidx.compose.ui.platform.LocalContext
 @Composable
 fun MediaPoster(
     url: String?,
-    token: String = "",
     modifier: Modifier = Modifier,
+    token: String = "",
     placeholderIcon: ImageVector = Icons.Outlined.Movie,
     cornerRadius: Int = 12,
     elevation: Float = 3f

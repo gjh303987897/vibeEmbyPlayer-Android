@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.map
 class SettingsDataStore @Inject constructor(
     @ApplicationContext context: Context
 ) {
+    private val languageMirror = context.applicationContext
+        .getSharedPreferences("settings_language_mirror", Context.MODE_PRIVATE)
     // Single DataStore instance with the same corruption protection as the
     // services store, so a corrupt file resets to empty instead of crashing.
     private val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
@@ -51,6 +53,10 @@ class SettingsDataStore @Inject constructor(
     val language: Flow<String?> = dataStore.data
         .map { it[Keys.LANGUAGE] }
 
+    /** Synchronous bootstrap value used before the first Activity is created. */
+    val initialLanguage: String?
+        get() = languageMirror.getString(LANGUAGE_MIRROR_KEY, null)
+
     val pageTransitions: Flow<Boolean> = dataStore.data
         .map { it[Keys.PAGE_TRANSITIONS] ?: true }
 
@@ -70,6 +76,7 @@ class SettingsDataStore @Inject constructor(
         // Mirror the selection synchronously so Activity.attachBaseContext can
         // apply it on the next launch (DataStore is async and not ready there).
         LocaleHelper.currentLocaleTag = value
+        languageMirror.edit().putString(LANGUAGE_MIRROR_KEY, value).apply()
         dataStore.edit { it[Keys.LANGUAGE] = value }
     }
 
@@ -83,5 +90,9 @@ class SettingsDataStore @Inject constructor(
             if (value.isEmpty()) preferences.remove(Keys.PREFERRED_TEXT_LANGUAGE)
             else preferences[Keys.PREFERRED_TEXT_LANGUAGE] = value
         }
+    }
+
+    private companion object {
+        const val LANGUAGE_MIRROR_KEY = "language"
     }
 }

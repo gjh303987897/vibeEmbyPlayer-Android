@@ -7,7 +7,8 @@ plugins {
 
 // Architectures to build FFmpeg for. Overridable from the command line so a CI
 // job can produce a subset (e.g. -PffmpegAbis=arm64-v8a,armeabi-v7a).
-val ffmpegAbis: List<String> = (providers.gradleProperty("ffmpegAbis").orNull ?: "arm64-v8a")
+val ffmpegAbis: List<String> = (providers.gradleProperty("ffmpegAbis").orNull
+    ?: "arm64-v8a,armeabi-v7a,x86,x86_64")
     .split(',')
     .map { it.trim() }
     .filter { it.isNotEmpty() }
@@ -18,6 +19,7 @@ android {
 
     defaultConfig {
         minSdk = 26
+        ndk { abiFilters.addAll(ffmpegAbis) }
         // Upstream's rules plus the reflection keep rules this app needs.
         consumerProguardFiles("consumer-proguard-rules.txt", "consumer-rules-vibe.pro")
     }
@@ -57,7 +59,6 @@ if (nativeBuildFromGradle) {
         // Should match cmake_minimum_required in the CMakeLists.
         version = "3.22.1"
     }
-    android.defaultConfig.ndk.abiFilters += ffmpegAbis
 }
 
 dependencies {

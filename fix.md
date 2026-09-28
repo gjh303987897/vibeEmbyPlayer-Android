@@ -105,13 +105,13 @@
 ### 13. 清理死代码（PlaceholderScreen / provideRetrofit / ServerCard）✅
 - 删除 `ui/navigation/VibePlayerNavHost.kt` 未调用的 `PlaceholderScreen` 及此时失效的 import。
 - 删除 `di/AppModule.kt` 无消费者的 `provideRetrofit` 及 `jsonMediaType`；同步移除 `app/build.gradle.kts` 与 `gradle/libs.versions.toml` 中未用的 `retrofit` / `retrofit-kotlinx-serialization` 依赖（保留 `okhttp`）。
-- 删除 Room 的 `ServerCardEntity.kt` / `ServerCardDao.kt`：从 `VibePlayerDatabase.kt` 移除实体注册与 `serverCardDao()`，从 `di/DatabaseModule.kt` 移除 `provideServerCardDao`。所在表从未写入业务数据（服务存 DataStore），`fallbackToDestructiveMigration()` 兜底，安全。
+- 删除 Room 的 `ServerCardEntity.kt` / `ServerCardDao.kt`：从 `VibePlayerDatabase.kt` 移除实体注册与 `serverCardDao()`，从 `di/DatabaseModule.kt` 移除 `provideServerCardDao`。所在表从未写入业务数据（服务存 DataStore），已提供显式迁移，未知版本不再破坏性清库。
 
 ### 14. 封装网络超时 / 重试 / TLS ✅
-- 新增 `di/OkHttpClientFactory.kt`：统一超时（connect 15s / read 30s / write 30s）、`retryOnConnectionFailure`、幂等方法（GET/HEAD/PUT/DELETE/OPTIONS/TRACE）轻量重试拦截器、BASIC 日志；缓存「默认」与「自签名信任」两个客户端。
+- 新增 `di/OkHttpClientFactory.kt`：统一超时（connect 15s / read 30s / write 30s）、OkHttp 连接重试和关闭的 BASIC 日志；缓存「默认」与「自签名信任」两个客户端。
 - `AppModule.provideOkHttpClient` 由工厂取代（统一来源）。
 - `trustSelfSignedCertificate` 真正接入：`MediaNetworkClient`、`WebDavClient` 改为注入 `OkHttpClientFactory`，并按 `server.trustSelfSignedCertificate` 选择客户端；`MediaServerClientBase` 各网络调用透传该校验位。仅对显式开启的服务器生效，不全局弱化 TLS。
-- 说明：ExoPlayer 取流层（`PlayerManager`/`AuthHeaderDataSourceFactory`）未加入自签名信任（Media3 不直接暴露 TrustManager），自签名 HTTPS 的直接取流仍受限——见 fix.md 附注。
+- 说明：ExoPlayer 取流层（`PlayerManager`/`AuthHeaderDataSourceFactory`）复用带认证头的网络数据源；自签名 HTTPS 仍按服务器选项使用专用信任链并保留主机名校验。
 
 ### 15. webdav 上传 / 创建远程目录（功能接通）✅
 - 原问题：`WebDavRepository.createDirectory/upload` 等已实现但无 UI 入口。
@@ -133,7 +133,7 @@
   - `.\gradlew.bat :app:assembleDebug` → BUILD SUCCESSFUL，产出 APK。
   - `.\gradlew.bat :app:lintDebug` → 0 errors。
   - `:app:compileDebugKotlin` → 0 编译错误 / 0 警告。
-- 剩余 lint 警告均为既有项（String.format 缺 Locale、依赖版本提示、未用字符串、ObsoleteSdkInt、AutoboxingState）或自签名信任功能本身的 `CustomX509TrustManager` 提示，非本次引入。
+- 剩余 lint 仅保留自签名信任管理器的 `CustomX509TrustManager` 安全审计提示。
 
 ---
 
@@ -920,7 +920,8 @@ Modifier（同样反编译确认），所以必须自己申请。
 ## 2026-09-16 播放视频没有声音：改为客户端 FFmpeg 软解码（不再走服务端转码）
 
 ### 现象
-AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD 音轨的影片「有画面、无声音、不报错」。
+AC-3 / E-AC-3 / DTS 核心 / TrueHD 音轨的影片「有画面、无声音、不报错」。FFmpeg 6.0 对 DTS-HD 使用其中的 DTS 核心，
+不宣称解码 DTS-HD 无损扩展。
 根因见上一条：播放地址永远 `static=true`（原始文件直连），而 Media3 对**没有任何渲染器支持的
 音频轨是静默丢弃**的，不会抛 `PlaybackException`，所以 UI 上完全没有痕迹。
 

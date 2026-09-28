@@ -7,7 +7,7 @@ Kotlin / OkHttp / Coil / Room 等依赖（Apache-2.0 或 BSD）之外，音频�
 ## FFmpeg
 
 - 用途：`third_party/media3-decoder-ffmpeg`（Media3 官方 FFmpeg 解码扩展的本地副本）在
-  **客户端本机**解码 AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD 等手机硬件不支持的音轨，
+  **客户端本机**解码 AC-3 / E-AC-3 / DTS 核心 / TrueHD 等手机硬件不支持的音轨，
   从而修复「有画面没声音」，同时保持 `static=true` 直连、服务器零转码。
 - 版本：FFmpeg `release/6.0`（由 `scripts/build-ffmpeg-decoder.sh` 克隆后交叉编译）。
 - 许可证：**LGPL-2.1-or-later**（构建时未使用 `--enable-gpl`，也未启用任何 GPL 组件、

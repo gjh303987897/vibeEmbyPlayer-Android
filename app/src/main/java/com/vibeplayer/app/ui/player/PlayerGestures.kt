@@ -18,7 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.FastForward
-import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -79,7 +79,7 @@ data class PlayerGestureIndicator(
     val icon: ImageVector
         get() = when (kind) {
             PlayerGestureKind.Brightness -> Icons.Outlined.Brightness6
-            PlayerGestureKind.Volume -> Icons.Outlined.VolumeUp
+            PlayerGestureKind.Volume -> Icons.AutoMirrored.Outlined.VolumeUp
             PlayerGestureKind.Speed -> Icons.Outlined.FastForward
         }
 
