@@ -19,6 +19,7 @@ import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.TsslPackage
 import com.vibeplayer.app.player.hls.SafHlsSource
 import com.vibeplayer.app.util.normalizeUrlInput
+import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -48,13 +50,15 @@ data class TsslManagerUiState(
 )
 
 @HiltViewModel
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class TsslManagerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val tsslStore: TsslStore,
     private val mediaServerRepository: MediaServerRepository,
     private val backupService: TsslBackupService,
     private val backupSettingsStore: TsslBackupSettingsStore,
-    private val packager: EncryptedHlsPackager
+    private val packager: EncryptedHlsPackager,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TsslManagerUiState())
@@ -73,9 +77,13 @@ class TsslManagerViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            mediaServerRepository.observeServices().collect { servers ->
-                val targets = servers.filter { it.serviceType == ServiceType.WEBDAV }
-                _uiState.update { it.copy(webDavTargets = targets) }
+            privacyManager.privacyMode
+                .flatMapLatest { includePrivate ->
+                    mediaServerRepository.observeVisibleServices(includePrivate)
+                }
+                .collect { servers ->
+                    val targets = servers.filter { it.serviceType == ServiceType.WEBDAV }
+                    _uiState.update { it.copy(webDavTargets = targets) }
             }
         }
     }

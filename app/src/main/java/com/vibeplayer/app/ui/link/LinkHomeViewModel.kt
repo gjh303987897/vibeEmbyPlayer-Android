@@ -8,11 +8,13 @@ import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.domain.link.LinkPlaybackService
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.util.normalizeUrlInput
+import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -34,7 +36,8 @@ data class LinkHomeUiState(
 @HiltViewModel
 class LinkHomeViewModel @Inject constructor(
     private val repository: MediaServerRepository,
-    private val historyRepository: PlaybackHistoryRepository
+    private val historyRepository: PlaybackHistoryRepository,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LinkHomeUiState())
@@ -43,6 +46,10 @@ class LinkHomeViewModel @Inject constructor(
     fun load(serverId: String) {
         viewModelScope.launch {
             val server = repository.getServer(serverId) ?: return@launch
+            if (server.privateMode && !privacyManager.privacyMode.value) {
+                _uiState.value = LinkHomeUiState()
+                return@launch
+            }
             _uiState.update { it.copy(server = server) }
         }
     }
@@ -55,6 +62,7 @@ class LinkHomeViewModel @Inject constructor(
 
     /** Validates the typed URL and, on success, prepares navigation to the player. */
     fun playInput() {
+        if (_uiState.value.server?.privateMode == true && !privacyManager.privacyMode.value) return
         val input = _uiState.value.urlInput
         when (val result = LinkPlaybackService.resolvePlaybackUrl(input)) {
             is LinkPlaybackService.Result.Success -> _uiState.update { it.copy(pendingUrl = result.playbackUrl, validationError = null) }
@@ -64,6 +72,7 @@ class LinkHomeViewModel @Inject constructor(
 
     /** Re-validates a stored URL before replay. */
     fun replay(url: String) {
+        if (_uiState.value.server?.privateMode == true && !privacyManager.privacyMode.value) return
         when (val result = LinkPlaybackService.resolvePlaybackUrl(url)) {
             is LinkPlaybackService.Result.Success -> _uiState.update { it.copy(pendingUrl = result.playbackUrl, validationError = null) }
             is LinkPlaybackService.Result.Error -> _uiState.update { it.copy(validationError = result.message) }
@@ -80,9 +89,12 @@ class LinkHomeViewModel @Inject constructor(
         }
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observeHistory() {
         viewModelScope.launch {
-            historyRepository.observeLinkHistory().collect { rows ->
+            privacyManager.privacyMode.flatMapLatest { showPrivate ->
+                historyRepository.observeLinkHistory(showPrivate)
+            }.collect { rows ->
                 _uiState.update { it.copy(history = rows) }
             }
         }

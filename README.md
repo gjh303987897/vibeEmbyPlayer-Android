@@ -21,9 +21,11 @@ The app is still under active development: `0.1.0`, `versionCode 1`, no store re
   (online, local, WebDAV, IPTV, link, encrypted HLS) goes through it.
 - Emby and Jellyfin: login, multiple servers and accounts, libraries, search, continue watching,
   details with seasons and episodes, resume plus server-side progress reporting.
-- Automatic audio fallback: when the device cannot decode a title's audio (AC-3, E-AC-3, DTS,
-  TrueHD …), the app asks the server to re-encode audio only and stream-copy the video, instead of
-  silently playing the picture with no sound.
+- Client-side audio decoding: when the device cannot decode a title's audio (AC-3, E-AC-3,
+  DTS / DTS-HD, TrueHD …), Media3's official FFmpeg decoder extension decodes it **on the
+  phone**, so the stream stays a `static=true` direct copy and the server transcodes nothing —
+  instead of silently playing the picture with no sound. The player says so when it happens.
+  See `docs/audio-software-decoding.md`.
 - WebDAV: PROPFIND browsing, MKCOL, upload, download via a foreground transfer service, and direct
   playback.
 - Encrypted HLS packages: plays `.m3u8s` directories and `.m3u8sp` single-file containers produced
@@ -35,8 +37,11 @@ The app is still under active development: `0.1.0`, `versionCode 1`, no store re
 - Unified playback history across every source, with watch-time and traffic statistics.
 - Foreground services for playback and transfers, notifications, media session and lock-screen
   controls.
-- Dark / light / system theme, per-app English and Chinese UI, in-app language override, and an
-  optional PIN-protected privacy mode.
+- Dark / light / system theme, per-app English and Chinese UI, and in-app language override.
+- PIN-protected privacy mode is **partially implemented**: the PIN can be set and verified, but
+  nothing is hidden yet (no private flag on service cards, and no privacy filtering in the history /
+  usage queries). The agreed design and the open-issue evidence both live in `fix.md`
+  in `fix20260927.md` (section 一 → P1-4, section 二 = the design).
 
 ## Project status
 
@@ -50,6 +55,7 @@ The app is still under active development: `0.1.0`, `versionCode 1`, no store re
 | IPTV | M3U/M3U8 import through SAF, groups, search, favourites and playback implemented. |
 | Local media | SAF folder picker, folder browsing and playback implemented; permissions are re-checked per access. |
 | Link playback | HTTP/HTTPS direct media and HLS playback, history and statistics implemented. |
+| Privacy mode | Partially implemented — the PIN can be set and verified, but no content is hidden yet: service cards have no private flag in the UI, and history / usage queries are not privacy-filtered. PR breakdown in `fix20260927.md`. |
 | Scheduled playback | Not implemented — the desktop keep-alive scheduling feature is intentionally out of scope on mobile. |
 | Auto-update | Not implemented — mobile distribution goes through app stores. |
 | SMB | Not implemented and currently out of scope. |
@@ -127,6 +133,18 @@ The debug build forces signature schemes v1, v2 and v3 on purpose. AGP drops the
 `minSdk >= 24`, and several on-device installers — OEM file managers, sideload tools, some
 `pm install` paths — read the JAR block first and reject the APK as unsigned.
 
+Audio formats the phone cannot decode are handled by the vendored Media3 FFmpeg decoder module
+(`third_party/media3-decoder-ffmpeg`), which builds with plain Gradle out of the box. To actually
+*decode* on-device — instead of only telling the user the track is unsupported — the native library
+must be produced once with the Android NDK:
+
+```bash
+ANDROID_NDK_HOME=/path/to/ndk ./scripts/build-ffmpeg-decoder.sh  # Linux/macOS/WSL2/Git-Bash; writes jniLibs/<abi>/libffmpegJNI.so
+```
+
+or by running the `FFmpeg decoder binaries` workflow, which uploads the same files as an artifact.
+See `docs/audio-software-decoding.md`.
+
 ### Release signing
 
 Release builds are always signed and fail loudly instead of emitting an unsigned artifact. Set these
@@ -155,7 +173,12 @@ Never commit a keystore or a password.
 - `docs/tssl-v4-m3u8sp.md` — TSSL v4 and `.m3u8sp` container layout, playback and verification flow
 - `docs/self-signed-certificates.md` — trusting self-signed media servers
 - `docs/player-fullscreen-audio-tracks.md` — fullscreen behaviour and audio track selection
+- `docs/audio-software-decoding.md` — on-device FFmpeg decoding of AC-3 / E-AC-3 / DTS / TrueHD
+- `THIRD_PARTY_LICENSES.md` — FFmpeg (LGPL) and the vendored Media3 module (Apache-2.0)
 - `docs/user-messages.md` — user-facing error wording
+- `fix20260927.md` — open issues found by the 2026-09-27 code review (with file:line evidence) and
+  the privacy-mode design it produced: the QT semantics followed, the agreed model (hidden by
+  default, PIN reveals, auto-relock on leave) and the PR breakdown
 - `fix.md` — bug log: symptom, root cause, fix and the measurements that prove it
 - `AGENTS.md` — architecture rules and conventions for working on this codebase
 - `vibeEmbyPlayerQT/VIBEDOCS/` — the desktop reference the protocols and formats come from
@@ -167,9 +190,11 @@ Never commit a keystore or a password.
   in clear text.
 - `EncryptedSharedPreferences` is retained only to migrate installs written by older versions; new
   writes go to the Keystore-backed store, which degrades per entry instead of failing as a whole.
-- Logs never contain passwords, tokens, cookies or full token-bearing playback URLs.
-- Trusting self-signed certificates is an explicit per-server opt-in, warned about in the UI,
-  because it removes hostname and chain validation.
+- Logs must never contain passwords, tokens, cookies or full token-bearing playback URLs. Playback
+Media and artwork URLs do not carry access tokens; authentication is sent in request headers.
+Keeping the HTTP logger disabled in every build further reduces accidental exposure.
+- Trusting self-signed certificates is an explicit per-server opt-in, warned about in the UI;
+  certificate chain trust is relaxed while hostname verification remains enabled.
 - Do not commit real server credentials, tokens, keystores or token-bearing logs.
 
 ## Roadmap

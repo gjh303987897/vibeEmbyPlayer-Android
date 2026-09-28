@@ -21,7 +21,8 @@ object MediaDtoMapper {
             collectionType = collectionType,
             itemType = collectionType.ifEmpty { itemType },
             imageTag = dto.primaryImageTagValue,
-            imageUrl = primaryImageUrl(baseUrl, dto.itemId, dto.primaryImageTagValue, token, 420),
+            imageUrl = primaryImageUrl(baseUrl, dto.itemId, dto.primaryImageTagValue, "", 420),
+            imageToken = token,
             childCount = dto.ChildCount ?: 0
         )
     }
@@ -35,7 +36,7 @@ object MediaDtoMapper {
 
         val (backdropItemId, backdropTags) = backdropSource(dto)
         val backdrops = backdropTags.mapIndexedNotNull { index, tag ->
-            backdropImageUrl(baseUrl, backdropItemId, tag, token, 1600, index)
+            backdropImageUrl(baseUrl, backdropItemId, tag, "", 1600, index)
         }
 
         val userData = dto.UserData
@@ -52,13 +53,14 @@ object MediaDtoMapper {
             seriesName = dto.SeriesName ?: "",
             seriesImageTag = dto.seriesPrimaryImageTag ?: "",
             seriesImageUrl = primaryImageUrl(
-                baseUrl, seriesId, dto.seriesPrimaryImageTag ?: "", token, 460
+                baseUrl, seriesId, dto.seriesPrimaryImageTag ?: "", "", 460
             ),
             childCount = dto.ChildCount ?: 0,
             overview = dto.Overview ?: "",
             imageTag = dto.primaryImageTagValue,
-            imageUrl = primaryImageUrl(baseUrl, dto.itemId, dto.primaryImageTagValue, token, 460),
-            logoImageUrl = logoImageUrl(baseUrl, logoItemId ?: "", logoTag, token, 900),
+            imageUrl = primaryImageUrl(baseUrl, dto.itemId, dto.primaryImageTagValue, "", 460),
+            imageToken = token,
+            logoImageUrl = logoImageUrl(baseUrl, logoItemId ?: "", logoTag, "", 900),
             backdropImageUrl = backdrops.firstOrNull() ?: "",
             backdropImageUrls = backdrops,
             communityRating = (dto.CommunityRating ?: 0.0)
@@ -90,7 +92,8 @@ object MediaDtoMapper {
             role = dto.Role ?: "",
             type = dto.Type ?: "",
             imageTag = personImageTag,
-            imageUrl = primaryImageUrl(baseUrl, dto.Id ?: "", personImageTag, token, 320)
+            imageUrl = primaryImageUrl(baseUrl, dto.Id ?: "", personImageTag, "", 320),
+            imageToken = token
         )
     }
 
@@ -173,7 +176,6 @@ object MediaDtoMapper {
     private fun buildQuery(width: Int, tag: String, token: String): String {
         val sb = StringBuilder("?maxWidth=$width&quality=90")
         if (tag.isNotEmpty()) sb.appendQueryItem("tag", tag)
-        if (token.isNotEmpty()) sb.appendQueryItem("api_key", token)
         return sb.toString()
     }
 

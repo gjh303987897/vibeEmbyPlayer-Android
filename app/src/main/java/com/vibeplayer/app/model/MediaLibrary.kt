@@ -8,5 +8,6 @@ data class MediaLibrary(
     val itemType: String,
     val imageTag: String,
     val imageUrl: String,
+    val imageToken: String = "",
     val childCount: Int
 )

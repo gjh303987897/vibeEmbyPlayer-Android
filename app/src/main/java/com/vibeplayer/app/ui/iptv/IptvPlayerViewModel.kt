@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.player.AudioTrack
@@ -20,6 +21,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import com.vibeplayer.app.di.ApplicationScope
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * Plays an IPTV channel stream and records it into the unified history plus
@@ -30,7 +35,9 @@ import kotlinx.coroutines.launch
 class IptvPlayerViewModel @Inject constructor(
     private val repository: MediaServerRepository,
     private val playerManager: PlayerManager,
-    private val historyRepository: PlaybackHistoryRepository
+    private val historyRepository: PlaybackHistoryRepository,
+    private val privacyManager: PrivacyManager,
+    @ApplicationScope private val appScope: CoroutineScope
 ) : ViewModel() {
 
     val player = playerManager.player
@@ -64,7 +71,8 @@ class IptvPlayerViewModel @Inject constructor(
                         buffering = p.buffering,
                         error = p.error,
                         audioTracks = p.audioTracks,
-                        selectedAudioTrackKey = p.selectedAudioTrackKey
+                        selectedAudioTrackKey = p.selectedAudioTrackKey,
+                        audioDecode = p.audioDecode
                     )
                 }
             }
@@ -86,8 +94,12 @@ class IptvPlayerViewModel @Inject constructor(
         this.channelName = name
         viewModelScope.launch {
             val s = repository.getServer(serverId)
+            if (s?.privateMode == true && !privacyManager.privacyMode.value) {
+                _uiState.update { it.copy(error = "Service is locked") }
+                return@launch
+            }
             server = s
-            playerManager.play(url = url, title = name, subtitle = s?.name)
+            playerManager.play(url = url, title = name, subtitle = s?.name, privatePlayback = s?.privateMode == true)
             if (s != null) {
                 lastUsageSeconds = 0L
                 historyRepository.recordPlayback(
@@ -138,24 +150,25 @@ class IptvPlayerViewModel @Inject constructor(
 
     fun stopPlayback() {
         stopReporter()
+        val pos = playerManager.state.value.positionMs / 1000
+        val dur = playerManager.state.value.durationMs / 1000
+        val watchedSeconds = (pos - lastUsageSeconds).coerceAtLeast(0L)
+        playerManager.player.pause()
         if (started) {
-            val pos = playerManager.state.value.positionMs / 1000
             val s = server
-            if (s != null) {
-                viewModelScope.launch {
+            started = false
+            if (s != null) appScope.launch { withContext(NonCancellable) {
                     historyRepository.updateProgress(
                         source = PlaybackSource.IPTV,
                         service = s,
                         replayTarget = streamUrl,
                         positionSeconds = pos,
-                        durationSeconds = playerManager.state.value.durationMs / 1000
+                        durationSeconds = dur
                     )
-                    historyRepository.addDailyUsage(s, (pos - lastUsageSeconds).coerceAtLeast(0), 0)
+                    historyRepository.addDailyUsage(s, watchedSeconds, playerManager.drainDownloadedBytes())
                 }
             }
-            started = false
         }
-        playerManager.player.pause()
     }
 
     private fun startReporter(server: ServerConfig?) {
@@ -167,6 +180,7 @@ class IptvPlayerViewModel @Inject constructor(
                 if (server == null) continue
                 val pos = playerManager.state.value.positionMs / 1000
                 val dur = playerManager.state.value.durationMs / 1000
+                val watchedSeconds = (pos - lastUsageSeconds).coerceAtLeast(0L)
                 historyRepository.updateProgress(
                     source = PlaybackSource.IPTV,
                     service = server,
@@ -176,7 +190,7 @@ class IptvPlayerViewModel @Inject constructor(
                 )
                 val delta = (pos - lastUsageSeconds).coerceAtLeast(0)
                 if (delta > 0) {
-                    historyRepository.addDailyUsage(server, delta, 0)
+                    historyRepository.addDailyUsage(server, watchedSeconds, playerManager.drainDownloadedBytes())
                     lastUsageSeconds = pos
                 }
             }

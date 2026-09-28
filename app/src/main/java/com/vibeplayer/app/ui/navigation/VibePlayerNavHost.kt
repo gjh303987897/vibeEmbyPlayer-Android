@@ -16,6 +16,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.vibeplayer.app.security.PrivacyManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
@@ -71,11 +74,18 @@ enum class TopLevelDestination(
 @Composable
 fun VibePlayerNavHost(
     pageTransitions: Boolean = true,
+    privacyManager: PrivacyManager,
     navController: NavHostController = rememberNavController()
 ) {
+    val privacyUnlocked by privacyManager.privacyMode.collectAsState()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val isTopLevel = TopLevelDestination.entries.any { it.route == currentDestination?.route }
+    LaunchedEffect(privacyUnlocked) {
+        if (!privacyUnlocked) {
+            navController.popBackStack(TopLevelDestination.Services.route, inclusive = false)
+        }
+    }
 
     Scaffold(
         // Child screens own their top app bars and therefore their status-bar

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.local.db.entity.DailyUsageStatEntity
 import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.PlaybackHistoryEntry
 import com.vibeplayer.app.model.PlaybackSource
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -45,21 +46,22 @@ data class HistoryUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
-    private val historyRepository: PlaybackHistoryRepository
+    private val historyRepository: PlaybackHistoryRepository,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val filter = MutableStateFlow<PlaybackSource?>(null)
     private val page = MutableStateFlow(0)
 
     private val pageEntries: kotlinx.coroutines.flow.Flow<List<PlaybackHistoryEntry>> =
-        combine(filter, page) { f, p -> f to p }
-            .flatMapLatest { (f, p) ->
-                historyRepository.observeHistory(f, historyRepository.PAGE_SIZE, p * historyRepository.PAGE_SIZE)
+        combine(filter, page, privacyManager.privacyMode) { f, p, private -> Triple(f, p, private) }
+            .flatMapLatest { (f, p, private) ->
+                historyRepository.observeHistory(f, private, historyRepository.PAGE_SIZE, p * historyRepository.PAGE_SIZE)
             }
 
     private val totalCount: kotlinx.coroutines.flow.Flow<Int> =
-        filter
-            .flatMapLatest { historyRepository.observeCount(it) }
+        combine(filter, privacyManager.privacyMode) { f, private -> f to private }
+            .flatMapLatest { (f, private) -> historyRepository.observeCount(f, private) }
             .distinctUntilChanged()
 
     val uiState: StateFlow<HistoryUiState> = combine(
@@ -67,7 +69,7 @@ class HistoryViewModel @Inject constructor(
         totalCount,
         filter,
         page,
-        historyRepository.observeUsage()
+        privacyManager.privacyMode.flatMapLatest { historyRepository.observeUsage(it) }
     ) { entries, total, selected, currentPage, usage ->
         HistoryUiState(
             entries = entries,

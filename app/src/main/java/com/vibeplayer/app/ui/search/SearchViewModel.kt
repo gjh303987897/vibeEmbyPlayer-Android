@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.MediaServerRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.MediaItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 private const val PAGE_SIZE = 36
@@ -29,7 +31,8 @@ data class SearchUiState(
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val repository: MediaServerRepository,
-    private val activeSessionManager: ActiveSessionManager
+    private val activeSessionManager: ActiveSessionManager,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -43,6 +46,20 @@ class SearchViewModel @Inject constructor(
     @Volatile
     private var searchGeneration = 0
 
+    init {
+        viewModelScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                val server = activeSessionManager.activeSession.value?.server
+                if (!unlocked && server?.privateMode == true) {
+                    searchGeneration++
+                    _uiState.value = SearchUiState()
+                } else if (unlocked && server?.privateMode == true) {
+                    _uiState.update { it.copy(serverId = server.id) }
+                }
+            }
+        }
+    }
+
     /** Updates the local search draft without triggering a request (IME friendly). */
     fun onQueryChange(value: String) {
         _uiState.update { it.copy(query = value) }
@@ -53,6 +70,11 @@ class SearchViewModel @Inject constructor(
         val term = _uiState.value.query.trim()
         if (term.isEmpty()) return
         val session = activeSessionManager.activeSession.value ?: return
+        if (session.server.privateMode && !privacyManager.privacyMode.value) return
+        if (session.server.privateMode && !privacyManager.privacyMode.value) {
+            _uiState.value = SearchUiState()
+            return
+        }
         val generation = ++searchGeneration
         viewModelScope.launch {
             _uiState.update { it.copy(serverId = session.server.id, activeTerm = term, loading = true, results = emptyList(), error = null) }

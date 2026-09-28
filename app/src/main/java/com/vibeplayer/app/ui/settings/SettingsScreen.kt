@@ -117,6 +117,7 @@ fun SettingsScreen(
     if (showEnterPin) {
         PinDialog(
             title = stringResource(R.string.settings_enter_pin_dialog),
+            isCoolingDown = viewModel::isPinCoolingDown,
             onConfirm = { pin ->
                 if (viewModel.openPrivacy(pin)) {
                     showEnterPin = false
@@ -254,23 +255,29 @@ private fun PrivacySection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (state.privacyActive) {
+            Text(
+                text = stringResource(R.string.settings_privacy_capture_notice),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Spacer(Modifier.height(12.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onSetPin, modifier = Modifier.weight(1f)) {
-                Text(
-                    if (state.pinConfigured) stringResource(R.string.settings_change_pin)
-                    else stringResource(R.string.settings_set_pin)
-                )
+                Text(stringResource(if (state.pinConfigured) R.string.settings_change_pin else R.string.settings_set_pin))
             }
-            Button(
-                onClick = if (state.privacyActive) onExitPrivacy else onEnterPrivacy,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    if (state.privacyActive) stringResource(R.string.settings_exit_privacy)
-                    else stringResource(R.string.settings_enter_privacy)
-                )
+            if (state.pinConfigured) {
+                Button(
+                    onClick = if (state.privacyActive) onExitPrivacy else onEnterPrivacy,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        if (state.privacyActive) stringResource(R.string.settings_lock_privacy)
+                        else stringResource(R.string.settings_enter_privacy)
+                    )
+                }
             }
         }
 
@@ -296,6 +303,7 @@ private fun PrivacySection(
 @Composable
 private fun PinDialog(
     title: String,
+    isCoolingDown: () -> Boolean = { false },
     onConfirm: (String) -> Boolean,
     onDismiss: () -> Unit
 ) {
@@ -314,7 +322,9 @@ private fun PinDialog(
                     supportingText = if (error) {
                         {
                             Text(
-                                if (pin.length in 4..16 && pin.all(Char::isDigit)) {
+                                if (isCoolingDown()) {
+                                    stringResource(R.string.settings_pin_cooldown)
+                                } else if (pin.length in 4..16 && pin.all(Char::isDigit)) {
                                     stringResource(R.string.settings_wrong_pin)
                                 } else {
                                     stringResource(R.string.settings_pin_short)

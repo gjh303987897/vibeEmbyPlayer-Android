@@ -33,31 +33,39 @@ class PlaybackHistoryRepository @Inject constructor(
     /** Number of history rows loaded per page. */
     val PAGE_SIZE: Int = DEFAULT_PAGE_SIZE
 
+    suspend fun resumePositionSeconds(source: PlaybackSource, service: ServerConfig?, replayTarget: String): Long {
+        val row = playbackHistoryDao.findByStableIdentity(source.label, service?.id ?: "", replayTarget)
+            ?: return 0L
+        return if (row.completed) 0L else row.positionSeconds.coerceAtLeast(0L)
+    }
+
     fun observeHistory(
         source: PlaybackSource? = null,
+        showPrivate: Boolean = false,
         limit: Int = DEFAULT_PAGE_SIZE,
         offset: Int = 0
     ): Flow<List<PlaybackHistoryEntry>> {
         val flow = if (source == null || source == PlaybackSource.UNKNOWN) {
-            playbackHistoryDao.observePaged(limit = limit, offset = offset)
+            playbackHistoryDao.observePaged(showPrivate = showPrivate, limit = limit, offset = offset)
         } else {
-            playbackHistoryDao.observeBySource(source.label, limit = limit, offset = offset)
+            playbackHistoryDao.observeBySource(source.label, showPrivate = showPrivate, limit = limit, offset = offset)
         }
         return flow.map { rows -> rows.map { it.toDomain() } }
     }
 
     /** Reactive total count of history rows matching [source] (null = all). */
-    fun observeCount(source: PlaybackSource? = null): Flow<Int> =
-        if (source == null || source == PlaybackSource.UNKNOWN) playbackHistoryDao.observeCount()
-        else playbackHistoryDao.observeCountBySource(source.label)
+    fun observeCount(source: PlaybackSource? = null, showPrivate: Boolean = false): Flow<Int> =
+        if (source == null || source == PlaybackSource.UNKNOWN) playbackHistoryDao.observeCount(showPrivate)
+        else playbackHistoryDao.observeCountBySource(source.label, showPrivate)
 
 
-    fun observeUsage(): Flow<List<DailyUsageStatEntity>> = dailyUsageStatDao.observeAll()
+    fun observeUsage(showPrivate: Boolean = false): Flow<List<DailyUsageStatEntity>> = dailyUsageStatDao.observeAll(showPrivate)
 
     /**
      * Records a playback occurrence for a stable media identity. If a row for
-     * the same (source, service, replayTarget) already exists its stable id and
-     * playback date are preserved while all other fields are refreshed.
+     * the same (source, service, replayTarget) already exists its stable id,
+     * resume position, duration, and completion state are preserved while the
+     * latest occurrence metadata and playback time are refreshed.
      */
     suspend fun recordPlayback(
         source: PlaybackSource,
@@ -76,6 +84,26 @@ class PlaybackHistoryRepository @Inject constructor(
             replayTarget = identity.second
         )
         val now = System.currentTimeMillis()
+        if (existing != null) {
+            playbackHistoryDao.markPlaybackOccurrence(
+                existing.id,
+                todayUtc(),
+                now,
+                service?.name ?: source.label,
+                title.ifBlank { existing.title },
+                subtitle.ifBlank { existing.subtitle },
+                service?.name ?: source.label,
+                service?.privateMode ?: existing.privacyMode
+            )
+            playbackHistoryDao.updateProgress(
+                existing.id,
+                existing.positionSeconds,
+                existing.durationSeconds,
+                existing.completed,
+                now
+            )
+            return
+        }
         val playedAtMs = now
         val playedDate = todayUtc()
 
@@ -107,14 +135,16 @@ class PlaybackHistoryRepository @Inject constructor(
         replayTarget: String,
         positionSeconds: Long,
         durationSeconds: Long
-    ) = recordPlayback(
-        source = source,
-        service = service,
-        replayTarget = replayTarget,
-        title = "",
-        positionSeconds = positionSeconds,
-        durationSeconds = durationSeconds
-    )
+    ) {
+        val existing = playbackHistoryDao.findByStableIdentity(source.label, service?.id ?: "", replayTarget) ?: return
+        playbackHistoryDao.updateProgress(
+            existing.id,
+            positionSeconds,
+            durationSeconds,
+            completed = durationSeconds > 0 && positionSeconds >= durationSeconds * 97 / 100,
+            updatedAtMs = System.currentTimeMillis()
+        )
+    }
 
     /** Marks a playback occurrence complete (EOF or >=97% duration). */
     suspend fun completePlayback(
@@ -122,23 +152,18 @@ class PlaybackHistoryRepository @Inject constructor(
         service: ServerConfig?,
         replayTarget: String,
         durationSeconds: Long
-    ) = recordPlayback(
-        source = source,
-        service = service,
-        replayTarget = replayTarget,
-        title = "",
-        positionSeconds = durationSeconds,
-        durationSeconds = durationSeconds,
-        completed = true
-    )
+    ) {
+        val existing = playbackHistoryDao.findByStableIdentity(source.label, service?.id ?: "", replayTarget) ?: return
+        playbackHistoryDao.updateProgress(existing.id, durationSeconds, durationSeconds, true, System.currentTimeMillis())
+    }
 
     suspend fun deleteHistory(id: String) {
         playbackHistoryDao.deleteById(id)
         linkPlaybackHistoryDao.deleteById(id)
     }
 
-    fun observeLinkHistory(): Flow<List<LinkPlaybackHistoryEntity>> =
-        linkPlaybackHistoryDao.observePaged(limit = 100, offset = 0)
+    fun observeLinkHistory(showPrivate: Boolean = false): Flow<List<LinkPlaybackHistoryEntity>> =
+        linkPlaybackHistoryDao.observePaged(showPrivate = showPrivate, limit = 100, offset = 0)
 
     /**
      * Records a Link-source playback occurrence. Mirrors the same uuid into the
@@ -155,7 +180,46 @@ class PlaybackHistoryRepository @Inject constructor(
     ) {
         val now = System.currentTimeMillis()
         val displayAddress = displayUrl(url)
-        val id = linkPlaybackHistoryDao.findByUrl(url)?.id ?: UUID.randomUUID().toString()
+        val previous = linkPlaybackHistoryDao.findByUrl(url)
+        val id = previous?.id ?: UUID.randomUUID().toString()
+
+        if (previous != null) {
+            val previousHistory = playbackHistoryDao.findById(id)
+            linkPlaybackHistoryDao.markPlaybackOccurrence(
+                id = id,
+                displayName = displayName,
+                displayAddress = displayAddress,
+                playedDate = todayUtc(),
+                playedAtMs = now,
+                privateMode = service?.privateMode ?: previous.privacyMode
+            )
+            previousHistory?.let {
+                playbackHistoryDao.markPlaybackOccurrence(
+                    id = id,
+                    playedDate = todayUtc(),
+                    playedAtMs = now,
+                    serviceName = "Link",
+                    title = displayName,
+                    subtitle = it.subtitle,
+                    displayTarget = displayAddress,
+                    privateMode = service?.privateMode ?: it.privacyMode
+                )
+            }
+            if (positionSeconds == 0L && durationSeconds == 0L && !completed) {
+                previousHistory?.let {
+                    playbackHistoryDao.updateProgress(id, it.positionSeconds, it.durationSeconds, it.completed, now)
+                }
+                return
+            }
+            playbackHistoryDao.updateProgress(
+                id,
+                positionSeconds,
+                durationSeconds,
+                completed || (durationSeconds > 0 && positionSeconds >= durationSeconds * 97 / 100),
+                now
+            )
+            return
+        }
 
         val link = LinkPlaybackHistoryEntity(
             id = id,

@@ -9,6 +9,7 @@ import com.vibeplayer.app.data.remote.PlaybackReport
 import com.vibeplayer.app.data.remote.PlaybackTarget
 import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.model.UserSession
+import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.player.SubtitleTrack
@@ -22,6 +23,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
+import com.vibeplayer.app.di.ApplicationScope
+import kotlinx.coroutines.CoroutineScope
+import com.vibeplayer.app.security.PrivacyManager
 
 data class PlayerUiState(
     val title: String = "",
@@ -37,7 +43,12 @@ data class PlayerUiState(
     val subtitleTracks: List<SubtitleTrack> = emptyList(),
     val selectedSubtitleKey: String? = null,
     val audioTracks: List<AudioTrack> = emptyList(),
-    val selectedAudioTrackKey: String? = null
+    val selectedAudioTrackKey: String? = null,
+    /**
+     * Decoder actually used for the current audio track. Shared by every player screen, which
+     * all render it with `AudioDecodeNotice` - see [AudioDecodeInfo] for the meanings.
+     */
+    val audioDecode: AudioDecodeInfo? = null
 )
 
 @HiltViewModel
@@ -45,7 +56,9 @@ class PlayerViewModel @Inject constructor(
     private val repository: MediaServerRepository,
     private val activeSessionManager: ActiveSessionManager,
     private val playerManager: PlayerManager,
-    private val historyRepository: PlaybackHistoryRepository
+    private val historyRepository: PlaybackHistoryRepository,
+    @ApplicationScope private val appScope: CoroutineScope,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -61,6 +74,7 @@ class PlayerViewModel @Inject constructor(
     private var historyTarget: String? = null
     private var historyTitle: String = ""
     private var historySubtitle: String = ""
+    private var lastUsagePositionSeconds: Long = 0L
 
     init {
         // The player instance is shared by every source screen, so a new session
@@ -85,7 +99,8 @@ class PlayerViewModel @Inject constructor(
                         subtitleTracks = p.subtitleTracks,
                         selectedSubtitleKey = p.selectedSubtitleKey,
                         audioTracks = p.audioTracks,
-                        selectedAudioTrackKey = p.selectedAudioTrackKey
+                        selectedAudioTrackKey = p.selectedAudioTrackKey,
+                        audioDecode = p.audioDecode
                     )
                 }
             }
@@ -99,6 +114,10 @@ class PlayerViewModel @Inject constructor(
         playerManager.beginLoading()
         session = activeSessionManager.activeSession.value
         val s = session ?: return
+        if (s.server.privateMode && !privacyManager.privacyMode.value) {
+            _uiState.update { it.copy(error = "Service is locked") }
+            return
+        }
         viewModelScope.launch {
             val client = repository.clientFor(s.server.serviceType)
             val item = client.fetchItemDetails(s, itemId).getOrNull()
@@ -113,7 +132,9 @@ class PlayerViewModel @Inject constructor(
                 title = item.name,
                 subtitle = episodeSubtitle(item),
                 startPositionMs = startMs,
-                trustSelfSignedCertificate = s.server.trustSelfSignedCertificate
+                headers = mapOf("X-Emby-Token" to s.accessToken),
+                trustSelfSignedCertificate = s.server.trustSelfSignedCertificate,
+                privatePlayback = s.server.privateMode
             )
             report = PlaybackReport(
                 itemId = item.id,
@@ -126,6 +147,7 @@ class PlayerViewModel @Inject constructor(
             historyTarget = item.id
             historyTitle = item.name
             historySubtitle = episodeSubtitle(item)
+            lastUsagePositionSeconds = startMs / 1000
             historyRepository.recordPlayback(
                 source = PlaybackSource.ofServiceType(s.server.serviceType),
                 service = s.server,
@@ -161,29 +183,25 @@ class PlayerViewModel @Inject constructor(
 
     fun stopPlayback() {
         stopReporter()
+        playerManager.player.pause()
         if (started) {
-            val s = session ?: return
-            val client = repository.clientFor(s.server.serviceType)
-            viewModelScope.launch {
-                client.reportPlaybackStopped(
-                    s,
-                    report.copy(positionTicks = (playerManager.state.value.positionMs * 10_000L).coerceAtLeast(0))
-                )
-            }
-            historyTarget?.let { target ->
-                viewModelScope.launch {
-                    historyRepository.updateProgress(
-                        source = PlaybackSource.ofServiceType(s.server.serviceType),
-                        service = s.server,
-                        replayTarget = target,
-                        positionSeconds = playerManager.state.value.positionMs / 1000,
-                        durationSeconds = playerManager.state.value.durationMs / 1000
+            val s = session
+            val target = historyTarget
+            val position = playerManager.state.value.positionMs / 1000
+            val duration = playerManager.state.value.durationMs / 1000
+            val watchedSeconds = (position - lastUsagePositionSeconds).coerceAtLeast(0L)
+            val stopReport = report.copy(positionTicks = (position * 10_000_000L).coerceAtLeast(0))
+            started = false
+            appScope.launch {
+                withContext(NonCancellable) {
+                    if (s != null) repository.clientFor(s.server.serviceType).reportPlaybackStopped(s, stopReport)
+                    if (s != null) historyRepository.addDailyUsage(s.server, watchedSeconds, playerManager.drainDownloadedBytes())
+                    if (s != null && target != null) historyRepository.updateProgress(
+                        PlaybackSource.ofServiceType(s.server.serviceType), s.server, target, position, duration
                     )
                 }
             }
-            started = false
         }
-        playerManager.player.pause()
     }
 
     /** Called when playback naturally reaches the end. */
@@ -218,12 +236,16 @@ class PlayerViewModel @Inject constructor(
             while (isActive) {
                 delay(10_000)
                 val positionMs = playerManager.state.value.positionMs
+                val positionSeconds = positionMs / 1000
+                val watchedSeconds = (positionSeconds - lastUsagePositionSeconds).coerceAtLeast(0L)
                 if (positionMs > 0) {
                     client.reportPlaybackProgress(
                         s,
                         report.copy(positionTicks = (positionMs * 10_000L).coerceAtLeast(0))
                     )
                     historyTarget?.let { target ->
+                        historyRepository.addDailyUsage(s.server, watchedSeconds, playerManager.drainDownloadedBytes())
+                        lastUsagePositionSeconds = positionSeconds
                         historyRepository.updateProgress(
                             source = PlaybackSource.ofServiceType(s.server.serviceType),
                             service = s.server,

@@ -2,6 +2,7 @@ package com.vibeplayer.app.di
 
 import com.vibeplayer.app.data.remote.SelfSignedTls
 import java.io.IOException
+import javax.net.ssl.HttpsURLConnection
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -9,6 +10,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
+import com.vibeplayer.app.BuildConfig
 
 /**
  * Centralises OkHttp client construction so every network consumer shares the
@@ -36,18 +38,19 @@ class OkHttpClientFactory @Inject constructor() {
             .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+            // Request URLs may contain legacy media-server tokens. Keep HTTP
+            // logging disabled in every build until a fully redacting logger exists.
             .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
+                level = HttpLoggingInterceptor.Level.NONE
             })
             .addInterceptor(IdempotentRetryInterceptor())
 
         if (trustSelfSigned) {
             val tls = SelfSignedTls.configuration
             builder.sslSocketFactory(tls.sslContext.socketFactory, tls.trustManager)
-            // Opt-in semantics match the desktop client: certificate-chain and
-            // host-name errors are accepted for this server only. The UI warns
-            // that this permits interception and leaves the option off by default.
-            builder.hostnameVerifier { _, _ -> true }
+            // Trust the explicitly opted-in certificate chain but still require
+            // its certificate to match the configured server host.
+            builder.hostnameVerifier(HttpsURLConnection.getDefaultHostnameVerifier())
         }
         return builder.build()
     }
@@ -56,7 +59,7 @@ class OkHttpClientFactory @Inject constructor() {
         private const val CONNECT_TIMEOUT_SECONDS = 15L
         private const val READ_TIMEOUT_SECONDS = 30L
         private const val WRITE_TIMEOUT_SECONDS = 30L
-        private const val MAX_RETRIES = 2
+        private const val MAX_ATTEMPTS = 2
         private const val RETRY_DELAY_MS = 500L
 
         private val IDEMPOTENT_METHODS = setOf("GET", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE")
@@ -75,7 +78,7 @@ class OkHttpClientFactory @Inject constructor() {
                     try {
                         return chain.proceed(request)
                     } catch (e: IOException) {
-                        if (attempt >= MAX_RETRIES || method !in IDEMPOTENT_METHODS) throw e
+                        if (attempt >= MAX_ATTEMPTS || method !in IDEMPOTENT_METHODS) throw e
                         try {
                             Thread.sleep(RETRY_DELAY_MS * attempt)
                         } catch (interrupted: InterruptedException) {

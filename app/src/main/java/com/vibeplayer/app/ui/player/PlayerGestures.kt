@@ -390,7 +390,7 @@ internal class PlayerBrightnessController(context: Context) {
 
     private companion object {
         const val BRIGHTNESS_OVERRIDE_NONE = -1.0f
-        const val MIN_BRIGHTNESS = 0.01f
+        const val MIN_BRIGHTNESS = 0.08f
         const val MAX_BRIGHTNESS = 1.0f
     }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.MediaServerRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 data class HomeUiState(
     val serverId: String = "",
@@ -29,18 +31,30 @@ data class HomeUiState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: MediaServerRepository,
-    private val activeSessionManager: ActiveSessionManager
+    private val activeSessionManager: ActiveSessionManager,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                val server = activeSessionManager.activeSession.value?.server
+                if (!unlocked && server?.privateMode == true) _uiState.value = HomeUiState()
+                else if (unlocked && server?.privateMode == true) load()
+            }
+        }
         load()
     }
 
     fun load() {
         val session = activeSessionManager.activeSession.value ?: return
+        if (session.server.privateMode && !privacyManager.privacyMode.value) {
+            _uiState.value = HomeUiState()
+            return
+        }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(loading = true, error = null, serverId = session.server.id, serverName = session.server.name)

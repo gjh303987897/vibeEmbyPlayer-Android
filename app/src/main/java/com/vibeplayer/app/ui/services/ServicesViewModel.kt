@@ -7,6 +7,7 @@ import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.IptvRepository
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.WebDavRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -72,7 +74,8 @@ data class ServerForm(
     val username: String = "",
     val serviceType: ServiceType = ServiceType.EMBY,
     val autoLogin: Boolean = true,
-    val trustSelfSignedCertificate: Boolean = false
+    val trustSelfSignedCertificate: Boolean = false,
+    val privateMode: Boolean = false
 )
 
 @HiltViewModel
@@ -81,11 +84,13 @@ class ServicesViewModel @Inject constructor(
     private val repository: MediaServerRepository,
     private val activeSessionManager: ActiveSessionManager,
     private val webDavRepository: WebDavRepository,
-    private val iptvRepository: IptvRepository
+    private val iptvRepository: IptvRepository,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServicesUiState())
     val uiState: StateFlow<ServicesUiState> = _uiState.asStateFlow()
+    val privatePlaybackStopped = privacyManager.privatePlaybackStopped
 
     /** Mirrors the latest "could not save the password securely" result into the state. */
     private var passwordWarning: Boolean
@@ -113,7 +118,9 @@ class ServicesViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.observeServices().collect { servers ->
+            combine(repository.observeServices(), privacyManager.privacyMode) { servers, includePrivate ->
+                if (includePrivate) servers else servers.filterNot { it.privateMode }
+            }.collect { servers ->
                 publishItems(servers)
             }
         }
@@ -153,7 +160,7 @@ class ServicesViewModel @Inject constructor(
     }
 
     private suspend fun refreshItems() {
-        val servers = runCatching { repository.observeServices().first() }
+        val servers = runCatching { repository.observeVisibleServices(privacyManager.privacyMode.value).first() }
             .getOrDefault(emptyList())
         publishItems(servers)
     }
@@ -201,7 +208,7 @@ class ServicesViewModel @Inject constructor(
             serviceType = form.serviceType,
             autoLogin = form.autoLogin,
             trustSelfSignedCertificate = form.trustSelfSignedCertificate,
-            privateMode = false
+                privateMode = form.privateMode
         )
         addInFlight = true
         _uiState.update { it.copy(addingServer = true, errorMessage = null) }
@@ -382,6 +389,7 @@ class ServicesViewModel @Inject constructor(
      * [lastLoggedInServerId]) and return false.
      */
     fun enterServer(server: ServerConfig) {
+        if (server.privateMode && !privacyManager.privacyMode.value) return
         if (openServer(server)) {
             _uiState.update { it.copy(navigationServerId = server.id, enteringServerId = null) }
             return
@@ -469,7 +477,8 @@ class ServicesViewModel @Inject constructor(
                         baseUrl = baseUrl.orEmpty(),
                         username = form.username.ifBlank { server.username },
                         autoLogin = if (credentialServer) savePassword else server.autoLogin,
-                        trustSelfSignedCertificate = form.trustSelfSignedCertificate
+                        trustSelfSignedCertificate = form.trustSelfSignedCertificate,
+                        privateMode = form.privateMode
                     )
                 )
             } finally {
@@ -485,6 +494,8 @@ class ServicesViewModel @Inject constructor(
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
     }
+
+    fun acknowledgePrivatePlaybackStopped() = privacyManager.acknowledgePrivatePlaybackStopped()
 
     /** Consumes [ServicesUiState.passwordWarning] after it has been shown. */
     fun acknowledgePasswordWarning() {

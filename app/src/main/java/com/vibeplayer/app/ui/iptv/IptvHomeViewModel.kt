@@ -8,6 +8,7 @@ import com.vibeplayer.app.data.repository.IptvRepository
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.R
+import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 data class IptvUiState(
@@ -42,7 +44,8 @@ data class IptvUiState(
 class IptvHomeViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: MediaServerRepository,
-    private val iptvRepository: IptvRepository
+    private val iptvRepository: IptvRepository,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(IptvUiState())
@@ -51,16 +54,31 @@ class IptvHomeViewModel @Inject constructor(
     fun load(serverId: String) {
         viewModelScope.launch {
             val server = repository.getServer(serverId) ?: return@launch
+            if (server.privateMode && !privacyManager.privacyMode.value) {
+                _uiState.value = IptvUiState()
+                return@launch
+            }
             _uiState.update { it.copy(server = server) }
         }
         viewModelScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                if (!unlocked && _uiState.value.server?.privateMode == true) {
+                    _uiState.value = IptvUiState()
+                }
+            }
+        }
+        viewModelScope.launch {
             iptvRepository.observeChannels(serverId).collect { channels ->
-                _uiState.update { it.copy(channels = channels) }
+                if (_uiState.value.server?.id == serverId &&
+                    (_uiState.value.server?.privateMode != true || privacyManager.privacyMode.value)
+                ) _uiState.update { it.copy(channels = channels) }
             }
         }
         viewModelScope.launch {
             iptvRepository.observeFavoriteIds(serverId).collect { favorites ->
-                _uiState.update { it.copy(favoriteIds = favorites) }
+                if (_uiState.value.server?.id == serverId &&
+                    (_uiState.value.server?.privateMode != true || privacyManager.privacyMode.value)
+                ) _uiState.update { it.copy(favoriteIds = favorites) }
             }
         }
     }

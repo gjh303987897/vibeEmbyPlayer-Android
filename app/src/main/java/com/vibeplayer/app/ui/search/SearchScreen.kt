@@ -186,6 +186,7 @@ fun SearchScreen(
                                 ) {
                                     MediaPoster(
                                         url = item.imageUrl,
+                                        token = item.imageToken,
                                         modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f)
                                     )
                                     Spacer(Modifier.height(6.dp))

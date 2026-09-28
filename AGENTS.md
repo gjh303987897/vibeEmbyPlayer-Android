@@ -100,6 +100,13 @@ DataSource (网络 / 数据库 / 播放器 / 系统)
 - Media3 (ExoPlayer) 作为唯一播放核心
 - 播放器生命周期由 PlayerController/PlayerManager 统一管理
 - 所有播放（在线 / 本地 / WebDAV / IPTV / HLS）都经由同一播放管理层
+- 播放地址一律 `static=true` 原始文件直连：**禁止**为绕开音频格式限制而重新引入
+  服务端转码（只转音频）回退，服务器负载与无 ffmpeg 的服务器均不可控
+- 本机 MediaCodec 解不了的音轨（AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD）由客户端软解码解决：
+  `third_party/media3-decoder-ffmpeg`（Media3 官方 FFmpeg 解码扩展的源码副本，不在 Google Maven 上）
+  + `DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON`（仅在硬解不可用时生效）。
+  命中该路径时必须通过 `ui/components/AudioDecodeNotice.kt` 告知用户「已使用客户端解码」，
+  不得静默丢弃音轨。详见 `docs/audio-software-decoding.md`。
 
 ## DI
 
@@ -140,6 +147,10 @@ DataSource (网络 / 数据库 / 播放器 / 系统)
   - ⚠️ **Android 端不需要实现**：手动/重复保号策略、日期计算、自动队列、随机选片、前台播放抢占等保号能力仅服务于桌面自建媒体，移动端不做此功能。
 - **流量统计 / 使用统计**（`DailyUsageStat`、`SessionRepository`）
 - **隐私模式**（PIN、隐私卡片设置）
+  - Android 端当前为**部分实现**（PIN 可校验，但尚未隐藏内容）。已定方案、QT 语义依据、
+    必须覆盖的泄漏面、PR 划分与未修证据见 `fix20260927.md`（第一节 P1-4、第二节方案）。
+    实现时不得反转方向：默认锁定隐藏，
+    解锁后才显示私密内容。
 - **TSSL / 备份**（`services/backup`、`services/webdav/TsslStore`、`VIBEDOCS/TsslBackup.md`）
 - **加密 HLS 打包 / 代理**（`services/encryptedhls`、`VIBEDOCS/EncryptedHlsM3u8s.md`）
 - **多服务器管理**（`ServiceCard`、`ServiceCardListModel`、拖拽排序）

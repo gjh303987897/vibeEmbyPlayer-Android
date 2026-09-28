@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.local.db.entity.TransferStatus
 import com.vibeplayer.app.data.local.db.entity.TransferTaskEntity
 import com.vibeplayer.app.data.repository.TransferRepository
+import com.vibeplayer.app.data.repository.MediaServerRepository
+import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
 
 data class TransfersUiState(
     val tasks: List<TransferTaskEntity> = emptyList()
@@ -19,7 +22,9 @@ data class TransfersUiState(
 
 @HiltViewModel
 class TransfersViewModel @Inject constructor(
-    private val transferRepository: TransferRepository
+    private val transferRepository: TransferRepository,
+    private val mediaServerRepository: MediaServerRepository,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TransfersUiState())
@@ -27,7 +32,16 @@ class TransfersViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            transferRepository.observeTasks().collect { tasks ->
+            combine(
+                transferRepository.observeTasks(),
+                mediaServerRepository.observeServices(),
+                privacyManager.privacyMode
+            ) { tasks, servers, includePrivate ->
+                val visibleIds = servers
+                    .filter { includePrivate || !it.privateMode }
+                    .mapTo(mutableSetOf()) { it.id }
+                tasks.filter { it.serverId in visibleIds }
+            }.collect { tasks ->
                 _uiState.update { it.copy(tasks = tasks) }
             }
         }

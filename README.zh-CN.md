@@ -18,8 +18,10 @@ VibePlayer 是一个原生 Android 媒体中心：Emby、Jellyfin、WebDAV、IPT
 - 以 Media3 / ExoPlayer 作为唯一播放核心，统一由 `PlayerManager` 管理；在线、本地、WebDAV、IPTV、
   直链、加密 HLS 全部经过同一套播放栈。
 - Emby 与 Jellyfin：登录、多服务器多账号、媒体库、搜索、继续观看、详情页（含季/集）、断点续播与播放进度上报。
-- 音频自动回退：当本机无法解码某部影片的音轨（AC-3、E-AC-3、DTS、TrueHD 等）时，
-  只要求服务器转码音频、视频保持 stream copy，而不是「有画面没声音还不报错」。
+- 客户端音频解码：当本机无法解码某部影片的音轨（AC-3、E-AC-3、DTS / DTS-HD、TrueHD 等）时，
+  由 Media3 官方 FFmpeg 解码扩展在**手机本机**软解码；播放地址仍然是 `static=true` 直连，
+  服务器不做任何转码，也不会再出现「有画面没声音还不报错」。
+  详见 `docs/audio-software-decoding.md`。
 - WebDAV：PROPFIND 目录浏览、MKCOL 建目录、上传、经前台服务的后台下载，以及直接播放。
 - 加密 HLS 包：播放桌面端产出的 `.m3u8s` 目录包与 `.m3u8sp` 单文件容器，
   由本机环回代理逐分片解密并校验后交给播放器。
@@ -28,7 +30,9 @@ VibePlayer 是一个原生 Android 媒体中心：Emby、Jellyfin、WebDAV、IPT
 - 本地文件夹通过 Storage Access Framework 接入；同时支持 HTTP/HTTPS 直链与 HLS 链接播放。
 - 跨所有来源的统一播放历史，含观看时长与流量统计。
 - 播放与传输各自使用前台服务，提供通知、媒体会话与锁屏控制。
-- 深色 / 浅色 / 跟随系统主题，应用内中英文切换与独立语言覆盖，可选 PIN 隐私模式。
+- 深色 / 浅色 / 跟随系统主题，应用内中英文切换与独立语言覆盖。
+- PIN 隐私模式为**部分实现**：PIN 可设置与校验，但目前还不隐藏任何内容（服务卡没有隐私标记入口，
+  历史与统计查询也未按隐私位过滤）。已定方案与缺陷证据都在 `fix20260927.md`（第一节 P1-4、第二节方案）。
 
 ## 项目状态
 
@@ -42,6 +46,7 @@ VibePlayer 是一个原生 Android 媒体中心：Emby、Jellyfin、WebDAV、IPT
 | IPTV | 经 SAF 导入 M3U/M3U8、分组、搜索、收藏与播放已实现。 |
 | 本地媒体 | SAF 文件夹选择、目录浏览与播放已实现；每次访问都会重新校验授权。 |
 | 链接播放 | HTTP/HTTPS 直接媒体与 HLS 播放、历史与统计已实现。 |
+| 隐私模式 | 部分实现 —— PIN 可设置与校验，但尚未隐藏任何内容：服务卡缺隐私标记入口，历史与统计查询也没按隐私位过滤。方案与 PR 划分见 `fix20260927.md`。 |
 | 定时播放 | 不实现 —— 桌面端的保号定时策略在移动端刻意不做。 |
 | 自动更新 | 不实现 —— 移动端通过应用商店分发。 |
 | SMB | 未实现，当前不在范围内。 |
@@ -118,6 +123,16 @@ debug 构建刻意强制开启 v1、v2、v3 三种签名方案。AGP 在 `minSdk
 而不少真机安装路径 —— OEM 自带文件管理器、侧载工具、部分 `pm install` 分支 —— 会先读 JAR 签名块，
 读不到就判定 APK 未签名从而拒绝安装。
 
+本机解不了的音频由 `third_party/media3-decoder-ffmpeg`（Media3 官方 FFmpeg 解码扩展源码副本）负责，
+该模块用普通 Gradle 即可编译，日常构建不需要 NDK。若要在真·设备上软解码（而不只是提示用户该音轨
+不受支持），需要先用 NDK 产出原生库（一次性）：
+
+```bash
+ANDROID_NDK_HOME=/path/to/ndk ./scripts/build-ffmpeg-decoder.sh  # Linux/macOS/WSL2/Git-Bash，产物写入 src/main/jniLibs/<abi>/libffmpegJNI.so
+```
+
+也可以手动跑 `FFmpeg decoder binaries` 工作流，它会以上述产物打包成可下载的 artifact。
+
 ### Release 签名
 
 Release 构建一定会签名；缺少凭据时直接失败，绝不产出未签名包。执行 `./gradlew assembleRelease` 前设置：
@@ -144,7 +159,11 @@ keystore 与密码一律不得提交进仓库。
 - `docs/tssl-v4-m3u8sp.md` —— TSSL v4 与 `.m3u8sp` 容器结构、播放与校验流程
 - `docs/self-signed-certificates.md` —— 自签名证书服务器的信任策略
 - `docs/player-fullscreen-audio-tracks.md` —— 全屏行为与音轨选择
+- `docs/audio-software-decoding.md` —— AC-3 / E-AC-3 / DTS / TrueHD 的客户端软解码
+- `THIRD_PARTY_LICENSES.md` —— FFmpeg（LGPL）与随项目分发的 Media3 解码扩展（Apache-2.0）
 - `docs/user-messages.md` —— 面向用户的错误文案约定
+- `fix20260927.md` —— 2026-09-27 代码审查发现的未修问题（附 文件:行号 证据），以及由此定下的
+  隐私模式方案：所遵循的 QT 语义、已定模型（默认隐藏、PIN 解锁、离开自动回锁）与 PR 划分
 - `fix.md` —— 缺陷记录：现象、根因、修法，以及证明修好的实测数据
 - `AGENTS.md` —— 本仓库的架构约束与开发规范
 - `vibeEmbyPlayerQT/VIBEDOCS/` —— 协议与格式来源的桌面端参考文档
@@ -155,8 +174,8 @@ keystore 与密码一律不得提交进仓库。
   统一由不可导出的 Android Keystore 密钥以 AES-256-GCM 封装（`KeystoreSecretStore`），不明文落盘。
 - `EncryptedSharedPreferences` 仅保留用于迁移旧版本写入的数据；新数据一律走 Keystore 方案，
   后者按条目降级，不会像前者那样整体不可读写。
-- 日志中绝不出现密码、令牌、Cookie 或带令牌的完整播放地址。
-- 「信任自签名证书」是按服务器逐个显式开启的选项，界面有明确警告，因为它会关闭证书链与主机名校验。
+- 日志中不得出现密码、令牌、Cookie 或带令牌的完整播放地址。媒体与封面 URL 不携带令牌，认证通过请求头发送；HTTP 日志在所有构建中关闭。
+- 「信任自签名证书」是按服务器逐个显式开启的选项，界面有明确警告；该选项仅放宽证书链信任，仍保留主机名校验。
 - 不要把真实服务器凭据、令牌、keystore 或含令牌的日志提交进仓库。
 
 ## 后续计划

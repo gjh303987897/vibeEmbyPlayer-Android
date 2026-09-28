@@ -76,6 +76,14 @@ fun ServicesScreen(
     val showAddDialog by viewModel.showAddDialog.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val privatePlaybackStopped by viewModel.privatePlaybackStopped.collectAsState()
+
+    LaunchedEffect(privatePlaybackStopped) {
+        if (privatePlaybackStopped) {
+            snackbarHostState.showAppSnackbar(context.getString(R.string.privacy_playback_stopped), tone = MessageTone.WARNING)
+            viewModel.acknowledgePrivatePlaybackStopped()
+        }
+    }
 
     // Session / saved-password flags live outside the services DataStore, so
     // re-read them whenever this screen is shown (otherwise a card can keep
@@ -211,6 +219,7 @@ fun ServicesScreen(
         ) { item ->
             ServiceCard(
                 item = item,
+                showPrivateLabel = true,
                 onOpenClick = { viewModel.enterServer(item.server) },
                 onLoginClick = { loginTarget = item.server },
                 onEditClick = { editTarget = item.server },
@@ -444,6 +453,7 @@ private fun EmptyServicesHint(onAdd: () -> Unit) {
 @Composable
 private fun ServiceCard(
     item: ServiceItemUi,
+    showPrivateLabel: Boolean,
     onOpenClick: () -> Unit,
     onLoginClick: () -> Unit,
     onEditClick: () -> Unit,
@@ -483,6 +493,9 @@ private fun ServiceCard(
                     text = item.server.name,
                     style = MaterialTheme.typography.titleMedium
                 )
+                if (showPrivateLabel && item.server.privateMode) {
+                    Text(stringResource(R.string.service_private_card), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
                 Text(
                     text = "${item.server.username} · ${item.server.serviceType.displayName}",
                     style = MaterialTheme.typography.bodyMedium,

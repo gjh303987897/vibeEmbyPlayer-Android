@@ -6,6 +6,7 @@ import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.domain.link.LinkPlaybackService
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
+import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.ui.navigation.Routes
@@ -20,6 +21,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import com.vibeplayer.app.di.ApplicationScope
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * Plays an external HTTP(S) media / HLS link and records it into the unified
@@ -29,7 +34,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class LinkPlayerViewModel @Inject constructor(
     private val playerManager: PlayerManager,
-    private val historyRepository: PlaybackHistoryRepository
+    private val historyRepository: PlaybackHistoryRepository,
+    @ApplicationScope private val appScope: CoroutineScope
 ) : ViewModel() {
 
     val player = playerManager.player
@@ -62,7 +68,8 @@ class LinkPlayerViewModel @Inject constructor(
                         buffering = p.buffering,
                         error = p.error,
                         audioTracks = p.audioTracks,
-                        selectedAudioTrackKey = p.selectedAudioTrackKey
+                        selectedAudioTrackKey = p.selectedAudioTrackKey,
+                        audioDecode = p.audioDecode
                     )
                 }
             }
@@ -86,12 +93,17 @@ class LinkPlayerViewModel @Inject constructor(
                 resolvedUrl = resolved.playbackUrl
                 displayName = resolved.displayName
                 lastUsageSeconds = 0L
-                playerManager.play(
+                viewModelScope.launch {
+                    val resumeMs = historyRepository.resumePositionSeconds(
+                        PlaybackSource.LINK, BUILTIN_LINK_SERVER, resolved.playbackUrl
+                    ) * 1000
+                    lastUsageSeconds = resumeMs / 1000
+                    playerManager.play(
                     url = resolved.playbackUrl,
                     title = resolved.displayName,
-                    subtitle = BUILTIN_LINK_SERVER.name
-                )
-                viewModelScope.launch {
+                    subtitle = BUILTIN_LINK_SERVER.name,
+                    startPositionMs = resumeMs
+                    )
                     historyRepository.recordLinkPlayback(
                         url = resolved.playbackUrl,
                         displayName = resolved.displayName,
@@ -142,21 +154,23 @@ class LinkPlayerViewModel @Inject constructor(
 
     fun stopPlayback() {
         stopReporter()
+        val pos = playerManager.state.value.positionMs / 1000
+        val dur = playerManager.state.value.durationMs / 1000
+        val watchedSeconds = (pos - lastUsageSeconds).coerceAtLeast(0L)
+        playerManager.player.pause()
         if (started) {
-            val pos = playerManager.state.value.positionMs / 1000
-            viewModelScope.launch {
+            started = false
+            appScope.launch { withContext(NonCancellable) {
                 historyRepository.recordLinkPlayback(
                     url = resolvedUrl,
                     displayName = displayName,
                     service = BUILTIN_LINK_SERVER,
                     positionSeconds = pos,
-                    durationSeconds = playerManager.state.value.durationMs / 1000
+                    durationSeconds = dur
                 )
-                historyRepository.addLinkUsage(BUILTIN_LINK_SERVER, (pos - lastUsageSeconds).coerceAtLeast(0), 0)
-            }
-            started = false
+                historyRepository.addLinkUsage(BUILTIN_LINK_SERVER, watchedSeconds, playerManager.drainDownloadedBytes())
+            } }
         }
-        playerManager.player.pause()
     }
 
     private fun startReporter() {
@@ -166,6 +180,7 @@ class LinkPlayerViewModel @Inject constructor(
                 delay(10_000)
                 val pos = playerManager.state.value.positionMs / 1000
                 val dur = playerManager.state.value.durationMs / 1000
+                val watchedSeconds = (pos - lastUsageSeconds).coerceAtLeast(0L)
                 historyRepository.recordLinkPlayback(
                     url = resolvedUrl,
                     displayName = displayName,
@@ -175,7 +190,7 @@ class LinkPlayerViewModel @Inject constructor(
                 )
                 val delta = (pos - lastUsageSeconds).coerceAtLeast(0)
                 if (delta > 0) {
-                    historyRepository.addLinkUsage(BUILTIN_LINK_SERVER, delta, 0)
+                    historyRepository.addLinkUsage(BUILTIN_LINK_SERVER, watchedSeconds, playerManager.drainDownloadedBytes())
                     lastUsageSeconds = pos
                 }
             }

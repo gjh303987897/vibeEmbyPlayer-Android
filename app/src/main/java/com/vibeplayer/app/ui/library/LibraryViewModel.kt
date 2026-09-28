@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.MediaServerRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private const val PAGE_SIZE = 48
@@ -28,7 +31,8 @@ data class LibraryUiState(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val repository: MediaServerRepository,
-    private val activeSessionManager: ActiveSessionManager
+    private val activeSessionManager: ActiveSessionManager,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
@@ -38,9 +42,31 @@ class LibraryViewModel @Inject constructor(
     private var hasMore = true
     private var loaded = 0
 
+    init {
+        viewModelScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                val server = activeSessionManager.activeSession.value?.server
+                if (server?.privateMode == true && !unlocked) {
+                    loaded = 0
+                    library = null
+                    _uiState.value = LibraryUiState()
+                }
+                if (server?.privateMode == true && unlocked) {
+                    val currentTitle = _uiState.value.title
+                    val libraryId = library?.id
+                    if (libraryId != null) load(libraryId)
+                }
+            }
+        }
+    }
+
     fun load(libraryId: String) {
         if (loaded > 0) return
         val session = activeSessionManager.activeSession.value ?: return
+        if (session.server.privateMode && !privacyManager.privacyMode.value) {
+            _uiState.value = LibraryUiState(error = "Service is locked")
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(initialLoading = true, error = null) }
             val client = repository.clientFor(session.server.serviceType)
@@ -88,6 +114,7 @@ class LibraryViewModel @Inject constructor(
 
     fun loadMore() {
         val session = activeSessionManager.activeSession.value ?: return
+        if (session.server.privateMode && !privacyManager.privacyMode.value) return
         val lib = library ?: return
         if (_uiState.value.loadingMore || !hasMore) return
         viewModelScope.launch {

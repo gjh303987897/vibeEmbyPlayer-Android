@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +40,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
+import com.vibeplayer.app.player.AudioDecodeInfo
+import com.vibeplayer.app.ui.components.AudioDecodeNotice
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.PlayerGestureOverlay
 import com.vibeplayer.app.ui.player.playerGestureSurface
@@ -66,6 +69,7 @@ fun IptvPlayerScreen(
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
 
     LaunchedEffect(serverId, encodedUrl, encodedName) { viewModel.play(serverId, encodedUrl, encodedName) }
+    DisposableEffect(viewModel) { onDispose { viewModel.stopPlayback() } }
 
     LaunchedEffect(state) {
         val ended = state.durationMs > 0 && state.positionMs >= state.durationMs - 500
@@ -127,6 +131,7 @@ fun IptvPlayerScreen(
             IptvTopBar(
                 title = state.title,
                 subtitle = state.subtitle,
+                audioDecode = state.audioDecode,
                 onBack = { navController.popBackStack() },
                 actions = {
                     PlayerExtraActions(
@@ -151,7 +156,7 @@ fun IptvPlayerScreen(
 }
 
 @Composable
-private fun IptvTopBar(title: String, subtitle: String, onBack: () -> Unit, actions: @Composable () -> Unit) {
+private fun IptvTopBar(title: String, subtitle: String, audioDecode: AudioDecodeInfo?, onBack: () -> Unit, actions: @Composable () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -169,6 +174,7 @@ private fun IptvTopBar(title: String, subtitle: String, onBack: () -> Unit, acti
             subtitle.takeIf { it.isNotBlank() }?.let {
                 Text(text = it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
             }
+            AudioDecodeNotice(audioDecode)
         }
         actions()
     }

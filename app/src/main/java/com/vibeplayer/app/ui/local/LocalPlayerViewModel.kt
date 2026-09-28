@@ -32,6 +32,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
+import com.vibeplayer.app.di.ApplicationScope
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * Plays a local media file (SAF content URI) and records it into the unified
@@ -44,7 +47,8 @@ class LocalPlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val playerManager: PlayerManager,
     private val historyRepository: PlaybackHistoryRepository,
-    private val encryptedHlsManager: EncryptedHlsManager
+    private val encryptedHlsManager: EncryptedHlsManager,
+    @ApplicationScope private val appScope: CoroutineScope
 ) : ViewModel() {
 
     val player = playerManager.player
@@ -56,6 +60,7 @@ class LocalPlayerViewModel @Inject constructor(
     private var recordTitle: String = ""
     private var reporterJob: Job? = null
     private var started = false
+    private var lastUsagePositionSeconds = 0L
     private var hlsPlayback: EncryptedHlsPlayback? = null
 
     init {
@@ -77,7 +82,8 @@ class LocalPlayerViewModel @Inject constructor(
                         buffering = p.buffering,
                         error = p.error,
                         audioTracks = p.audioTracks,
-                        selectedAudioTrackKey = p.selectedAudioTrackKey
+                        selectedAudioTrackKey = p.selectedAudioTrackKey,
+                        audioDecode = p.audioDecode
                     )
                 }
             }
@@ -111,7 +117,9 @@ class LocalPlayerViewModel @Inject constructor(
                 _uiState.update { it.copy(error = problem) }
                 return@launch
             }
-            playerManager.play(url = uri, title = name, subtitle = "Local")
+            val resumeMs = historyRepository.resumePositionSeconds(PlaybackSource.LOCAL, null, uri) * 1000
+            lastUsagePositionSeconds = resumeMs / 1000
+            playerManager.play(url = uri, title = name, subtitle = "Local", startPositionMs = resumeMs)
             historyRepository.recordPlayback(
                 source = PlaybackSource.LOCAL,
                 service = null,
@@ -185,7 +193,9 @@ class LocalPlayerViewModel @Inject constructor(
                 onSuccess = { playback ->
                     hlsPlayback = playback
                     val title = playback.resolvedSourceName ?: displayName
-                    playerManager.play(url = playback.playUrl, title = title, subtitle = "Local")
+                    val resumeMs = historyRepository.resumePositionSeconds(PlaybackSource.LOCAL, null, documentUri) * 1000
+                    lastUsagePositionSeconds = resumeMs / 1000
+                    playerManager.play(url = playback.playUrl, title = title, subtitle = "Local", startPositionMs = resumeMs)
                     historyRepository.recordPlayback(
                         source = PlaybackSource.LOCAL,
                         service = null,
@@ -237,20 +247,23 @@ class LocalPlayerViewModel @Inject constructor(
 
     fun stopPlayback() {
         stopReporter()
+        val pos = playerManager.state.value.positionMs / 1000
+        val dur = playerManager.state.value.durationMs / 1000
+        val watchedSeconds = (pos - lastUsagePositionSeconds).coerceAtLeast(0L)
+        playerManager.player.pause()
         if (started) {
-            val pos = playerManager.state.value.positionMs / 1000
-            viewModelScope.launch {
+            started = false
+            appScope.launch { withContext(NonCancellable) {
                 historyRepository.updateProgress(
                     source = PlaybackSource.LOCAL,
                     service = null,
                     replayTarget = contentUri,
                     positionSeconds = pos,
-                    durationSeconds = playerManager.state.value.durationMs / 1000
+                    durationSeconds = dur
                 )
-            }
-            started = false
+                historyRepository.addDailyUsage(null, watchedSeconds, playerManager.drainDownloadedBytes())
+            } }
         }
-        playerManager.player.pause()
         closeHls()
     }
 
@@ -266,6 +279,7 @@ class LocalPlayerViewModel @Inject constructor(
                 delay(10_000)
                 val pos = playerManager.state.value.positionMs / 1000
                 val dur = playerManager.state.value.durationMs / 1000
+                val watchedSeconds = (pos - lastUsagePositionSeconds).coerceAtLeast(0L)
                 historyRepository.updateProgress(
                     source = PlaybackSource.LOCAL,
                     service = null,
@@ -273,6 +287,8 @@ class LocalPlayerViewModel @Inject constructor(
                     positionSeconds = pos,
                     durationSeconds = dur
                 )
+                historyRepository.addDailyUsage(null, watchedSeconds, playerManager.drainDownloadedBytes())
+                lastUsagePositionSeconds = pos
             }
         }
     }

@@ -83,6 +83,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -132,6 +133,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
 
     // Compose BOM + UI
@@ -182,6 +184,11 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
+    // On-device FFmpeg audio decoding (AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD) so those
+    // tracks play with sound without asking the server to transcode. The Media3 FFmpeg
+    // extension is not on Google's Maven, so it is vendored under third_party/.
+    implementation(libs.media3.decoder)
+    implementation(project(":media3-decoder-ffmpeg"))
 
     // Tests
     testImplementation(libs.junit)

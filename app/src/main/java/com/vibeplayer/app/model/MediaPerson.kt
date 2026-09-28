@@ -7,5 +7,6 @@ data class MediaPerson(
     val role: String = "",
     val type: String = "",
     val imageTag: String = "",
-    val imageUrl: String = ""
+    val imageUrl: String = "",
+    val imageToken: String = ""
 )

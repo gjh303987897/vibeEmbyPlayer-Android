@@ -18,15 +18,23 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibeplayer.app.ui.navigation.VibePlayerNavHost
 import com.vibeplayer.app.ui.settings.SettingsViewModel
 import com.vibeplayer.app.ui.theme.VibePlayerTheme
 import com.vibeplayer.app.util.LocaleHelper
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import com.vibeplayer.app.security.PrivacyManager
+import android.view.WindowManager
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var privacyManager: PrivacyManager
+
     // Apply the user-selected language before any view / Compose root is created.
     override fun attachBaseContext(newBase: android.content.Context) {
         super.attachBaseContext(LocaleHelper.applyLocaleIfNeeded(newBase))
@@ -61,9 +69,20 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    VibePlayerNavHost(pageTransitions = settings.pageTransitions)
+                    VibePlayerNavHost(pageTransitions = settings.pageTransitions, privacyManager = privacyManager)
                 }
             }
         }
+        lifecycleScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                if (unlocked) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) privacyManager.exitPrivacyMode()
+        super.onDestroy()
     }
 }

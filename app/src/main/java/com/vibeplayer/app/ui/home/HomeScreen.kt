@@ -61,12 +61,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
@@ -260,9 +262,16 @@ private fun PosterHeroCarousel(
                     }
             ) {
                 AsyncImage(
-                    model = item.backdropImageUrl.takeIf { it.isNotBlank() }
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.backdropImageUrl.takeIf { it.isNotBlank() }
                         ?: item.seriesImageUrl.takeIf { it.isNotBlank() }
-                        ?: item.imageUrl.takeIf { it.isNotBlank() },
+                        ?: item.imageUrl.takeIf { it.isNotBlank() })
+                        .apply {
+                            if (item.imageToken.isNotBlank()) {
+                                addHeader("X-Emby-Token", item.imageToken)
+                            }
+                        }
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

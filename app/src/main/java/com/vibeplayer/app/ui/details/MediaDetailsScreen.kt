@@ -43,12 +43,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.pressScale
@@ -85,7 +87,8 @@ fun MediaDetailsScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 BackdropHeader(
                     backdropUrl = item.backdropImageUrl,
-                    bannerUrl = item.imageUrl
+                    bannerUrl = item.imageUrl,
+                    itemToken = item.imageToken
                 )
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -185,14 +188,17 @@ fun MediaDetailsScreen(
 }
 
 @Composable
-private fun BackdropHeader(backdropUrl: String, bannerUrl: String) {
+private fun BackdropHeader(backdropUrl: String, bannerUrl: String, itemToken: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(260.dp)
     ) {
-        AsyncImage(
-            model = backdropUrl.takeIf { it.isNotBlank() } ?: bannerUrl,
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(backdropUrl.takeIf { it.isNotBlank() } ?: bannerUrl)
+                    .apply { if (itemToken.isNotBlank()) addHeader("X-Emby-Token", itemToken) }
+                    .build(),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -272,7 +278,10 @@ private fun EpisodeRow(episode: MediaItem, modifier: Modifier = Modifier, onClic
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             AsyncImage(
-                model = episode.imageUrl.takeIf { it.isNotBlank() },
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(episode.imageUrl.takeIf { it.isNotBlank() })
+                    .apply { if (episode.imageToken.isNotBlank()) addHeader("X-Emby-Token", episode.imageToken) }
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

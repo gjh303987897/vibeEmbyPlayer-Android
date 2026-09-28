@@ -38,6 +38,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,7 +60,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
+import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.player.SubtitleTrack
+import com.vibeplayer.app.ui.components.AudioDecodeNotice
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
@@ -82,6 +85,7 @@ fun PlayerScreen(
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
 
     LaunchedEffect(itemId) { viewModel.play(itemId) }
+    DisposableEffect(viewModel) { onDispose { viewModel.stopPlayback() } }
 
     // Detect natural end of playback to report it as complete.
     LaunchedEffect(state) {
@@ -149,6 +153,7 @@ fun PlayerScreen(
             PlayerTopBar(
                 title = state.title,
                 subtitle = state.subtitle,
+                audioDecode = state.audioDecode,
                 onBack = { navController.popBackStack() },
                 actions = {
                     PlayerExtraActions(
@@ -189,6 +194,7 @@ fun PlayerScreen(
 private fun PlayerTopBar(
     title: String,
     subtitle: String,
+    audioDecode: AudioDecodeInfo?,
     onBack: () -> Unit,
     actions: @Composable () -> Unit
 ) {
@@ -209,6 +215,7 @@ private fun PlayerTopBar(
             subtitle.takeIf { it.isNotBlank() }?.let {
                 Text(text = it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
             }
+            AudioDecodeNotice(audioDecode)
         }
         actions()
     }

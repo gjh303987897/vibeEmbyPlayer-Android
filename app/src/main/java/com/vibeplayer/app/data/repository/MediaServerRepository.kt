@@ -2,9 +2,12 @@ package com.vibeplayer.app.data.repository
 
 import com.vibeplayer.app.data.local.datastore.SecureSessionStore
 import com.vibeplayer.app.data.local.datastore.ServiceStore
+import com.vibeplayer.app.data.local.db.dao.PlaybackHistoryDao
+import com.vibeplayer.app.data.local.db.dao.DailyUsageStatDao
 import com.vibeplayer.app.data.remote.EmbyClient
 import com.vibeplayer.app.data.remote.JellyfinClient
 import com.vibeplayer.app.data.remote.MediaServerClient
+import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.UserSession
@@ -13,6 +16,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
@@ -26,11 +30,19 @@ class MediaServerRepository @Inject constructor(
     private val embyClient: EmbyClient,
     private val jellyfinClient: JellyfinClient,
     private val serviceStore: ServiceStore,
-    private val secureSessionStore: SecureSessionStore
+    private val playbackHistoryDao: PlaybackHistoryDao,
+    private val dailyUsageStatDao: DailyUsageStatDao,
+    private val secureSessionStore: SecureSessionStore,
+    private val activeSessionManager: ActiveSessionManager
 ) {
 
     /** Observable list of configured service accounts. */
     fun observeServices(): Flow<List<ServerConfig>> = serviceStore.services
+
+    fun observeVisibleServices(includePrivate: Boolean): Flow<List<ServerConfig>> =
+        serviceStore.services.map { services ->
+            if (includePrivate) services else services.filterNot { it.privateMode }
+        }
 
     suspend fun getServices(): List<ServerConfig> = serviceStore.services.first()
 
@@ -39,7 +51,18 @@ class MediaServerRepository @Inject constructor(
 
     suspend fun addServer(config: ServerConfig) = serviceStore.upsert(config)
 
-    suspend fun updateServer(config: ServerConfig) = serviceStore.upsert(config)
+    suspend fun updateServer(config: ServerConfig) {
+        val previous = getServer(config.id)
+        serviceStore.upsert(config)
+        if (activeSessionManager.activeSession.value?.server?.id == config.id) {
+            activeSessionManager.activeSession.value?.let { activeSessionManager.setActiveSession(it.copy(server = config)) }
+        }
+        if (previous != null && previous.privateMode != config.privateMode) {
+            // History visibility follows the current flag while the service exists.
+            playbackHistoryDao.reclassifyService(config.id, config.privateMode)
+            dailyUsageStatDao.reclassifyService(config.id, config.privateMode)
+        }
+    }
 
     suspend fun removeServer(serverId: String) = serviceStore.remove(serverId)
 

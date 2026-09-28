@@ -1,0 +1,114 @@
+name: FFmpeg decoder binaries
+
+# Produces the native library behind on-device audio decoding, i.e.
+#   third_party/media3-decoder-ffmpeg/src/main/jniLibs/<abi>/libffmpegJNI.so
+#
+# Why a separate workflow: Media3 ships its FFmpeg decoder extension as source only (it
+# is not published to Google's Maven repository), so the FFmpeg libraries must be
+# cross-compiled with the Android NDK - which needs a Linux/macOS host and is far too
+# slow for every app build. This job does it once and uploads the result; the APK build
+# then just packages whatever is in jniLibs.
+#
+# The artifact is not wired into releases automatically: download it, extract
+# `jniLibs/` into third_party/media3-decoder-ffmpeg/ and commit it (or hand it to
+# whoever cuts the release). FFmpeg is LGPL - see THIRD_PARTY_LICENSES.md and keep the
+# build recipe (this workflow + scripts/build-ffmpeg-decoder.sh) available next to the
+# binaries.
+#
+# Nothing in the normal `Android Build` workflow depends on this, so the app keeps
+# building (and keeps the "no client decoder installed" notice) when jniLibs is empty.
+
+on:
+  workflow_dispatch:
+    inputs:
+      abis:
+        description: 'Space-separated ABIs to build'
+        required: false
+        default: 'arm64-v8a armeabi-v7a x86 x86_64'
+      ffmpegRef:
+        description: 'FFmpeg branch/tag to build (Media3 tests against 6.0)'
+        required: false
+        default: 'release/6.0'
+      decoders:
+        description: 'FFmpeg decoders to enable'
+        required: false
+        default: 'ac3 eac3 truehd dca mp2 mp3 aac vorbis opus flac alac pcm_s16le pcm_s32le pcm_f32le'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ffmpeg-decoder-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build libffmpegJNI.so
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      FFMPEG_ABIS: ${{ github.event.inputs.abis || 'arm64-v8a armeabi-v7a x86 x86_64' }}
+      FFMPEG_REF: ${{ github.event.inputs.ffmpegRef || 'release/6.0' }}
+      ENABLED_DECODERS: ${{ github.event.inputs.decoders || 'ac3 eac3 truehd dca mp2 mp3 aac vorbis opus flac alac pcm_s16le pcm_s32le pcm_f32le' }}
+      ANDROID_PLATFORM_LEVEL: '26'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf pkg-config python3 ninja-build yasm nasm curl
+          # cmake and the NDK ship on the runner image; verify instead of re-downloading.
+          cmake --version
+          if [ -z "${ANDROID_NDK_LATEST_HOME:-}" ] || [ ! -d "${ANDROID_NDK_LATEST_HOME:-/nonexistent}" ]; then
+            echo "No preinstalled NDK on this runner; installing r26b."
+            yes | sdkmanager --licenses > /dev/null 2>&1 || true
+            sdkmanager --install "ndk;r26b"
+            echo "NDK_PATH=$ANDROID_HOME/ndk/26.2.11394379" >> "$GITHUB_ENV"
+          else
+            echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build FFmpeg + JNI libraries
+        run: |
+          chmod +x scripts/build-ffmpeg-decoder.sh
+          ./scripts/build-ffmpeg-decoder.sh
+
+      - name: Check the libraries
+        run: |
+          ls -l third_party/media3-decoder-ffmpeg/src/main/jniLibs/*/*.so
+          READELF="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          # 16 KB ELF segment alignment (required for Android 15+ devices) must survive the build.
+          for so in third_party/media3-decoder-ffmpeg/src/main/jniLibs/*/*.so; do
+            "$READELF" -l "$so" | grep LOAD | grep -Eq '0x4000|2\*\*14' \
+              || { echo "::error::$so is not 16 KB aligned"; exit 1; }
+          done
+
+      - name: Build the APK with the decoder packaged
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'libffmpegJNI.so'
+
+      - name: Upload decoder binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-decoder-jniLibs
+          path: third_party/media3-decoder-ffmpeg/src/main/jniLibs
+          if-no-files-found: error
+
+      - name: Upload the debug APK that contains them
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeplayer-debug-with-ffmpeg-decoder
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.MediaServerRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.MediaItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -26,7 +27,8 @@ data class DetailsUiState(
 @HiltViewModel
 class MediaDetailsViewModel @Inject constructor(
     private val repository: MediaServerRepository,
-    private val activeSessionManager: ActiveSessionManager
+    private val activeSessionManager: ActiveSessionManager,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DetailsUiState())
@@ -34,6 +36,10 @@ class MediaDetailsViewModel @Inject constructor(
 
     fun load(itemId: String) {
         val session = activeSessionManager.activeSession.value ?: return
+        if (session.server.privateMode && !privacyManager.privacyMode.value) {
+            _uiState.value = DetailsUiState(error = "Service is locked")
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             val client = repository.clientFor(session.server.serviceType)

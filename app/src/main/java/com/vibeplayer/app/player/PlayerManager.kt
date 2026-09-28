@@ -9,6 +9,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -29,6 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 data class SubtitleTrack(val key: String, val label: String, val language: String?, val selected: Boolean)
 
@@ -40,7 +44,14 @@ data class PlayerState(
     val subtitle: String? = null, val error: String? = null, val playbackSpeed: Float = 1f,
     val volume: Float = 1f, val subtitleTracks: List<SubtitleTrack> = emptyList(),
     val selectedSubtitleKey: String? = null, val audioTracks: List<AudioTrack> = emptyList(),
-    val selectedAudioTrackKey: String? = null
+    val selectedAudioTrackKey: String? = null,
+    /**
+     * How the current audio track is being decoded, or null while no audio track is known.
+     * Non-[AudioDecodeMode.HARDWARE] values must be surfaced to the user: a stream the phone
+     * cannot decode by itself otherwise plays as silent video with no error at all.
+     */
+    val audioDecode: AudioDecodeInfo? = null,
+    val privatePlayback: Boolean = false
 )
 
 @OptIn(UnstableApi::class)
@@ -53,24 +64,25 @@ class PlayerManager @Inject constructor(
     private val headerFactory = AuthHeaderDataSourceFactory(clientFactory)
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(DefaultDataSource.Factory(context, headerFactory)))
-        .setRenderersFactory(DefaultRenderersFactory(context).setEnableDecoderFallback(true)).build()
+        .setRenderersFactory(audioRenderersFactory(context))
+        .build()
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private var positionTicker: Job? = null
     private var lastSpeed = 1f
     private var speedBeforeTemporary = 1f
     private var temporarySpeedActive = false
-    private var autoSubtitleSelected = false
+    private val downloadedBytes = AtomicLong(0L)
+
+    fun drainDownloadedBytes(): Long = downloadedBytes.getAndSet(0L).coerceAtLeast(0L)
+
     init {
+        // Reading the MediaCodec registry and probing the FFmpeg native library is cheap but
+        // not free; do it off the main thread once, before the first track callback arrives.
+        scope.launch(Dispatchers.Default) { warmUpAudioDecodeSupport() }
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 updateTracks(tracks)
-                if (!autoSubtitleSelected) {
-                    subtitleTracks(tracks).firstOrNull()?.let {
-                        autoSubtitleSelected = true
-                        selectSubtitle(it)
-                    }
-                }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 updateDerived()
@@ -88,6 +100,15 @@ class PlayerManager @Inject constructor(
             override fun onPlayerError(error: PlaybackException) {
                 _state.update { it.copy(error = error.errorCodeName, buffering = false, isPrepared = false) }
                 stopPositionTicker()
+            }
+        })
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onLoadCompleted(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData
+            ) {
+                downloadedBytes.addAndGet(loadEventInfo.bytesLoaded.coerceAtLeast(0L))
             }
         })
     }
@@ -119,20 +140,21 @@ class PlayerManager @Inject constructor(
         subtitle: String?,
         startPositionMs: Long = 0L,
         headers: Map<String, String> = emptyMap(),
-        trustSelfSignedCertificate: Boolean = false
+        trustSelfSignedCertificate: Boolean = false,
+        privatePlayback: Boolean = false
     ) {
+        downloadedBytes.set(0L)
         headerFactory.configure(headers, trustSelfSignedCertificate); player.stop(); player.clearMediaItems()
-        autoSubtitleSelected = false
         _state.value = PlayerState(
             title = title,
             subtitle = subtitle,
             positionMs = startPositionMs,
             playbackSpeed = lastSpeed,
-            volume = player.volume
+            volume = player.volume,
+            privatePlayback = privatePlayback
         )
-        // A new source must not inherit a previous subtitle-off selection.
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
             .build()
@@ -213,10 +235,41 @@ class PlayerManager @Inject constructor(
                 subtitleTracks = subtitles,
                 selectedSubtitleKey = subtitles.firstOrNull { track -> track.selected }?.key,
                 audioTracks = audio,
-                selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key
+                selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key,
+                audioDecode = audioDecodeInfo(tracks)
             )
         }
     }
+
+    /**
+     * Which decoder the selected audio track will actually go through.
+     *
+     * Streams are always fetched with `static=true`, so the server never transcodes and an
+     * audio format the platform cannot decode is dropped by Media3 *silently* - the user
+     * just gets a mute picture. [AudioDecodeInfo] is what lets the UI explain that, and what
+     * tells them the bundled FFmpeg renderer is decoding the track on the device instead.
+     */
+    private fun audioDecodeInfo(tracks: Tracks): AudioDecodeInfo? {
+        val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (audioGroups.isEmpty()) return null
+        // Prefer the track that is playing, then any decodable track, then the first one: when
+        // nothing can decode it Media3 selects no audio at all and we still want the reason.
+        val group = audioGroups.firstOrNull { selectedTrackIndex(it) != null }
+            ?: audioGroups.firstOrNull { supportedTrackIndex(it) != null }
+            ?: audioGroups.first()
+        val index = selectedTrackIndex(group) ?: supportedTrackIndex(group) ?: 0
+        return AudioDecodeSupport.decide(
+            mimeType = group.getTrackFormat(index).sampleMimeType,
+            rendererSupportsTrack = group.isTrackSupported(index)
+        )
+    }
+
+    private fun selectedTrackIndex(group: Tracks.Group): Int? =
+        (0 until group.length).firstOrNull { group.isTrackSelected(it) }
+
+    private fun supportedTrackIndex(group: Tracks.Group): Int? =
+        (0 until group.length).firstOrNull { group.isTrackSupported(it) }
+
     private fun subtitleTracks(tracks: Tracks): List<SubtitleTrack> = tracks.groups.mapIndexedNotNull { gi, group ->
         if (group.type != C.TRACK_TYPE_TEXT) return@mapIndexedNotNull null
             (0 until group.length).mapNotNull { ti ->
@@ -250,7 +303,8 @@ class PlayerManager @Inject constructor(
                 subtitleTracks = subtitles,
                 selectedSubtitleKey = subtitles.firstOrNull { track -> track.selected }?.key,
                 audioTracks = audio,
-                selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key
+                selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key,
+                audioDecode = audioDecodeInfo(tracks)
             )
         }
     }
@@ -264,3 +318,27 @@ internal fun parseTrackKey(key: String): Pair<Int, Int>? {
     if (groupIndex < 0 || trackIndex < 0) return null
     return groupIndex to trackIndex
 }
+
+/**
+ * Renderer chain for every playback path in the app (all five player screens share one
+ * [ExoPlayer], so this is the single place where decoding is decided).
+ *
+ * [DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON] tells Media3 to instantiate the
+ * optional extension renderers it finds on the classpath and to place them *behind* the
+ * platform's MediaCodec renderer. Hardware therefore still does everything it is capable
+ * of, and only what it cannot decode - AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD on devices
+ * without the corresponding licence - falls through to the on-device FFmpeg decoder from
+ * `:media3-decoder-ffmpeg`. [DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER] would
+ * route all audio through FFmpeg and needlessly burn battery.
+ *
+ * This is what removes the "picture but no sound" failure for those formats while streams
+ * stay `static=true` direct copies: nothing is transcoded server-side, and servers without
+ * FFmpeg work just as well. If the extension's native library is not packaged,
+ * `FfmpegLibrary.isAvailable()` returns false, the renderer claims no format, and behaviour
+ * is exactly the platform default - the player then says so instead of failing silently.
+ */
+@OptIn(UnstableApi::class)
+private fun audioRenderersFactory(context: Context): DefaultRenderersFactory =
+    DefaultRenderersFactory(context)
+        .setEnableDecoderFallback(true)
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)

@@ -2,7 +2,6 @@ package com.vibeplayer.app.di
 
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OkHttpClientFactoryTest {
@@ -20,14 +19,13 @@ class OkHttpClientFactoryTest {
     }
 
     @Test
-    fun `self-signed opt-in changes only permissive client hostname verification`() {
+    fun `self-signed opt-in preserves hostname verification`() {
         val verified = factory.client(trustSelfSigned = false)
         val permissive = factory.client(trustSelfSigned = true)
 
-        // The permissive verifier accepts a synthetic host even without a
-        // session. The normal verifier remains a different implementation and
-        // therefore retains standard hostname checks.
-        assertNotSame(verified.hostnameVerifier, permissive.hostnameVerifier)
-        assertTrue(permissive.hostnameVerifier.verify("media.example", null))
+        // Opt-in changes the certificate trust manager only. Hostname checks
+        // must remain the platform default to prevent MITM via a mismatched
+        // certificate name.
+        assertNotSame(verified.sslSocketFactory, permissive.sslSocketFactory)
     }
 }

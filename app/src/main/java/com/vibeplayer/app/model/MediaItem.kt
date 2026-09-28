@@ -19,6 +19,7 @@ data class MediaItem(
     val overview: String = "",
     val imageTag: String = "",
     val imageUrl: String = "",
+    val imageToken: String = "",
     val logoImageUrl: String = "",
     val backdropImageUrl: String = "",
     val backdropImageUrls: List<String> = emptyList(),

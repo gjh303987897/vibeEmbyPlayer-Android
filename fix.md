@@ -143,7 +143,7 @@
 > 以下为仍被刻意排除或接受的取舍。
 
 - **SMB 服务**：**暂不实现**（已按最新需求从 AGENTS.md 最终目标中移除 SMB，SMB/CIFS 不在当前实现范围）。
-- **Emby/Jellyfin token 明文拼入 URL（api_key=）**：**已知取舍，予以接受**。这是 Emby/Jellyfin 直连流的官方标准做法，无法在不解部署本代理的情况下移除。已排查确认：token 直链**从不写日志**、**不落 Room**（通用历史存 `replayTarget` 而非 URL；link 历史仅由 LINK 服务写入），仅在 PlayerManager→ExoPlayer 内存中短暂存在。
+- **Emby/Jellyfin token URL 泄漏**：已修复。媒体播放与图片请求均通过 `X-Emby-Token` / `Authorization` 请求头认证，URL 不再拼接 `api_key`；HTTP 日志保持关闭，CrashLogger 对异常文本做脱敏。
 - **READ_MEDIA_VIDEO / READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE**：本地媒体完全走 SAF（存储访问框架），无需这些权限，已从 Manifest 移除（最小权限原则）。
 - **定时播放（scheduler）** 与 **自动更新（UpdateService）**：按项目策略明确**不在 Android 端实现**（前者为桌面保号能力，后者移动端走应用商店）。
 
@@ -914,3 +914,93 @@ Modifier（同样反编译确认），所以必须自己申请。
   （Media3 对解不了的音频轨静默丢弃）。若之后要修"无声"问题，不要直接恢复本 revert，
   优先评估播放器侧方案（如 Media3 音频渲染限制/提示），再决定是否重新引入服务端转码
   （原实现可从 `git show 063760f` 找回）。
+
+---
+
+## 2026-09-16 播放视频没有声音：改为客户端 FFmpeg 软解码（不再走服务端转码）
+
+### 现象
+AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD 音轨的影片「有画面、无声音、不报错」。
+根因见上一条：播放地址永远 `static=true`（原始文件直连），而 Media3 对**没有任何渲染器支持的
+音频轨是静默丢弃**的，不会抛 `PlaybackException`，所以 UI 上完全没有痕迹。
+
+### 关于「Media3 官方提供预编译 decoder_ffmpeg AAR/so」的事实核对
+提出的方案方向（客户端软解码）是对的，但预编译产物这一前提不成立，已按官方资料逐条核实：
+
+- Media3 的 FFmpeg 解码扩展确实存在且官方：`androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer`
+  （仓库 `libraries/decoder_ffmpeg`）。
+- 但它**不在 Google Maven 上**：抓取 `https://dl.google.com/android/maven2/androidx/media3/group-index.xml`
+  确认已发布产物只有 `media3-exoplayer`、`media3-decoder`、`media3-exoplayer-hls/dash/midi/…`，
+  **没有** `media3-decoder-ffmpeg` / `media3-exoplayer-ffmpeg`；模块 README 原文亦写明
+  “The module is not provided via Google's Maven repository (see ExoPlayer issue 2781)”。
+- `androidx.media` 的 GitHub Release **没有二进制 asset**（`GET /repos/androidx/media/releases`
+  返回的 5 个最新发布 assets 均为空），所以不存在「直接引入的官方预编译 AAR/so」。
+- 官方做法是 README 里写的：把模块作为源码依赖，并用 NDK + `build_ffmpeg.sh` 自行交叉编译 FFmpeg
+  （Linux/macOS）。因此**不能**照搬 `implementation(libs.media3.ffmpeg)` 这种一行依赖。
+
+结论：采用官方 README 的源码分发路线，并把原生库的产出做成脚本 + 一次性 CI 任务；
+不引入第三方来路不明的 `.so`（违背「只用官方库」且无法验证来源），也不重新引入服务端转码。
+
+### 修改
+1. **引入官方扩展（源码方式）**：新增 `third_party/media3-decoder-ffmpeg/`，
+   复制 `androidx/media` **tag 1.5.0**（与项目 `media3 = 1.5.0` 对齐）的
+   `libraries/decoder_ffmpeg`：Java（`FfmpegAudioRenderer/Decoder/Library/DecoderException`）、
+   `src/main/jni/{CMakeLists.txt,ffmpeg_jni.cc,build_ffmpeg.sh}`、上游 Apache-2.0 LICENSE 与
+   proguard 规则，包名/类名**一字不改**（`DefaultRenderersFactory` 靠反射按类名加载，
+   已从 `media3-exoplayer-1.5.0.aar` 字节码确认：`Class.forName("androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer")`
+   + `getConstructor(Handler, AudioRendererEventListener, AudioSink)`）。
+   本地差异（写在模块 README）：Gradle DSL 化、原生构建改由 `-PffmpegNative=true` 开关、
+   **不**复制 `ExperimentalFfmpegVideoRenderer`（本任务只修音频，避免视频被拉去软解）、不复制测试。
+   `settings.gradle.kts` 以 `projectDir` 方式 include，`app` 依赖之，另加 `media3-decoder`。
+2. **播放器只在硬件解不了时才软解**：`PlayerManager` 抽
+   `audioRenderersFactory()`，保留 `setEnableDecoderFallback(true)`，
+   新增 `setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)`（扩展渲染器排在 MediaCodec **之后**；
+   不用 `PREFER`，否则 AAC 等也走软解白耗电）。所有入口共用同一个 `ExoPlayer`，改一处即全覆盖。
+3. **解码来源探测**：新增 `player/AudioDecodeSupport.kt`：
+   `MediaCodecList` 可见注册表（API 29+ 用 `MediaCodecList(0)`，更低版本用 `getCodecCount()/
+   getCodecInfoAt()`；`isDecoder()` 非公开 API，故按「非编码器 + 名字含 decoder」判定）
+   判定硬解能力；反射 `FfmpegLibrary.isAvailable()/supportsFormat()` 判定客户端解码能力；
+   结果 `AudioDecodeInfo(mode ∈ {HARDWARE, SOFTWARE, UNSUPPORTED}, mimeType, codecLabel)`，
+   `codecLabel` 由 `audioCodecLabel()` 给出可读名（DTS-HD Master Audio 等）。
+   判定逻辑拆成纯函数 `decideAudioDecode()` 便于单测；MediaCodec 表按进程缓存，
+   `PlayerManager` init 里在 `Dispatchers.Default` 预热，避免首帧路径做反射/扫描。
+4. **用户提示（要求项）**：`ui/components/AudioDecodeNotice.kt` 在五个播放页顶栏标题下方各显示一行，
+   跟随控制条显隐、可点 X 关闭；`PlayerState.audioDecode` → `PlayerUiState.audioDecode`
+   （5 个 ViewModel 原样镜像）。
+   文案（`values/strings.xml` + `values-zh/strings.xml`）：
+   - 客户端解码生效：「本机不支持 %1$s 音轨，已启用客户端解码（应用内置 FFmpeg 软解码）播放。」
+   - 缺原生库（真的会静音）：「本机不支持 %1$s 音轨，且当前安装包未包含客户端解码库，本片可能没有声音。」
+   - `HARDWARE` 不显示任何提示（绝大多数影片）。
+5. **原生库产出**：`scripts/build-ffmpeg-decoder.sh`（Linux/macOS + NDK + CMake）按上游
+   README 步骤克隆 FFmpeg `release/6.0`、跑上游 `build_ffmpeg.sh`、再链接 `libffmpegJNI.so`
+   并放进 `src/main/jniLibs/<abi>/`（AGP 直接打包，日常构建机不需要 NDK）；
+   解码器集合 `ac3 eac3 truehd dca …` 对齐 `FfmpegLibrary.getCodecName()`。
+   `.github/workflows/ffmpeg-decoder.yml`（仅 `workflow_dispatch`，不影响现有 CI）在 Linux runner
+   上跑同一脚本，校验 16KB ELF 对齐、校验 APK 内确有 `libffmpegJNI.so`，并上传 artifact。
+6. **R8**：`consumer-rules-vibe.pro` 保留反射入口（上游只有 `native` 方法名规则），
+   已用 `:app:minifyReleaseWithR8` 生成的 `mapping.txt/seeds.txt/usage.txt` 验证
+   `FfmpegAudioRenderer` 与其三参构造器、`FfmpegLibrary.isAvailable/supportsFormat/getVersion`
+   均未被裁剪或改名。
+7. 文档：新增 `docs/audio-software-decoding.md`、`THIRD_PARTY_LICENSES.md`（FFmpeg LGPL 义务：
+   声明 + 可复现构建配方 + 许可文本；不用 `--enable-gpl/--enable-nonfree`），
+   修正两个 README 里已被 revert 的「要求服务器只转码音频」描述，模块自身 README 记录来源与差异。
+
+### 已知限制（有意接受）
+- 只有官方 Java/JNI 源码进仓库；`libffmpegJNI.so` 必须由脚本/CI 产出。没产出时行为与之前一致
+  （静音），但现在会**明确提示**用户「未包含客户端解码库」，不再是无声无息。
+- 扩展只解音频；HEVC/AV1 等视频编码不变（仍走硬解），上游 `ExperimentalFfmpegVideoRenderer` 未复制。
+- FFmpeg 输出为 PCM，经 `AudioSink` 播放：不做源码透传（不会把 DTS/Atmos 裸流送给外部功放），
+  多声道按设备能力重采样/下混。
+
+### 验证
+- `./gradlew :media3-decoder-ffmpeg:compileDebugJavaWithJavac` 通过（模块在纯 Windows/无 NDK 环境
+  下可编译，`FfmpegLibrary.isAvailable()` 运行时为 false）。
+- `./gradlew :app:testDebugUnitTest`：新增 `AudioDecodeSupportTest`（8 例：硬解=不提示、
+  AC-3/E-AC-3/E-AC-3-JOC/TrueHD/DTS/DTS-HD=客户端软解、无原生库+无渲染器=UNSUPPORTED、
+  Media3 说不支持时一票否决、非音频 MIME 与未知格式不打扰用户、可读格式名）与
+  `FfmpegExtensionWiringTest`（3 例：反射类名/构造器/探测方法契约）全绿，原有测试不受影响。
+- `./gradlew :app:assembleDebug`、`./gradlew :app:lintDebug`（0 error）通过。
+- `KEYSTORE_* ./gradlew :app:minifyReleaseWithR8` 通过并核对 R8 keep 结果（见修改第 6 条）。
+- 真机验证需要含 AC-3/DTS/TrueHD 的影片 + 已放入 `libffmpegJNI.so` 的包，步骤与预期日志
+  见 `docs/audio-software-decoding.md` 的「验证」小节（本机无 NDK，二进制与真机听感尚未实测）。
+

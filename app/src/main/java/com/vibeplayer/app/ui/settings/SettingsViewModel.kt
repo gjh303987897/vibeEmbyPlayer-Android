@@ -79,6 +79,7 @@ class SettingsViewModel @Inject constructor(
         return ok
     }
 
-    fun enterPrivacy() { privacyManager.enterPrivacyMode() }
+    fun isPinCoolingDown(): Boolean = privacyManager.isPinCoolingDown()
+
     fun exitPrivacy() { privacyManager.exitPrivacyMode() }
 }

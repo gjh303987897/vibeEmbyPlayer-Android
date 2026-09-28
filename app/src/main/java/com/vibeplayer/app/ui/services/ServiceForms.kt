@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Switch
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -207,6 +208,7 @@ fun AddServerDialog(
     var password by remember { mutableStateOf("") }
     var savePassword by remember { mutableStateOf(true) }
     var trustSelfSignedCertificate by remember { mutableStateOf(false) }
+    var privateMode by remember { mutableStateOf(false) }
     var type by remember { mutableStateOf(ServiceType.EMBY) }
 
     AlertDialog(
@@ -294,6 +296,7 @@ fun AddServerDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                PrivacyCardOption(checked = privateMode, onCheckedChange = { privateMode = it }, enabled = !busy)
             }
         },
         confirmButton = {
@@ -315,7 +318,8 @@ fun AddServerDialog(
                             username = username,
                             serviceType = type,
                             autoLogin = savePassword,
-                            trustSelfSignedCertificate = trustSelfSignedCertificate
+                            trustSelfSignedCertificate = trustSelfSignedCertificate,
+                            privateMode = privateMode
                         ),
                         password
                     )
@@ -350,6 +354,7 @@ fun EditServerDialog(
     var trustSelfSignedCertificate by remember {
         mutableStateOf(server.trustSelfSignedCertificate)
     }
+    var privateMode by remember { mutableStateOf(server.privateMode) }
 
     val isCredentialServer = server.serviceType == ServiceType.EMBY ||
         server.serviceType == ServiceType.JELLYFIN ||
@@ -389,6 +394,7 @@ fun EditServerDialog(
                         enabled = !busy
                     )
                 }
+                PrivacyCardOption(checked = privateMode, onCheckedChange = { privateMode = it }, enabled = !busy)
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -455,7 +461,8 @@ fun EditServerDialog(
                             port = port,
                             username = username,
                             serviceType = server.serviceType,
-                            trustSelfSignedCertificate = trustSelfSignedCertificate
+                            trustSelfSignedCertificate = trustSelfSignedCertificate,
+                            privateMode = privateMode
                         ),
                         password,
                         savePassword
@@ -469,6 +476,22 @@ fun EditServerDialog(
             }
         }
     )
+}
+
+@Composable
+private fun PrivacyCardOption(checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+            Text(stringResource(R.string.service_private_card), style = MaterialTheme.typography.bodyMedium)
+        }
+        Text(
+            stringResource(R.string.service_private_card_sub),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 48.dp)
+        )
+    }
 }
 
 @Composable

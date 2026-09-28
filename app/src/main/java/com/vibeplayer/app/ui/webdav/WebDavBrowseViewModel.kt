@@ -11,6 +11,7 @@ import com.vibeplayer.app.data.repository.TransferRepository
 import com.vibeplayer.app.data.repository.WebDavRepository
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.MessageTone
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.WebDavItem
 import com.vibeplayer.app.player.hls.EncryptedHlsManager
 import com.vibeplayer.app.player.hls.EncryptedHlsMetadata
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -60,7 +62,8 @@ class WebDavBrowseViewModel @Inject constructor(
     private val webDavRepository: WebDavRepository,
     private val transferRepository: TransferRepository,
     private val encryptedHlsManager: EncryptedHlsManager,
-    @ApplicationContext private val appContext: Context
+    @ApplicationContext private val appContext: Context,
+    private val privacyManager: PrivacyManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WebDavUiState())
@@ -87,9 +90,24 @@ class WebDavBrowseViewModel @Inject constructor(
                 loadedServerId = null
                 return@launch
             }
+            if (server.privateMode && !privacyManager.privacyMode.value) {
+                _uiState.value = WebDavUiState()
+                loadedServerId = null
+                return@launch
+            }
             val needPassword = !webDavRepository.hasPassword(server)
             _uiState.update { it.copy(server = server, needPassword = needPassword) }
             if (!needPassword) browse(server, "", emptyList())
+        }
+        viewModelScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                if (!unlocked && _uiState.value.server?.privateMode == true) {
+                    browseJob?.cancel()
+                    metadataJob?.cancel()
+                    _uiState.value = WebDavUiState()
+                    loadedServerId = null
+                }
+            }
         }
     }
 

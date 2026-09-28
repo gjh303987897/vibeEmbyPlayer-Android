@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Poster image with a rounded-corner tonal placeholder fallback, a soft shadow
@@ -27,6 +29,7 @@ import coil.compose.AsyncImage
 @Composable
 fun MediaPoster(
     url: String?,
+    token: String = "",
     modifier: Modifier = Modifier,
     placeholderIcon: ImageVector = Icons.Outlined.Movie,
     cornerRadius: Int = 12,
@@ -44,7 +47,10 @@ fun MediaPoster(
             Placeholder(placeholderIcon, MaterialTheme.colorScheme.surfaceVariant)
         } else {
             AsyncImage(
-                model = imageUrl,
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(imageUrl)
+                    .apply { if (token.isNotBlank()) addHeader("X-Emby-Token", token) }
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

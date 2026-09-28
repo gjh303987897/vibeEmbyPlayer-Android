@@ -6,6 +6,7 @@ import com.vibeplayer.app.data.local.datastore.SecureSessionStore
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.data.repository.WebDavRepository
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
@@ -23,6 +24,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import com.vibeplayer.app.di.ApplicationScope
+import kotlinx.coroutines.CoroutineScope
 
 @HiltViewModel
 class WebDavPlayerViewModel @Inject constructor(
@@ -31,7 +36,9 @@ class WebDavPlayerViewModel @Inject constructor(
     private val webDavRepository: WebDavRepository,
     private val playerManager: PlayerManager,
     private val historyRepository: PlaybackHistoryRepository,
-    private val encryptedHlsManager: EncryptedHlsManager
+    private val encryptedHlsManager: EncryptedHlsManager,
+    private val privacyManager: PrivacyManager,
+    @ApplicationScope private val appScope: CoroutineScope
 ) : ViewModel() {
 
     val player = playerManager.player
@@ -46,6 +53,7 @@ class WebDavPlayerViewModel @Inject constructor(
     private var hlsPlayback: EncryptedHlsPlayback? = null
     private var reporterJob: Job? = null
     private var started = false
+    private var lastUsagePositionSeconds = 0L
 
     init {
         // The player instance is shared by every source screen, so a new session
@@ -70,7 +78,8 @@ class WebDavPlayerViewModel @Inject constructor(
                         subtitleTracks = p.subtitleTracks,
                         selectedSubtitleKey = p.selectedSubtitleKey,
                         audioTracks = p.audioTracks,
-                        selectedAudioTrackKey = p.selectedAudioTrackKey
+                        selectedAudioTrackKey = p.selectedAudioTrackKey,
+                        audioDecode = p.audioDecode
                     )
                 }
             }
@@ -97,6 +106,10 @@ class WebDavPlayerViewModel @Inject constructor(
                 _uiState.update { it.copy(error = "Server not found") }
                 return@launch
             }
+            if (server.privateMode && !privacyManager.privacyMode.value) {
+                _uiState.update { it.copy(error = "Service is locked") }
+                return@launch
+            }
             this@WebDavPlayerViewModel.server = server
             val password = secureSessionStore.password(serverId)
             if (password.isNullOrEmpty()) {
@@ -108,14 +121,17 @@ class WebDavPlayerViewModel @Inject constructor(
                 return@launch
             }
             val url = webDavRepository.playUrl(server, path)
+            lastUsagePositionSeconds = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, path)
             val auth = "Basic " + Base64.getEncoder()
                 .encodeToString("${server.username}:$password".toByteArray(Charsets.UTF_8))
             playerManager.play(
                 url = url,
                 title = historyTitle,
                 subtitle = server.name,
+                startPositionMs = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, path) * 1000,
                 headers = mapOf("Authorization" to auth),
-                trustSelfSignedCertificate = server.trustSelfSignedCertificate
+                trustSelfSignedCertificate = server.trustSelfSignedCertificate,
+                privatePlayback = server.privateMode
             )
             historyRepository.recordPlayback(
                 source = PlaybackSource.WEBDAV,
@@ -138,10 +154,13 @@ class WebDavPlayerViewModel @Inject constructor(
                 onSuccess = { playback ->
                     hlsPlayback = playback
                     val title = playback.resolvedSourceName ?: historyTitle
+                    lastUsagePositionSeconds = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, webdavPath)
                     playerManager.play(
                         url = playback.playUrl,
                         title = title,
-                        subtitle = server.name
+                        subtitle = server.name,
+                        startPositionMs = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, webdavPath) * 1000,
+                        privatePlayback = server.privateMode
                     )
                     historyRepository.recordPlayback(
                         source = PlaybackSource.WEBDAV,
@@ -184,12 +203,14 @@ class WebDavPlayerViewModel @Inject constructor(
 
     fun stopPlayback() {
         stopReporter()
+        val pos = playerManager.state.value.positionMs / 1000
+        val dur = playerManager.state.value.durationMs / 1000
+        val watchedSeconds = (pos - lastUsagePositionSeconds).coerceAtLeast(0L)
+        playerManager.player.pause()
         if (started) {
-            val pos = playerManager.state.value.positionMs / 1000
-            val dur = playerManager.state.value.durationMs / 1000
             val srv = server
-            if (srv != null) {
-                viewModelScope.launch {
+            started = false
+            if (srv != null) appScope.launch { withContext(NonCancellable) {
                     historyRepository.updateProgress(
                         source = PlaybackSource.WEBDAV,
                         service = srv,
@@ -197,11 +218,10 @@ class WebDavPlayerViewModel @Inject constructor(
                         positionSeconds = pos,
                         durationSeconds = dur
                     )
+                    historyRepository.addDailyUsage(srv, watchedSeconds, playerManager.drainDownloadedBytes())
                 }
             }
-            started = false
         }
-        playerManager.player.pause()
         closeHls()
     }
 
@@ -236,6 +256,7 @@ class WebDavPlayerViewModel @Inject constructor(
                 delay(10_000)
                 val pos = playerManager.state.value.positionMs / 1000
                 val dur = playerManager.state.value.durationMs / 1000
+                val watchedSeconds = (pos - lastUsagePositionSeconds).coerceAtLeast(0L)
                 historyRepository.updateProgress(
                     source = PlaybackSource.WEBDAV,
                     service = server,
@@ -243,6 +264,8 @@ class WebDavPlayerViewModel @Inject constructor(
                     positionSeconds = pos,
                     durationSeconds = dur
                 )
+                historyRepository.addDailyUsage(server, watchedSeconds, playerManager.drainDownloadedBytes())
+                lastUsagePositionSeconds = pos
             }
         }
     }

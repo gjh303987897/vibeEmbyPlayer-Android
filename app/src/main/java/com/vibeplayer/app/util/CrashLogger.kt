@@ -22,6 +22,8 @@ import java.util.Locale
 object CrashLogger {
 
     private const val FILE_NAME = "vibeplayer_crash.log"
+    private const val MAX_LOG_BYTES = 512 * 1024L
+    private const val MAX_REPORT_CHARS = 64 * 1024
     private var previousHandler: Thread.UncaughtExceptionHandler? = null
 
     /** Idempotent. Installs once at app startup. */
@@ -45,8 +47,7 @@ object CrashLogger {
      * recoverable even without a live logcat capture.
      */
     private fun writeCrash(context: Context, thread: Thread, throwable: Throwable) {
-        val files = listOf(context.filesDir, context.getExternalFilesDir(null)).filterNotNull()
-        if (files.isEmpty()) return
+        val files = listOf(context.filesDir)
         val sw = StringWriter()
         sw.append("=== Crash @ ")
             .append(SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date()))
@@ -55,10 +56,17 @@ object CrashLogger {
         sw.append('\n')
         for (dir in files) {
             runCatching {
-                File(dir, FILE_NAME).appendText(sw.toString())
+                val report = redact(sw.toString()).take(MAX_REPORT_CHARS)
+                val log = File(dir, FILE_NAME)
+                if (log.exists() && log.length() > MAX_LOG_BYTES) log.delete()
+                log.appendText(report)
                 // Keep the very latest report in a fixed-name file too.
-                File(dir, "vibeplayer_crash_latest.log").writeText(sw.toString())
+                File(dir, "vibeplayer_crash_latest.log").writeText(report)
             }
         }
     }
+
+    private fun redact(value: String): String = value
+        .replace(Regex("(?i)(api_key|access_token|token|password|cookie)=([^&\\s]+)"), "$1=[REDACTED]")
+        .replace(Regex("(?i)(https?://[^\\s?]+)\\?[^\\s]+"), "$1?[REDACTED]")
 }

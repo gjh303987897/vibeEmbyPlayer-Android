@@ -13,6 +13,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.player.PlaybackSessionManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import com.vibeplayer.app.security.PrivacyManager
 
 /**
  * Media3 [MediaSessionService] enabling system-level media controls and
@@ -38,6 +39,12 @@ import javax.inject.Inject
 class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var sessionManager: PlaybackSessionManager
+    @Inject lateinit var privacyManager: PrivacyManager
+
+    override fun onTaskRemoved(rootIntent: android.content.Intent?) {
+        privacyManager.onTaskRemoved()
+        super.onTaskRemoved(rootIntent)
+    }
 
     override fun onCreate() {
         createChannel(this)
