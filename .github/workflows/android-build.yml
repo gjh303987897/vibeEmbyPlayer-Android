@@ -102,7 +102,10 @@ jobs:
             exit 1
           fi
           cat "$RUNNER_TEMP/debug-signature.txt"
-          if ! grep -Fq 'Signer #1 certificate DN: C=US, O=Android, CN=Android Debug' "$RUNNER_TEMP/debug-signature.txt"; then
+          # apksigner changed the label around the certificate details across
+          # build-tools versions ("Signer #1" vs "V3.0 Signer"). The DN is
+          # the stable identity we need to verify.
+          if ! grep -Fq 'certificate DN: C=US, O=Android, CN=Android Debug' "$RUNNER_TEMP/debug-signature.txt"; then
             echo "::error::Debug APK is not signed with the Android Debug test certificate."
             exit 1
           fi
