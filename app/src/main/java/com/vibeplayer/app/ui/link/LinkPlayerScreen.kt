@@ -120,7 +120,7 @@ fun LinkPlayerScreen(
 
         if (!locked) PlayerGestureOverlay(
             indicator = gestures.indicator,
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier.matchParentSize()
         )
 
 

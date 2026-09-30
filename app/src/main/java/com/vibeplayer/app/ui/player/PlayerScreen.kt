@@ -138,7 +138,7 @@ fun PlayerScreen(
 
         if (!locked) PlayerGestureOverlay(
             indicator = gestures.indicator,
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier.matchParentSize()
         )
 
         // Loading + failure feedback: a playback error must never look like an

@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -32,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -52,6 +56,9 @@ import kotlin.math.roundToLong
 /** Playback speed used while the video surface is held down. */
 const val PLAYER_GESTURE_SPEED = 2f
 
+/** Move the held-speed badge after two seconds measured from finger down. */
+private const val SPEED_INDICATOR_DOCK_DELAY_MS = 2_000L
+
 /** What the video-surface gesture layer recognised. */
 enum class PlayerGestureKind { Brightness, Volume, Speed, Seek }
 
@@ -66,6 +73,10 @@ class PlayerGestureState {
 
     internal fun show(kind: PlayerGestureKind, value: Float) {
         indicator = PlayerGestureIndicator(kind, value)
+    }
+
+    internal fun showSpeed(value: Float, docked: Boolean) {
+        indicator = PlayerGestureIndicator(PlayerGestureKind.Speed, value, speedDocked = docked)
     }
 
     internal fun showSeek(startPositionMs: Long, targetPositionMs: Long, durationMs: Long) {
@@ -87,7 +98,8 @@ data class PlayerGestureIndicator(
     /** 0..1 for brightness / volume, the effective speed for a long press. */
     val value: Float,
     val seekPositionMs: Long? = null,
-    val seekDeltaMs: Long? = null
+    val seekDeltaMs: Long? = null,
+    val speedDocked: Boolean = false
 ) {
     val icon: ImageVector
         get() = when (kind) {
@@ -210,6 +222,7 @@ fun Modifier.playerGestureSurface(
             val pointerId: PointerId = down.id
             var axis: PlayerGestureKind? = null
             var speedBoosted = false
+            var speedIndicatorDocked = false
             var dragOrigin: Offset? = null
             var dragInitialValue = 0f
             var seekStartPositionMs = 0L
@@ -217,26 +230,32 @@ fun Modifier.playerGestureSurface(
             var seekTargetMs = 0L
             var done = false
             while (!done) {
-                // While nothing is decided the long-press timeout is the deadline,
-                // measured from the original press: a finger that holds perfectly
-                // still sends no further events and must still start the speed-up.
-                // The floor keeps the timeout branch alive even if the press already
-                // outlived the timeout before this loop ran (heavy jank), which
-                // otherwise would leave a long press inert.
-                val undecided = axis == null && !speedBoosted
-                val remaining = (viewConfiguration.longPressTimeoutMillis -
-                    (SystemClock.uptimeMillis() - down.uptimeMillis)).coerceAtLeast(1L)
-                val event = if (undecided) {
-                    withTimeoutOrNull(remaining) { awaitPointerEvent(PointerEventPass.Final) }
-                } else {
-                    awaitPointerEvent(PointerEventPass.Final)
+                // Both deadlines are measured from the original press. A still
+                // finger sends no events, so each timeout must wake this loop.
+                // The floor also keeps either deadline alive after a slow frame.
+                val elapsedMs = SystemClock.uptimeMillis() - down.uptimeMillis
+                val timeoutMs = when {
+                    axis == null && !speedBoosted -> viewConfiguration.longPressTimeoutMillis - elapsedMs
+                    speedBoosted && !speedIndicatorDocked -> SPEED_INDICATOR_DOCK_DELAY_MS - elapsedMs
+                    else -> null
                 }
+                val event = if (timeoutMs != null) {
+                    withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+                        awaitPointerEvent(PointerEventPass.Final)
+                    }
+                } else awaitPointerEvent(PointerEventPass.Final)
                 if (event == null) {
-                    // Timeout with no decisive movement: long press.
-                    speedBoosted = true
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    currentSpeedStart(currentSpeedWhilePressed)
-                    gesture.show(PlayerGestureKind.Speed, currentSpeedWhilePressed)
+                    if (!speedBoosted) {
+                        // Timeout with no decisive movement: long press.
+                        speedBoosted = true
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        currentSpeedStart(currentSpeedWhilePressed)
+                        gesture.showSpeed(currentSpeedWhilePressed, docked = false)
+                    } else {
+                        // A continued hold moves only the readout, not playback speed.
+                        speedIndicatorDocked = true
+                        gesture.showSpeed(currentSpeedWhilePressed, docked = true)
+                    }
                     continue
                 }
                 val change = event.changes.firstOrNull { it.id == pointerId }
@@ -420,46 +439,59 @@ private suspend fun AwaitPointerEventScope.awaitAllPointersUp() {
 }
 
 /**
- * Centered readout for the gesture in progress. The player screens draw this
- * themselves rather than [playerGestureSurface], so publishing a new value cannot
- * restart the pointer loop.
- */@Composable
+ * Readout for the gesture in progress. A held speed indicator moves from the
+ * center to the lower-right corner. The player screens draw this separately from
+ * [playerGestureSurface], so updates cannot restart the pointer loop.
+ */
+@Composable
 fun PlayerGestureOverlay(
     indicator: PlayerGestureIndicator?,
     modifier: Modifier = Modifier
 ) {
     if (indicator == null) return
+    val docked = indicator.kind == PlayerGestureKind.Speed && indicator.speedDocked
+    val cornerBias by animateFloatAsState(
+        targetValue = if (docked) 1f else 0f,
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "Speed indicator position"
+    )
     Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 24.dp, vertical = 72.dp),
+        contentAlignment = BiasAbsoluteAlignment(cornerBias, cornerBias)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        Box(
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = indicator.icon,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(28.dp)
-            )
-            Text(
-                text = indicator.valueLabel,
-                color = Color.White,
-                style = MaterialTheme.typography.labelLarge,
-                textAlign = TextAlign.Center
-            )
-            indicator.progress?.let { progress ->
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .width(120.dp)
-                        .padding(top = 2.dp),
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.3f)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = indicator.icon,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
                 )
+                Text(
+                    text = indicator.valueLabel,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    textAlign = TextAlign.Center
+                )
+                indicator.progress?.let { progress ->
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .width(120.dp)
+                            .padding(top = 2.dp),
+                        color = Color.White,
+                        trackColor = Color.White.copy(alpha = 0.3f)
+                    )
+                }
             }
         }
     }

@@ -14,7 +14,7 @@
 | 左半区域上下滑动 | 调节亮度（上亮下暗） |
 | 右半区域上下滑动 | 调节播放器音量（上大下小） |
 
-手势反馈是画面中央的半透明卡片：亮度/音量显示图标、百分比和进度条，倍速显示倍率；横滑显示方向、相对时长、目标时间和进度条。长按触发时提供轻微触感反馈。
+手势反馈是半透明卡片：亮度/音量显示图标、百分比和进度条，倍速显示倍率；横滑显示方向、相对时长、目标时间和进度条。长按触发时提供轻微触感反馈。倍速提示先在中央出现，手指持续按压满 2 秒后，平滑移到右下方，以免持续遮挡视频中央；松手即隐藏。
 
 播放器左侧在控制条显示时提供锁定按钮。锁定后仅保留左侧解锁按钮：画面点击、双击、长按、亮度/音量滑动、进度条等播放控件和系统返回操作均不响应；播放继续。点击解锁按钮后恢复控制条与手势。锁定状态在屏幕旋转后保留，离开播放页后重置。
 
@@ -37,6 +37,7 @@
 - 抬手后在 `doubleTapTimeoutMillis` 内等待第二次点击，单击会因此延迟一个双击判定窗口。
 
 长按倍速通过 `PlayerManager.beginTemporarySpeed()` / `endTemporarySpeed()` 管理，松手或离开页面时恢复原倍速。
+2 秒计时从手指按下开始，由同一个 pointer 循环等待超时；只切换提示位置，不重复设置播放倍速。提示卡片在共用 `PlayerGestureOverlay` 内使用 Compose 动画移动，距离底边保留 72 dp，避免贴住屏幕边缘。
 
 ### 横滑跳转
 
@@ -57,6 +58,7 @@
 
 - Compose pointer input / `PointerEventPass`: <https://developer.android.com/develop/ui/compose/touchinput/pointerinput>
 - Compose 手势事件与消费：<https://developer.android.com/develop/ui/compose/touch-input/pointer-input/understand-gestures>
+- Compose 动画位置：<https://developer.android.com/develop/ui/compose/animation/quick-guide>
 - `ViewConfiguration`: <https://developer.android.com/reference/android/view/ViewConfiguration>
 - Media3 `Player.seekTo()` 与未知时长：<https://developer.android.com/reference/androidx/media3/common/Player>
 - 窗口亮度 `WindowManager.LayoutParams.screenBrightness`: <https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness>
