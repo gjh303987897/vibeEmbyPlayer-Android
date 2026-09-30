@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -45,6 +46,7 @@ import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.ui.components.AudioDecodeNotice
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.PlayerGestureOverlay
+import com.vibeplayer.app.ui.player.PlayerScreenLock
 import com.vibeplayer.app.ui.player.playerGestureSurface
 import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
@@ -62,6 +64,7 @@ fun LinkPlayerScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
+    var locked by rememberSaveable { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
     val gestures = rememberPlayerGestureState()
     PlayerFullscreenEffect(fullscreen)
@@ -98,7 +101,7 @@ fun LinkPlayerScreen(
 
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.
-        Box(
+        if (!locked) Box(
             Modifier
                 .matchParentSize()
                 .playerGestureSurface(
@@ -112,7 +115,7 @@ fun LinkPlayerScreen(
                 )
         )
 
-        PlayerGestureOverlay(
+        if (!locked) PlayerGestureOverlay(
             indicator = gestures.indicator,
             modifier = Modifier.align(Alignment.Center)
         )
@@ -120,7 +123,7 @@ fun LinkPlayerScreen(
 
         // Loading + failure feedback: a playback error must never look like an
         // endless spinner.
-        PlaybackStatusOverlay(
+        if (!locked) PlaybackStatusOverlay(
             buffering = state.buffering,
             error = state.error,
             onBack = { navController.popBackStack() },
@@ -129,7 +132,7 @@ fun LinkPlayerScreen(
                 .graphicsLayer { alpha = if (controlsVisible) 1f else 0.5f }
         )
 
-        if (controlsVisible) {
+        if (controlsVisible && !locked) {
             LinkTopBar(
                 title = state.title,
                 subtitle = state.subtitle,
@@ -154,6 +157,15 @@ fun LinkPlayerScreen(
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
+
+        PlayerScreenLock(
+            locked = locked,
+            controlsVisible = controlsVisible,
+            onToggleLock = {
+                locked = !locked
+                controlsVisible = !locked
+            }
+        )
     }
 }
 

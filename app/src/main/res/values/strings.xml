@@ -50,6 +50,8 @@
     <string name="resume">Resume</string>
     <string name="player_fullscreen">Enter fullscreen</string>
     <string name="player_exit_fullscreen">Exit fullscreen</string>
+    <string name="player_lock">Lock player controls</string>
+    <string name="player_unlock">Unlock player controls</string>
     <string name="player_audio_tracks">Audio tracks</string>
     <!-- Audio the phone itself cannot decode is decoded on the device by the bundled FFmpeg
          decoder; %1$s is the codec name, e.g. "DTS-HD Master Audio". -->

@@ -15,6 +15,8 @@
 
 手势反馈是画面中央的半透明卡片：亮度/音量显示图标、百分比和进度条，倍速显示倍率；长按触发时提供轻微触感反馈。
 
+播放器左侧在控制条显示时提供锁定按钮。锁定后仅保留左侧解锁按钮：画面点击、双击、长按、亮度/音量滑动、进度条等播放控件和系统返回操作均不响应；播放继续。点击解锁按钮后恢复控制条与手势。锁定状态在屏幕旋转后保留，离开播放页后重置。
+
 ## 实现要点
 
 ### 手势层放在控件之下
@@ -22,6 +24,7 @@
 每个播放页使用透明的 `Box(Modifier.matchParentSize().playerGestureSurface(...))`，插在
 `AndroidView(PlayerView)` 之后、控制条之前。控制条按钮、进度条和选择器优先拿到触控；手势循环在
 `PointerEventPass.Final` 观察事件，一旦触控被控件消费就放弃本次手势。
+锁定时手势层和控制条立即移除，共用的 `PlayerScreenLock` 在视频表面之上消费其余触控，并保留解锁按钮。
 
 ### 单个 pointerInput 循环
 
@@ -48,6 +51,7 @@
 ## 官方参考
 
 - Compose pointer input / `PointerEventPass`: <https://developer.android.com/develop/ui/compose/touchinput/pointerinput>
+- Compose 手势事件与消费：<https://developer.android.com/develop/ui/compose/touch-input/pointer-input/understand-gestures>
 - `ViewConfiguration`: <https://developer.android.com/reference/android/view/ViewConfiguration>
 - 窗口亮度 `WindowManager.LayoutParams.screenBrightness`: <https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness>
 

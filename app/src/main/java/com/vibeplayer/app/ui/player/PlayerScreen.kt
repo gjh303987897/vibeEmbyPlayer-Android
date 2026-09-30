@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -80,6 +81,7 @@ fun PlayerScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
+    var locked by rememberSaveable { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
     val gestures = rememberPlayerGestureState()
     PlayerFullscreenEffect(fullscreen)
@@ -117,7 +119,7 @@ fun PlayerScreen(
 
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.
-        Box(
+        if (!locked) Box(
             Modifier
                 .matchParentSize()
                 .playerGestureSurface(
@@ -131,14 +133,14 @@ fun PlayerScreen(
                 )
         )
 
-        PlayerGestureOverlay(
+        if (!locked) PlayerGestureOverlay(
             indicator = gestures.indicator,
             modifier = Modifier.align(Alignment.Center)
         )
 
         // Loading + failure feedback: a playback error must never look like an
         // endless spinner.
-        PlaybackStatusOverlay(
+        if (!locked) PlaybackStatusOverlay(
             buffering = state.buffering,
             error = state.error,
             onBack = { navController.popBackStack() },
@@ -147,7 +149,7 @@ fun PlayerScreen(
                 .graphicsLayer { alpha = if (controlsVisible) 1f else 0.5f }
         )
 
-        AnimatedVisibility(
+        if (!locked) AnimatedVisibility(
             visible = controlsVisible,
             enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(280)) + fadeIn(tween(280)),
             exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(220)) + fadeOut(tween(220)),
@@ -169,7 +171,7 @@ fun PlayerScreen(
                 }
             )
         }
-        AnimatedVisibility(
+        if (!locked) AnimatedVisibility(
             visible = controlsVisible,
             enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(280)) + fadeIn(tween(280)),
             exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(220)) + fadeOut(tween(220)),
@@ -190,6 +192,15 @@ fun PlayerScreen(
                 selectedSubtitleKey = state.selectedSubtitleKey
             )
         }
+
+        PlayerScreenLock(
+            locked = locked,
+            controlsVisible = controlsVisible,
+            onToggleLock = {
+                locked = !locked
+                controlsVisible = !locked
+            }
+        )
     }
 }
 

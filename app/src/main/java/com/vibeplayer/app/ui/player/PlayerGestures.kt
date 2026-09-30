@@ -149,6 +149,7 @@ fun Modifier.playerGestureSurface(
         onDispose {
             brightness.restore()
             currentSpeedEnd()
+            gesture.hide()
         }
     }
 
