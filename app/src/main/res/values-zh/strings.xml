@@ -66,6 +66,7 @@
     <string name="home_empty">这里还没有内容。</string>
 
     <string name="history_replay">重播</string>
+    <string name="history_completed">已看完</string>
     <string name="history_delete">删除</string>
     <string name="history_no_entries">暂无播放历史。</string>
     <string name="history_watch_time">观看时长</string>

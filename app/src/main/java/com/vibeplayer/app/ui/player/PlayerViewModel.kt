@@ -2,20 +2,26 @@ package com.vibeplayer.app.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vibeplayer.app.di.ApplicationScope
 import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.PlaybackHistoryRepository
 import com.vibeplayer.app.data.remote.PlaybackReport
 import com.vibeplayer.app.data.remote.PlaybackTarget
 import com.vibeplayer.app.model.PlaybackSource
+import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.UserSession
 import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.player.SubtitleTrack
+import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,10 +30,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.NonCancellable
-import com.vibeplayer.app.di.ApplicationScope
-import kotlinx.coroutines.CoroutineScope
-import com.vibeplayer.app.security.PrivacyManager
 
 data class PlayerUiState(
     val title: String = "",
@@ -108,17 +110,31 @@ class PlayerViewModel @Inject constructor(
     }
 
     /** Fetches the stream URL and starts playback, reporting start/progress. */
-    fun play(itemId: String) {
+    fun play(serverId: String, itemId: String) {
         // beginLoading also clears any failure from the previous attempt, so the
         // status overlay cannot show an old error before anything was tried.
         playerManager.beginLoading()
-        session = activeSessionManager.activeSession.value
-        val s = session ?: return
-        if (s.server.privateMode && !privacyManager.privacyMode.value) {
-            _uiState.update { it.copy(error = "Service is locked") }
-            return
-        }
         viewModelScope.launch {
+            // The history page can open a different service after process restart,
+            // when there is no active in-memory session to inherit.
+            val s = activeSessionManager.activeSession.value
+                ?.takeIf { it.server.id == serverId }
+                ?: withContext(Dispatchers.IO) {
+                    repository.getServer(serverId)?.let(repository::restoreSession)
+                }
+            if (s == null) {
+                _uiState.update { it.copy(error = "Sign in to this service to play the item") }
+                return@launch
+            }
+            if (s.server.serviceType != ServiceType.EMBY && s.server.serviceType != ServiceType.JELLYFIN) {
+                _uiState.update { it.copy(error = "This service cannot play this item") }
+                return@launch
+            }
+            if (s.server.privateMode && !privacyManager.privacyMode.value) {
+                _uiState.update { it.copy(error = "Service is locked") }
+                return@launch
+            }
+            session = s
             val client = repository.clientFor(s.server.serviceType)
             val item = client.fetchItemDetails(s, itemId).getOrNull()
             val target: PlaybackTarget? = item?.let { client.fetchPlaybackUrl(s, it).getOrNull() }

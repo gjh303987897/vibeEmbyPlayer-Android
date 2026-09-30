@@ -1,30 +1,42 @@
 package com.vibeplayer.app.ui.history
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.LiveTv
+import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +44,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,9 +53,8 @@ import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.PlaybackHistoryEntry
 import com.vibeplayer.app.model.PlaybackSource
-import com.vibeplayer.app.ui.navigation.Routes
-import java.util.concurrent.TimeUnit
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,19 +103,11 @@ fun HistoryScreen(
                             )
                         }
                         items(entries, key = { it.id }) { entry ->
+                            val replayRoute = historyReplayRoute(entry)
                             HistoryRow(
                                 entry = entry,
-                                onReplay = {
-                                    if (entry.available) {
-                                        if (entry.source == PlaybackSource.LINK) {
-                                            navController.navigate(Routes.linkPlayer(entry.replayTarget))
-                                        } else if (entry.source == PlaybackSource.LOCAL) {
-                                            navController.navigate(Routes.localPlayer(entry.replayTarget))
-                                        } else if (entry.serviceId.isNotBlank()) {
-                                            navController.navigate(Routes.player(entry.serviceId, entry.replayTarget))
-                                        }
-                                    }
-                                },
+                                replayEnabled = replayRoute != null,
+                                onReplay = { replayRoute?.let { navController.navigate(it) } },
                                 onDelete = { viewModel.deleteHistory(entry) }
                             )
                         }
@@ -163,63 +167,144 @@ private fun SourceFilters(selected: PlaybackSource?, onSelect: (PlaybackSource?)
 }
 
 @Composable
-private fun HistoryRow(entry: PlaybackHistoryEntry, onReplay: () -> Unit, onDelete: () -> Unit) {
-    Row(
+private fun HistoryRow(
+    entry: PlaybackHistoryEntry,
+    replayEnabled: Boolean,
+    onReplay: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = entry.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = entry.source.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(
+                            MaterialTheme.colorScheme.secondaryContainer,
+                            RoundedCornerShape(16.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = entry.source.historyIcon(),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = entry.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    entry.subtitle.takeIf { it.isNotBlank() && it != entry.serviceName }?.let {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.history_delete))
+                }
             }
-            if (!entry.available && entry.serviceId.isBlank()) {
-                Text(
-                    text = stringResource(R.string.unavailable),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error
-                )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        text = entry.source.label,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                entry.serviceName.takeIf { it.isNotBlank() && it != entry.source.label }?.let {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-            Spacer(Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { entry.progress },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            entry.displayTarget.takeIf {
+                it.isNotBlank() && it != entry.serviceName && it != entry.source.label
+            }?.let {
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    text = formatDuration(entry.positionSeconds) + " / " + formatDuration(entry.durationSeconds),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = entry.displayTarget,
-                    style = MaterialTheme.typography.labelSmall,
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-        }
-        IconButton(
-            onClick = onReplay,
-            enabled = entry.available && (entry.serviceId.isNotBlank() || entry.source == PlaybackSource.LINK || entry.source == PlaybackSource.LOCAL)
-        ) {
-            Icon(Icons.Outlined.PlayArrow, contentDescription = stringResource(R.string.history_replay))
-        }
-        IconButton(onClick = onDelete) {
-            Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.history_delete))
+            Spacer(Modifier.height(14.dp))
+            LinearProgressIndicator(
+                progress = { if (entry.completed) 1f else entry.progress },
+                modifier = Modifier.fillMaxWidth(),
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${formatDuration(entry.positionSeconds)} / " +
+                            (if (entry.hasDuration) formatDuration(entry.durationSeconds) else "--:--"),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!replayEnabled) {
+                        Text(
+                            text = stringResource(R.string.unavailable),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else if (entry.completed) {
+                        Text(
+                            text = stringResource(R.string.history_completed),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                FilledTonalButton(
+                    onClick = onReplay,
+                    enabled = replayEnabled,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.history_replay))
+                }
+            }
         }
     }
+}
+
+private fun PlaybackSource.historyIcon(): ImageVector = when (this) {
+    PlaybackSource.EMBY, PlaybackSource.JELLYFIN, PlaybackSource.UNKNOWN -> Icons.Outlined.Movie
+    PlaybackSource.WEBDAV -> Icons.Outlined.Cloud
+    PlaybackSource.IPTV -> Icons.Outlined.LiveTv
+    PlaybackSource.LOCAL -> Icons.Outlined.Folder
+    PlaybackSource.LINK -> Icons.Outlined.Link
 }
 
 @Composable

@@ -88,7 +88,7 @@ fun PlayerScreen(
     // Playing keeps the display awake; pausing lets it sleep again.
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
 
-    LaunchedEffect(itemId) { viewModel.play(itemId) }
+    LaunchedEffect(serverId, itemId) { viewModel.play(serverId, itemId) }
     DisposableEffect(viewModel) { onDispose { viewModel.stopPlayback() } }
 
     // Detect natural end of playback to report it as complete.
