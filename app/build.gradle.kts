@@ -173,6 +173,7 @@ dependencies {
 
     // Security (EncryptedSharedPreferences for tokens)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.biometric)
 
     // Coil
     implementation(libs.coil.compose)

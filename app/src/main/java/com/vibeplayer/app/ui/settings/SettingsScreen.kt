@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -33,6 +34,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibeplayer.app.R
+import com.vibeplayer.app.MainActivity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +58,11 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsState()
     var showSetPin by remember { mutableStateOf(false) }
     var showEnterPin by remember { mutableStateOf(false) }
+    val biometricHost = LocalContext.current.findActivity() as? MainActivity
+
+    LaunchedEffect(state.privacyActive) {
+        if (state.privacyActive) showEnterPin = false
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
@@ -126,6 +134,9 @@ fun SettingsScreen(
                     false
                 }
             },
+            onBiometric = if (biometricHost?.canUsePrivacyBiometric() == true) {
+                biometricHost::requestPrivacyBiometricUnlock
+            } else null,
             onDismiss = { showEnterPin = false }
         )
     }
@@ -305,6 +316,7 @@ private fun PinDialog(
     title: String,
     isCoolingDown: () -> Boolean = { false },
     onConfirm: (String) -> Boolean,
+    onBiometric: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var pin by remember { mutableStateOf("") }
@@ -313,6 +325,7 @@ private fun PinDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
+            Column {
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it; error = false },
@@ -333,8 +346,17 @@ private fun PinDialog(
                         }
                     } else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                modifier = Modifier.fillMaxWidth()
-            )
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (onBiometric != null) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(onClick = onBiometric, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.Fingerprint, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.settings_use_biometric))
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(

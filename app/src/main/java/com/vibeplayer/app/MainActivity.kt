@@ -4,11 +4,13 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -18,22 +20,24 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.collect
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.lifecycleScope
+import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.ui.navigation.VibePlayerNavHost
 import com.vibeplayer.app.ui.settings.SettingsViewModel
 import com.vibeplayer.app.ui.theme.VibePlayerTheme
 import com.vibeplayer.app.util.LocaleHelper
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import com.vibeplayer.app.security.PrivacyManager
-import android.view.WindowManager
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     @Inject lateinit var privacyManager: PrivacyManager
+    private lateinit var privacyBiometricPrompt: BiometricPrompt
+    private var privacyBiometricRequested = false
 
     // Apply the user-selected language before any view / Compose root is created.
     override fun attachBaseContext(newBase: android.content.Context) {
@@ -43,6 +47,23 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        privacyBiometricRequested = savedInstanceState?.getBoolean(STATE_PRIVACY_BIOMETRIC_REQUESTED) ?: false
+        privacyBiometricPrompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    if (privacyBiometricRequested) {
+                        privacyBiometricRequested = false
+                        privacyManager.openPrivacyAfterBiometric()
+                    }
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    privacyBiometricRequested = false
+                }
+            }
+        )
         setContent {
             val settingsViewModel: SettingsViewModel = hiltViewModel()
             val settings by settingsViewModel.uiState.collectAsState()
@@ -82,7 +103,39 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (isFinishing) privacyManager.exitPrivacyMode()
+        if (isFinishing) {
+            privacyBiometricRequested = false
+            privacyBiometricPrompt.cancelAuthentication()
+            privacyManager.exitPrivacyMode()
+        }
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(STATE_PRIVACY_BIOMETRIC_REQUESTED, privacyBiometricRequested)
+        super.onSaveInstanceState(outState)
+    }
+
+    fun canUsePrivacyBiometric(): Boolean = privacyManager.isPinConfigured() &&
+        !privacyManager.privacyMode.value &&
+        BiometricManager.from(this).canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG
+        ) == BiometricManager.BIOMETRIC_SUCCESS
+
+    fun requestPrivacyBiometricUnlock() {
+        if (!canUsePrivacyBiometric()) return
+        privacyBiometricRequested = true
+        privacyBiometricPrompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle(getString(R.string.settings_biometric_title))
+                .setSubtitle(getString(R.string.settings_biometric_subtitle))
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                .setNegativeButtonText(getString(R.string.settings_use_pin))
+                .build()
+        )
+    }
+
+    private companion object {
+        const val STATE_PRIVACY_BIOMETRIC_REQUESTED = "privacy_biometric_requested"
     }
 }

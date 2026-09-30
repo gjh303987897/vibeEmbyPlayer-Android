@@ -96,12 +96,16 @@
     <string name="settings_dynamic_color_sub">根据壁纸使用 Material You 取色</string>
     <string name="settings_page_transitions">页面转场</string>
     <string name="settings_privacy">隐私</string>
-    <string name="settings_privacy_sub">使用 PIN 限制访问并隐藏隐私内容</string>
+    <string name="settings_privacy_sub">使用 PIN 或可用的生物识别解锁后显示私密内容</string>
     <string name="settings_set_pin">设置隐私 PIN</string>
     <string name="settings_change_pin">修改隐私 PIN</string>
     <string name="settings_enter_privacy">进入隐私模式</string>
     <string name="settings_privacy_active">隐私模式已开启</string>
     <string name="settings_enter_pin_dialog">输入 PIN</string>
+    <string name="settings_use_biometric">使用生物识别</string>
+    <string name="settings_biometric_title">解锁隐私模式</string>
+    <string name="settings_biometric_subtitle">使用生物识别验证身份</string>
+    <string name="settings_use_pin">使用 PIN</string>
     <string name="settings_set_pin_dialog">设置 4–16 位数字 PIN</string>
     <string name="settings_pin_placeholder">PIN</string>
     <string name="settings_wrong_pin">PIN 错误</string>

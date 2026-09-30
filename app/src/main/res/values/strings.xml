@@ -99,12 +99,16 @@
     <string name="settings_dynamic_color_sub">Material You color from your wallpaper</string>
     <string name="settings_page_transitions">Page transitions</string>
     <string name="settings_privacy">Privacy</string>
-    <string name="settings_privacy_sub">Restrict access with a PIN and hide private content</string>
+    <string name="settings_privacy_sub">Hide private content until you unlock with a PIN or supported biometrics</string>
     <string name="settings_set_pin">Set privacy PIN</string>
     <string name="settings_change_pin">Change privacy PIN</string>
     <string name="settings_enter_privacy">Enter privacy mode</string>
     <string name="settings_privacy_active">Privacy mode active</string>
     <string name="settings_enter_pin_dialog">Enter PIN</string>
+    <string name="settings_use_biometric">Use biometrics</string>
+    <string name="settings_biometric_title">Unlock privacy mode</string>
+    <string name="settings_biometric_subtitle">Verify your identity with biometrics</string>
+    <string name="settings_use_pin">Use PIN</string>
     <string name="settings_set_pin_dialog">Set a 4–16 digit PIN</string>
     <string name="settings_pin_placeholder">PIN</string>
     <string name="settings_wrong_pin">Incorrect PIN</string>

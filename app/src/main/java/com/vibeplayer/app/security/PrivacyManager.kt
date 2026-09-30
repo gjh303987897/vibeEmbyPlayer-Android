@@ -95,6 +95,13 @@ class PrivacyManager @Inject constructor(
         return true
     }
 
+    /** Called only after the system biometric prompt reports strong authentication. */
+    fun openPrivacyAfterBiometric(): Boolean {
+        if (!isPinConfigured()) return false
+        _privacyMode.value = true
+        return true
+    }
+
     fun exitPrivacyMode() {
         _privacyMode.value = false
         relockJob?.cancel()
