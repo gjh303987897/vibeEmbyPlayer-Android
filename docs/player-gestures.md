@@ -1,4 +1,4 @@
-# 播放器手势（双击暂停 / 长按倍速 / 亮度与音量）
+# 播放器手势（横滑进度 / 双击暂停 / 长按倍速 / 亮度与音量）
 
 ## 功能
 
@@ -10,10 +10,11 @@
 | 单击画面 | 显示 / 隐藏控制条 |
 | 双击画面任意位置 | 暂停 / 继续播放 |
 | 长按画面 | 倍速播放（默认 2x），松手恢复到原来的倍速 |
+| 在画面上向右 / 向左滑动 | 预览并前进 / 后退视频进度，松手时跳转 |
 | 左半区域上下滑动 | 调节亮度（上亮下暗） |
 | 右半区域上下滑动 | 调节播放器音量（上大下小） |
 
-手势反馈是画面中央的半透明卡片：亮度/音量显示图标、百分比和进度条，倍速显示倍率；长按触发时提供轻微触感反馈。
+手势反馈是画面中央的半透明卡片：亮度/音量显示图标、百分比和进度条，倍速显示倍率；横滑显示方向、相对时长、目标时间和进度条。长按触发时提供轻微触感反馈。
 
 播放器左侧在控制条显示时提供锁定按钮。锁定后仅保留左侧解锁按钮：画面点击、双击、长按、亮度/音量滑动、进度条等播放控件和系统返回操作均不响应；播放继续。点击解锁按钮后恢复控制条与手势。锁定状态在屏幕旋转后保留，离开播放页后重置。
 
@@ -28,14 +29,18 @@
 
 ### 单个 pointerInput 循环
 
-双击、长按和竖滑都在同一个 `awaitEachGesture` 中判定：
+双击、长按、横滑和竖滑都在同一个 `awaitEachGesture` 中判定：
 
 - 竖向位移超过 `ViewConfiguration.touchSlop` 且 `|dy| > |dx|` 后才开始亮度或音量调节；
-- 横向位移先超过 slop 时交给进度条，不触发其他手势；
+- 横向位移先超过 slop 时开始预览跳转，不触发其他手势；
 - 按下后达到 `longPressTimeoutMillis` 才启动临时倍速；
 - 抬手后在 `doubleTapTimeoutMillis` 内等待第二次点击，单击会因此延迟一个双击判定窗口。
 
 长按倍速通过 `PlayerManager.beginTemporarySpeed()` / `endTemporarySpeed()` 管理，松手或离开页面时恢复原倍速。
+
+### 横滑跳转
+
+以手势开始时的播放位置为基准，向右前进、向左后退；整屏宽度对应视频时长的 10%，最少 30 秒、最多 5 分钟，并将目标时间限制在视频开头和结尾之间。拖动中只更新预览，松手后调用一次 `seekTo()`，避免反复请求播放源。已有进度条仍可单独拖动。无固定时长的直播流不响应横滑跳转。
 
 ### 相对亮度和音量
 
@@ -46,17 +51,18 @@
 
 - 单击切换控制条有一个双击判定延迟。
 - 亮度只作用于本 App 窗口，不修改系统亮度设置。
-- IPTV 等直播流没有时长，横向移动仍交给进度条逻辑处理。
+- IPTV 等直播流没有固定时长时，横滑不触发跳转。
 
 ## 官方参考
 
 - Compose pointer input / `PointerEventPass`: <https://developer.android.com/develop/ui/compose/touchinput/pointerinput>
 - Compose 手势事件与消费：<https://developer.android.com/develop/ui/compose/touch-input/pointer-input/understand-gestures>
 - `ViewConfiguration`: <https://developer.android.com/reference/android/view/ViewConfiguration>
+- Media3 `Player.seekTo()` 与未知时长：<https://developer.android.com/reference/androidx/media3/common/Player>
 - 窗口亮度 `WindowManager.LayoutParams.screenBrightness`: <https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness>
 
 ## 验证
 
 ```text
-./gradlew :app:compileDebugKotlin :app:lintDebug
+./gradlew assembleDebug lint testDebugUnitTest
 ```

@@ -110,6 +110,9 @@ fun LinkPlayerScreen(
                     onTogglePlayPause = viewModel::togglePlayPause,
                     onLongPressSpeedStart = viewModel::beginLongPressSpeed,
                     onLongPressSpeedEnd = viewModel::endLongPressSpeed,
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    onSeek = viewModel::seekTo,
                     volume = state.volume,
                     onVolumeChange = viewModel::setVolume
                 )

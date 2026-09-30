@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.FastForward
+import androidx.compose.material.icons.outlined.FastRewind
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -46,12 +47,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /** Playback speed used while the video surface is held down. */
 const val PLAYER_GESTURE_SPEED = 2f
 
 /** What the video-surface gesture layer recognised. */
-enum class PlayerGestureKind { Brightness, Volume, Speed }
+enum class PlayerGestureKind { Brightness, Volume, Speed, Seek }
 
 /**
  * Current gesture feedback: null while idle. Rendered by [PlayerGestureOverlay];
@@ -66,6 +68,15 @@ class PlayerGestureState {
         indicator = PlayerGestureIndicator(kind, value)
     }
 
+    internal fun showSeek(startPositionMs: Long, targetPositionMs: Long, durationMs: Long) {
+        indicator = PlayerGestureIndicator(
+            kind = PlayerGestureKind.Seek,
+            value = targetPositionMs.toFloat() / durationMs,
+            seekPositionMs = targetPositionMs,
+            seekDeltaMs = targetPositionMs - startPositionMs
+        )
+    }
+
     internal fun hide() {
         indicator = null
     }
@@ -74,26 +85,49 @@ class PlayerGestureState {
 data class PlayerGestureIndicator(
     val kind: PlayerGestureKind,
     /** 0..1 for brightness / volume, the effective speed for a long press. */
-    val value: Float
+    val value: Float,
+    val seekPositionMs: Long? = null,
+    val seekDeltaMs: Long? = null
 ) {
     val icon: ImageVector
         get() = when (kind) {
             PlayerGestureKind.Brightness -> Icons.Outlined.Brightness6
             PlayerGestureKind.Volume -> Icons.AutoMirrored.Outlined.VolumeUp
             PlayerGestureKind.Speed -> Icons.Outlined.FastForward
+            PlayerGestureKind.Seek -> if ((seekDeltaMs ?: 0L) < 0L) {
+                Icons.Outlined.FastRewind
+            } else {
+                Icons.Outlined.FastForward
+            }
         }
 
-    /** Brightness and volume get a bar; a speed-up shows its multiplier instead. */
+    /** Brightness, volume and seeking get a bar; speed shows its multiplier. */
     val progress: Float?
         get() = if (kind == PlayerGestureKind.Speed) null else value
 
     val valueLabel: String
-        get() = if (kind == PlayerGestureKind.Speed) {
-            val digits = if (value % 1f == 0f) value.toInt().toString() else value.toString()
-            "${digits}x"
-        } else {
-            "${(value * 100).roundToInt()}%"
+        get() = when (kind) {
+            PlayerGestureKind.Speed -> {
+                val digits = if (value % 1f == 0f) value.toInt().toString() else value.toString()
+                "${digits}x"
+            }
+            PlayerGestureKind.Seek -> {
+                val delta = seekDeltaMs ?: 0L
+                val sign = if (delta < 0L) "−" else "+"
+                "$sign${formatGestureTime(abs(delta))}  ·  ${formatGestureTime(seekPositionMs ?: 0L)}"
+            }
+            else -> "${(value * 100).roundToInt()}%"
         }
+}
+
+private fun formatGestureTime(positionMs: Long): String {
+    val seconds = positionMs / 1_000L
+    val minutes = seconds / 60L
+    return if (minutes >= 60L) {
+        "%d:%02d:%02d".format(minutes / 60L, minutes % 60L, seconds % 60L)
+    } else {
+        "%d:%02d".format(minutes, seconds % 60L)
+    }
 }
 
 @Composable
@@ -105,6 +139,7 @@ fun rememberPlayerGestureState(): PlayerGestureState = remember { PlayerGestureS
  * - single tap toggles the control overlay (tapping again brings it back);
  * - double tap anywhere pauses / resumes;
  * - long press plays at [speedWhilePressed] until released;
+ * - horizontal drag previews a relative seek, committed once on release;
  * - vertical drag on the left half sets screen brightness, on the right half the
  *   player volume.
  *
@@ -127,6 +162,9 @@ fun Modifier.playerGestureSurface(
     onTogglePlayPause: () -> Unit,
     onLongPressSpeedStart: (Float) -> Unit,
     onLongPressSpeedEnd: () -> Unit,
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
     volume: Float,
     onVolumeChange: (Float) -> Unit,
     speedWhilePressed: Float = PLAYER_GESTURE_SPEED
@@ -142,6 +180,9 @@ fun Modifier.playerGestureSurface(
     val currentSpeedWhilePressed by rememberUpdatedState(speedWhilePressed)
     val currentVolumeChange by rememberUpdatedState(onVolumeChange)
     val currentVolume by rememberUpdatedState(volume)
+    val currentPositionMs by rememberUpdatedState(positionMs)
+    val currentDurationMs by rememberUpdatedState(durationMs)
+    val currentSeek by rememberUpdatedState(onSeek)
     DisposableEffect(brightness) {
         // Leaving the player mid-gesture must not leave the window dimmed, and a
         // long press that was still held when the screen went away must not leave
@@ -171,6 +212,9 @@ fun Modifier.playerGestureSurface(
             var speedBoosted = false
             var dragOrigin: Offset? = null
             var dragInitialValue = 0f
+            var seekStartPositionMs = 0L
+            var seekDurationMs = 0L
+            var seekTargetMs = 0L
             var done = false
             while (!done) {
                 // While nothing is decided the long-press timeout is the deadline,
@@ -203,7 +247,17 @@ fun Modifier.playerGestureSurface(
                 }
                 when {
                     !change.pressed -> {
-                        if (axis == null && !speedBoosted) {
+                        if (axis == PlayerGestureKind.Seek) {
+                            seekTargetMs = swipeSeekTarget(
+                                startPositionMs = seekStartPositionMs,
+                                durationMs = seekDurationMs,
+                                dragDistancePx = change.position.x - down.position.x,
+                                surfaceWidthPx = size.width.toFloat()
+                            )
+                            if (currentDurationMs > 0L && seekTargetMs != seekStartPositionMs) {
+                                currentSeek(seekTargetMs)
+                            }
+                        } else if (axis == null && !speedBoosted) {
                             // Lifted without becoming a drag or a long press: a tap,
                             // or the first tap of a double tap.
                             if (awaitSecondTap(pointerId) != null) {
@@ -216,6 +270,16 @@ fun Modifier.playerGestureSurface(
                             }
                         }
                         done = true
+                    }
+
+                    axis == PlayerGestureKind.Seek -> {
+                        seekTargetMs = swipeSeekTarget(
+                            startPositionMs = seekStartPositionMs,
+                            durationMs = seekDurationMs,
+                            dragDistancePx = change.position.x - down.position.x,
+                            surfaceWidthPx = size.width.toFloat()
+                        )
+                        gesture.showSeek(seekStartPositionMs, seekTargetMs, seekDurationMs)
                     }
 
                     axis != null -> applyGestureDrag(
@@ -234,9 +298,21 @@ fun Modifier.playerGestureSurface(
                     else -> {
                         val delta = change.position - down.position
                         if (abs(delta.x) >= slopPx && abs(delta.x) >= abs(delta.y)) {
-                            // Horizontal intent: scrubbing belongs to the seek bar,
-                            // and dragging sideways must not end in a speed-up.
-                            done = true
+                            // Unknown-duration streams have no bounded target to seek to.
+                            if (currentDurationMs <= 0L) {
+                                done = true
+                                continue
+                            }
+                            axis = PlayerGestureKind.Seek
+                            seekDurationMs = currentDurationMs
+                            seekStartPositionMs = currentPositionMs.coerceIn(0L, seekDurationMs)
+                            seekTargetMs = swipeSeekTarget(
+                                startPositionMs = seekStartPositionMs,
+                                durationMs = seekDurationMs,
+                                dragDistancePx = delta.x,
+                                surfaceWidthPx = size.width.toFloat()
+                            )
+                            gesture.showSeek(seekStartPositionMs, seekTargetMs, seekDurationMs)
                             continue
                         }
                         if (abs(delta.y) >= slopPx && abs(delta.y) > abs(delta.x)) {
@@ -266,8 +342,7 @@ fun Modifier.playerGestureSurface(
                                 onVolumeChange = currentVolumeChange
                             )
                         }
-                        // Anything else (a small or horizontal move) stays undecided:
-                        // horizontal scrubbing belongs to the seek bar above us.
+                        // Small movements stay undecided until an axis wins.
                     }
                 }
             }
@@ -301,7 +376,21 @@ private fun applyGestureDrag(
             gesture.show(axis, fraction)
         }
         PlayerGestureKind.Speed -> Unit
+        PlayerGestureKind.Seek -> Unit
     }
+}
+
+/** A full-width swipe spans 10% of the video, bounded to 30 seconds..5 minutes. */
+internal fun swipeSeekTarget(
+    startPositionMs: Long,
+    durationMs: Long,
+    dragDistancePx: Float,
+    surfaceWidthPx: Float
+): Long {
+    if (durationMs <= 0L || surfaceWidthPx <= 0f) return startPositionMs
+    val rangeMs = (durationMs / 10L).coerceIn(30_000L, 300_000L)
+    val deltaMs = (dragDistancePx.toDouble() / surfaceWidthPx * rangeMs).roundToLong()
+    return (startPositionMs.coerceIn(0L, durationMs) + deltaMs).coerceIn(0L, durationMs)
 }
 
 /**
