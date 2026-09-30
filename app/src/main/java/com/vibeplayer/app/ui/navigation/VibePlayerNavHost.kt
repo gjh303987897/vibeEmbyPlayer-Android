@@ -2,11 +2,12 @@ package com.vibeplayer.app.ui.navigation
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
@@ -65,6 +66,23 @@ enum class TopLevelDestination(
     Transfers("transfers", R.string.nav_transfers, Icons.Outlined.Sync),
     History("history", R.string.nav_history, Icons.Outlined.History),
     Settings("settings", R.string.nav_settings, Icons.Outlined.Settings),
+}
+
+private enum class PageTransition { TAB, CONTENT, PLAYER }
+
+private val playerRoutes = setOf(
+    Routes.PLAYER,
+    Routes.WEBDAV_PLAYER,
+    Routes.IPTV_PLAYER,
+    Routes.LINK_PLAYER,
+    Routes.LOCAL_PLAYER
+)
+
+private fun pageTransition(from: String?, to: String?): PageTransition = when {
+    playerRoutes.any { it == from || it == to } -> PageTransition.PLAYER
+    TopLevelDestination.entries.any { it.route == from } &&
+        TopLevelDestination.entries.any { it.route == to } -> PageTransition.TAB
+    else -> PageTransition.CONTENT
 }
 
 /**
@@ -139,30 +157,56 @@ fun VibePlayerNavHost(
             startDestination = TopLevelDestination.Services.route,
             modifier = Modifier.padding(innerPadding),
             enterTransition = {
-                if (pageTransitions) {
-                    fadeIn(animationSpec = tween(240)) +
-                        scaleIn(initialScale = 0.98f, animationSpec = tween(240))
-                } else {
-                    EnterTransition.None
+                if (!pageTransitions) EnterTransition.None else when (
+                    pageTransition(initialState.destination.route, targetState.destination.route)
+                ) {
+                    PageTransition.TAB -> fadeIn(tween(durationMillis = 180, delayMillis = 60))
+                    PageTransition.CONTENT -> fadeIn(tween(220)) +
+                        slideInHorizontally(
+                            initialOffsetX = { it / 12 },
+                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                        )
+                    // PlayerView contains a native video surface, so keep it stationary.
+                    PageTransition.PLAYER -> EnterTransition.None
                 }
             },
             exitTransition = {
-                if (pageTransitions) fadeOut(animationSpec = tween(200)) else ExitTransition.None
+                if (!pageTransitions) ExitTransition.None else when (
+                    pageTransition(initialState.destination.route, targetState.destination.route)
+                ) {
+                    PageTransition.TAB -> fadeOut(tween(90))
+                    PageTransition.CONTENT -> fadeOut(tween(160)) +
+                        slideOutHorizontally(
+                            targetOffsetX = { -it / 28 },
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        )
+                    PageTransition.PLAYER -> ExitTransition.None
+                }
             },
             popEnterTransition = {
-                if (pageTransitions) {
-                    fadeIn(animationSpec = tween(240)) +
-                        scaleIn(initialScale = 0.98f, animationSpec = tween(240))
-                } else {
-                    EnterTransition.None
+                if (!pageTransitions) EnterTransition.None else when (
+                    pageTransition(initialState.destination.route, targetState.destination.route)
+                ) {
+                    PageTransition.TAB -> fadeIn(tween(durationMillis = 180, delayMillis = 60))
+                    PageTransition.CONTENT -> fadeIn(tween(220)) +
+                        slideInHorizontally(
+                            initialOffsetX = { -it / 28 },
+                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                        )
+                    PageTransition.PLAYER -> EnterTransition.None
                 }
             },
             popExitTransition = {
-                if (pageTransitions) {
-                    fadeOut(animationSpec = tween(200)) +
-                        scaleOut(targetScale = 0.99f, animationSpec = tween(200))
-                } else {
-                    ExitTransition.None
+                if (!pageTransitions) ExitTransition.None else when (
+                    pageTransition(initialState.destination.route, targetState.destination.route)
+                ) {
+                    PageTransition.TAB -> fadeOut(tween(90))
+                    PageTransition.CONTENT -> fadeOut(tween(160)) +
+                        slideOutHorizontally(
+                            targetOffsetX = { it / 12 },
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        )
+                    PageTransition.PLAYER -> ExitTransition.None
                 }
             }
         ) {
