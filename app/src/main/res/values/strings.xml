@@ -8,6 +8,12 @@
     <string name="nav_settings">Settings</string>
 
     <string name="add_server">Add server</string>
+    <string name="service_add_intro">Choose a source, then enter the details needed to connect.</string>
+    <string name="service_type_section">Service type</string>
+    <string name="service_connection_section">Connection</string>
+    <string name="service_account_section">Account</string>
+    <string name="service_options_section">Options</string>
+    <string name="server_name_optional_hint">Optional. The host is used when no name is entered.</string>
     <string name="edit_server">Edit server</string>
     <string name="server_host">Host or path</string>
     <string name="server_port">Port</string>

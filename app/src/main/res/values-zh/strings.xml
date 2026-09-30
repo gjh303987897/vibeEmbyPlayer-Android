@@ -8,6 +8,12 @@
     <string name="nav_settings">设置</string>
 
     <string name="add_server">添加服务器</string>
+    <string name="service_add_intro">选择服务类型，然后填写连接所需的信息。</string>
+    <string name="service_type_section">服务类型</string>
+    <string name="service_connection_section">连接信息</string>
+    <string name="service_account_section">账户信息</string>
+    <string name="service_options_section">其他选项</string>
+    <string name="server_name_optional_hint">可留空，未填写时使用主机名。</string>
     <string name="edit_server">编辑服务器</string>
     <string name="server_host">主机或路径</string>
     <string name="server_port">端口</string>

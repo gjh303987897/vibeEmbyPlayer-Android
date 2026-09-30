@@ -75,6 +75,7 @@ fun ServicesScreen(
     val uiState by viewModel.uiState.collectAsState()
     val showAddDialog by viewModel.showAddDialog.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val addSnackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val privatePlaybackStopped by viewModel.privatePlaybackStopped.collectAsState()
 
@@ -128,9 +129,10 @@ fun ServicesScreen(
         viewModel.consumeNavigation()
     }
 
-    LaunchedEffect(uiState.errorMessage) {
+    LaunchedEffect(uiState.errorMessage, showAddDialog) {
         uiState.errorMessage?.let {
-            snackbarHostState.showAppSnackbar(it, tone = MessageTone.ERROR)
+            val host = if (showAddDialog) addSnackbarHostState else snackbarHostState
+            host.showAppSnackbar(it, tone = MessageTone.ERROR)
             viewModel.clearError()
         }
     }
@@ -235,6 +237,7 @@ fun ServicesScreen(
     if (showAddDialog) {
         AddServerDialog(
             busy = uiState.addingServer,
+            snackbarHostState = addSnackbarHostState,
             onDismiss = viewModel::dismissAddDialog,
             onSave = { form, password -> viewModel.addServer(form, password) }
         )

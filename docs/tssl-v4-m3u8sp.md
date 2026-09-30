@@ -25,6 +25,8 @@ Qt 使用 `QByteArray::toHex()` 写入每个成员的 `sha256`，因此该字段
 
 环回解密代理（`EncryptedHlsServer`）使用弹性线程池 + 连接槽上限，读完请求行后把读超时提高到 120 秒，避免 Media3 的空闲 keep-alive 连接占死固定线程池而让真实分片请求超时（表现为「进去没有画面，随后报错」）。
 
+代理绑定 `127.0.0.1`，并向 Media3 提供该地址的 HTTP 播放 URL。`network_security_config.xml` 必须明确允许 `127.0.0.1` 的明文流量；只放行 `localhost` 不会覆盖这个数字地址，否则 WebDAV 的范围读取和 TSSL 校验成功后仍会在播放器连接本机代理时失败。其他远程地址仍遵循原有网络安全配置。
+
 新扩展已加入本地和 WebDAV 媒体识别。TSSL import 使用完整 v2/v3/v4 schema 验证，不再只检查版本和 identifier 是否非空。源文件名加密 AAD 和标准 Base64 编码也与 Qt 定义保持一致。
 
 ## 元数据显示

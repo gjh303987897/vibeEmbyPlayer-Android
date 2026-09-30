@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cleartext is limited to local development/emulator endpoints. Production
-  media servers and auxiliary services must use HTTPS; this prevents a
-  misconfigured image, backup, or subtitle URL from silently using HTTP.
+  Cleartext is limited to the in-app playback loopback and local
+  development/emulator endpoints. Production media servers and auxiliary
+  services must use HTTPS.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
     </domain-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">10.0.2.2</domain>
