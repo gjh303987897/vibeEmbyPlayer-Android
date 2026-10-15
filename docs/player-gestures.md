@@ -60,7 +60,7 @@
 - Compose 手势事件与消费：<https://developer.android.com/develop/ui/compose/touch-input/pointer-input/understand-gestures>
 - Compose 动画位置：<https://developer.android.com/develop/ui/compose/animation/quick-guide>
 - `ViewConfiguration`: <https://developer.android.com/reference/android/view/ViewConfiguration>
-- Media3 `Player.seekTo()` 与未知时长：<https://developer.android.com/reference/androidx/media3/common/Player>
+- IJK `seekTo()` / `setSpeed()`: <https://github.com/bilibili/ijkplayer/blob/k0.8.8/android/ijkplayer/ijkplayer-java/src/main/java/tv/danmaku/ijk/media/player/IjkMediaPlayer.java>
 - 窗口亮度 `WindowManager.LayoutParams.screenBrightness`: <https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness>
 
 ## 验证

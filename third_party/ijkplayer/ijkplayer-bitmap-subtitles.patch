@@ -1,0 +1,413 @@
+diff --git a/ijkmedia/ijkplayer/ff_ffplay.c b/ijkmedia/ijkplayer/ff_ffplay.c
+index 041a32b..484cf50 100644
+--- a/ijkmedia/ijkplayer/ff_ffplay.c
++++ b/ijkmedia/ijkplayer/ff_ffplay.c
+@@ -73,6 +73,7 @@
+ #include "ijkmeta.h"
+ #include "ijkversion.h"
+ #include "ijkplayer.h"
++#include "bitmap_subtitles.h"
+ #include <stdatomic.h>
+ #if defined(__ANDROID__)
+ #include "ijksoundtouch/ijksoundtouch_wrap.h"
+@@ -627,6 +628,7 @@ static int decoder_decode_frame(FFPlayer *ffp, Decoder *d, AVFrame *frame, AVSub
+                 int got_frame = 0;
+                 ret = avcodec_decode_subtitle2(d->avctx, sub, &got_frame, &pkt);
+                 if (ret < 0) {
++                    ffp_notify_msg2(ffp, FFP_MSG_ERROR, ret);
+                     ret = AVERROR(EAGAIN);
+                 } else {
+                     if (got_frame && !pkt.data) {
+@@ -823,74 +825,69 @@ static void free_picture(Frame *vp)
+ 
+ static size_t parse_ass_subtitle(const char *ass, char *output)
+ {
+-    char *tok = NULL;
+-    tok = strchr(ass, ':'); if (tok) tok += 1; // skip event
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip layer
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip start_time
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip end_time
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip style
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip name
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip margin_l
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip margin_r
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip margin_v
+-    tok = strchr(tok, ','); if (tok) tok += 1; // skip effect
+-    if (tok) {
+-        char *text = tok;
+-        size_t idx = 0;
+-        do {
+-            char *found = strstr(text, "\\N");
+-            if (found) {
+-                size_t n = found - text;
+-                memcpy(output+idx, text, n);
+-                output[idx + n] = '\n';
+-                idx = n + 1;
+-                text = found + 2;
++    const char *text = ass;
++    size_t written = 0;
++    int drawing = 0;
++    int fields = 8; /* FFmpeg: ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text */
++    output[0] = '\0';
++    if (!text)
++        return 0;
++    if (!strncmp(text, "Dialogue:", 9)) {
++        text += 9;
++        fields = 9; /* Full ASS events include start and end instead of ReadOrder. */
++    }
++    for (int i = 0; i < fields; ++i) {
++        const char *comma = strchr(text, ',');
++        if (!comma)
++            return 0;
++        text = comma + 1;
++    }
++    while (*text && written < 4095) {
++        if (text[0] == '{' && text[1] == '\\') {
++            const char *end = strchr(text + 2, '}');
++            if (end) {
++                for (const char *tag = text + 1; tag + 2 < end; ++tag) {
++                    if (tag[0] == '\\' && tag[1] == 'p' && tag[2] >= '0' && tag[2] <= '9') {
++                        drawing = 0;
++                        for (const char *digit = tag + 2; digit < end && *digit >= '0' && *digit <= '9'; ++digit)
++                            drawing |= *digit != '0';
++                    }
++                }
++                text = end + 1;
++                continue;
+             }
+-            else {
+-                size_t left_text_len = strlen(text);
+-                memcpy(output+idx, text, left_text_len);
+-                if (output[idx + left_text_len - 1] == '\n')
+-                    output[idx + left_text_len - 1] = '\0';
+-                else
+-                    output[idx + left_text_len] = '\0';
+-                break;
++        }
++        if (drawing) {
++            ++text;
++            continue;
++        }
++        if (text[0] == '\\' && text[1]) {
++            char escaped = text[1];
++            if (escaped == 'N' || escaped == 'n') {
++                output[written++] = '\n';
++                text += 2;
++                continue;
+             }
+-        } while(1);
+-        return strlen(output) + 1;
++            if (escaped == 'h' || escaped == '{' || escaped == '}' || escaped == '\\') {
++                output[written++] = escaped == 'h' ? ' ' : escaped;
++                text += 2;
++                continue;
++            }
++        }
++        output[written++] = *text++;
+     }
+-    return 0;
++    output[written] = '\0';
++    return written + 1;
+ }
+ 
+ static void video_image_display2(FFPlayer *ffp)
+ {
+     VideoState *is = ffp->is;
+     Frame *vp;
+-    Frame *sp = NULL;
+ 
+     vp = frame_queue_peek_last(&is->pictq);
+ 
+     if (vp->bmp) {
+-        if (is->subtitle_st) {
+-            if (frame_queue_nb_remaining(&is->subpq) > 0) {
+-                sp = frame_queue_peek(&is->subpq);
+-
+-                if (vp->pts >= sp->pts + ((float) sp->sub.start_display_time / 1000)) {
+-                    if (!sp->uploaded) {
+-                        if (sp->sub.num_rects > 0) {
+-                            char buffered_text[4096];
+-                            if (sp->sub.rects[0]->text) {
+-                                strncpy(buffered_text, sp->sub.rects[0]->text, 4096);
+-                            }
+-                            else if (sp->sub.rects[0]->ass) {
+-                                parse_ass_subtitle(sp->sub.rects[0]->ass, buffered_text);
+-                            }
+-                            ffp_notify_msg4(ffp, FFP_MSG_TIMED_TEXT, 0, 0, buffered_text, sizeof(buffered_text));
+-                        }
+-                        sp->uploaded = 1;
+-                    }
+-                }
+-            }
+-        }
+         if (ffp->render_wait_start && !ffp->start_on_prepared && is->pause_req) {
+             if (!ffp->first_video_frame_rendered) {
+                 ffp->first_video_frame_rendered = 1;
+@@ -959,6 +956,10 @@ static void stream_component_close(FFPlayer *ffp, int stream_index)
+         decoder_destroy(&is->viddec);
+         break;
+     case AVMEDIA_TYPE_SUBTITLE:
++        SDL_LockMutex(ffp->subtitle_mutex);
++        ffp->subtitle_active = 0;
++        vibe_bitmap_subtitles_clear_l(ffp, 1);
++        SDL_UnlockMutex(ffp->subtitle_mutex);
+         decoder_abort(&is->subdec, &is->subpq);
+         decoder_destroy(&is->subdec);
+         break;
+@@ -990,6 +991,10 @@ static void stream_close(FFPlayer *ffp)
+     VideoState *is = ffp->is;
+     /* XXX: use a special url_shutdown call to abort parse cleanly */
+     is->abort_request = 1;
++    SDL_LockMutex(ffp->subtitle_mutex);
++    ffp->subtitle_active = 0;
++    vibe_bitmap_subtitles_clear_l(ffp, 1);
++    SDL_UnlockMutex(ffp->subtitle_mutex);
+     packet_queue_abort(&is->videoq);
+     packet_queue_abort(&is->audioq);
+     av_log(NULL, AV_LOG_DEBUG, "wait for read_tid\n");
+@@ -1294,6 +1299,48 @@ static void update_video_pts(VideoState *is, double pts, int64_t pos, int serial
+     sync_clock_to_slave(&is->extclk, &is->vidclk);
+ }
+ 
++/* Text and bitmap cues share the playback master clock, including expiration
++ * while video has no next frame. subtitle_mutex also excludes close/seek. */
++static void subtitle_refresh(FFPlayer *ffp)
++{
++    VideoState *is = ffp->is;
++    double clock = get_master_clock(is);
++    SDL_LockMutex(ffp->subtitle_mutex);
++    if (!ffp->subtitle_active || ffp->subtitle_seek_pending || is->seek_req || is->abort_request || isnan(clock))
++        goto done;
++    while (frame_queue_nb_remaining(&is->subpq) > 0) {
++        Frame *sp = frame_queue_peek(&is->subpq);
++        Frame *next = frame_queue_nb_remaining(&is->subpq) > 1 ? frame_queue_peek_next(&is->subpq) : NULL;
++        if (sp->serial != is->subtitleq.serial ||
++            (sp->sub.num_rects && clock > sp->pts + sp->sub.end_display_time / 1000.0) ||
++            (next && next->serial == is->subtitleq.serial && clock >= next->pts + next->sub.start_display_time / 1000.0)) {
++            if (sp->uploaded)
++                vibe_bitmap_subtitles_clear_l(ffp, 1);
++            frame_queue_next(&is->subpq);
++            continue;
++        }
++        if (!sp->uploaded && clock >= sp->pts + sp->sub.start_display_time / 1000.0) {
++            if (sp->sub.format == 0) {
++                vibe_bitmap_subtitles_present_l(ffp, sp);
++            } else {
++                char buffered_text[4096] = { 0 };
++                vibe_bitmap_subtitles_clear_l(ffp, 0);
++                if (sp->sub.num_rects > 0 && sp->sub.rects[0]) {
++                    if (sp->sub.rects[0]->text)
++                        av_strlcpy(buffered_text, sp->sub.rects[0]->text, sizeof(buffered_text));
++                    else if (sp->sub.rects[0]->ass)
++                        parse_ass_subtitle(sp->sub.rects[0]->ass, buffered_text);
++                }
++                ffp_notify_msg4(ffp, FFP_MSG_TIMED_TEXT, 0, 0, buffered_text, strlen(buffered_text) + 1);
++            }
++            sp->uploaded = 1;
++        }
++        break;
++    }
++done:
++    SDL_UnlockMutex(ffp->subtitle_mutex);
++}
++
+ /* called to display each frame */
+ static void video_refresh(FFPlayer *opaque, double *remaining_time)
+ {
+@@ -1301,7 +1348,6 @@ static void video_refresh(FFPlayer *opaque, double *remaining_time)
+     VideoState *is = ffp->is;
+     double time;
+ 
+-    Frame *sp, *sp2;
+ 
+     if (!is->paused && get_master_sync_type(is) == AV_SYNC_EXTERNAL_CLOCK && is->realtime)
+         check_external_clock_speed(is);
+@@ -1368,28 +1414,6 @@ retry:
+                 }
+             }
+ 
+-            if (is->subtitle_st) {
+-                while (frame_queue_nb_remaining(&is->subpq) > 0) {
+-                    sp = frame_queue_peek(&is->subpq);
+-
+-                    if (frame_queue_nb_remaining(&is->subpq) > 1)
+-                        sp2 = frame_queue_peek_next(&is->subpq);
+-                    else
+-                        sp2 = NULL;
+-
+-                    if (sp->serial != is->subtitleq.serial
+-                            || (is->vidclk.pts > (sp->pts + ((float) sp->sub.end_display_time / 1000)))
+-                            || (sp2 && is->vidclk.pts > (sp2->pts + ((float) sp2->sub.start_display_time / 1000))))
+-                    {
+-                        if (sp->uploaded) {
+-                            ffp_notify_msg4(ffp, FFP_MSG_TIMED_TEXT, 0, 0, "", 1);
+-                        }
+-                        frame_queue_next(&is->subpq);
+-                    } else {
+-                        break;
+-                    }
+-                }
+-            }
+ 
+             frame_queue_next(&is->pictq);
+             is->force_refresh = 1;
+@@ -1407,6 +1431,7 @@ display:
+         if (!ffp->display_disable && is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
+             video_display2(ffp);
+     }
++    subtitle_refresh(ffp);
+     is->force_refresh = 0;
+     if (ffp->show_status) {
+         static int64_t last_time;
+@@ -3003,6 +3028,10 @@ static int stream_component_open(FFPlayer *ffp, int stream_index)
+         decoder_init(&is->subdec, avctx, &is->subtitleq, is->continue_read_thread);
+         if ((ret = decoder_start(&is->subdec, subtitle_thread, ffp, "ff_subtitle_dec")) < 0)
+             goto out;
++        SDL_LockMutex(ffp->subtitle_mutex);
++        ffp->subtitle_active = 1;
++        vibe_bitmap_subtitles_clear_l(ffp, 1);
++        SDL_UnlockMutex(ffp->subtitle_mutex);
+         break;
+     default:
+         break;
+@@ -3364,6 +3393,9 @@ static int read_thread(void *arg)
+ // FIXME the +-2 is due to rounding being not done in the correct direction in generation
+ //      of the seek_pos/seek_rel variables
+ 
++            SDL_LockMutex(ffp->subtitle_mutex);
++            vibe_bitmap_subtitles_clear_l(ffp, 1);
++            SDL_UnlockMutex(ffp->subtitle_mutex);
+             ffp_toggle_buffering(ffp, 1);
+             ffp_notify_msg3(ffp, FFP_MSG_BUFFERING_UPDATE, 0, 0);
+             ret = avformat_seek_file(is->ic, -1, seek_min, seek_target, seek_max, is->seek_flags);
+@@ -3975,6 +4007,11 @@ FFPlayer *ffp_create()
+     FFPlayer* ffp = (FFPlayer*) av_mallocz(sizeof(FFPlayer));
+     if (!ffp)
+         return NULL;
++    ffp->subtitle_mutex = SDL_CreateMutex();
++    if (!ffp->subtitle_mutex) {
++        av_free(ffp);
++        return NULL;
++    }
+ 
+     msg_queue_init(&ffp->msg_queue);
+     ffp->af_mutex = SDL_CreateMutex();
+@@ -4007,6 +4044,8 @@ void ffp_destroy(FFPlayer *ffp)
+     ijkmeta_destroy_p(&ffp->meta);
+     ffp_reset_internal(ffp);
+ 
++    vibe_bitmap_subtitles_clear_l(ffp, 0);
++    SDL_DestroyMutexP(&ffp->subtitle_mutex);
+     SDL_DestroyMutexP(&ffp->af_mutex);
+     SDL_DestroyMutexP(&ffp->vf_mutex);
+ 
+@@ -4355,6 +4394,10 @@ int ffp_stop_l(FFPlayer *ffp)
+         toggle_pause(ffp, 1);
+     }
+ 
++    SDL_LockMutex(ffp->subtitle_mutex);
++    ffp->subtitle_active = 0;
++    vibe_bitmap_subtitles_clear_l(ffp, 1);
++    SDL_UnlockMutex(ffp->subtitle_mutex);
+     msg_queue_abort(&ffp->msg_queue);
+     if (ffp->enable_accurate_seek && is && is->accurate_seek_mutex
+         && is->audio_accurate_seek_cond && is->video_accurate_seek_cond) {
+@@ -4388,11 +4431,14 @@ int ffp_seek_to_l(FFPlayer *ffp, long msec)
+     int64_t seek_pos = milliseconds_to_fftime(msec);
+     int64_t duration = milliseconds_to_fftime(ffp_get_duration_l(ffp));
+ 
+-    if (!is)
++    if (!is) {
++        vibe_bitmap_subtitles_seek_pending(ffp, 0);
+         return EIJK_NULL_IS_PTR;
++    }
+ 
+     if (duration > 0 && seek_pos >= duration && ffp->enable_accurate_seek) {
+         toggle_pause(ffp, 1);
++        vibe_bitmap_subtitles_seek_pending(ffp, 0);
+         ffp_notify_msg1(ffp, FFP_MSG_COMPLETED);
+         return 0;
+     }
+@@ -4406,6 +4452,10 @@ int ffp_seek_to_l(FFPlayer *ffp, long msec)
+     // FIXME: 9 seekable
+     av_log(ffp, AV_LOG_DEBUG, "stream_seek %"PRId64"(%d) + %"PRId64", \n", seek_pos, (int)msec, start_time);
+     stream_seek(is, seek_pos, 0, 0);
++    SDL_LockMutex(ffp->subtitle_mutex);
++    ffp->subtitle_seek_pending = 0;
++    vibe_bitmap_subtitles_clear_l(ffp, 1);
++    SDL_UnlockMutex(ffp->subtitle_mutex);
+     return 0;
+ }
+ 
+diff --git a/ijkmedia/ijkplayer/ff_ffplay_def.h b/ijkmedia/ijkplayer/ff_ffplay_def.h
+index 00f19f3..88005e0 100644
+--- a/ijkmedia/ijkplayer/ff_ffplay_def.h
++++ b/ijkmedia/ijkplayer/ff_ffplay_def.h
+@@ -557,6 +557,11 @@ typedef struct FFPlayer {
+ 
+     /* ffplay context */
+     VideoState *is;
++    SDL_mutex *subtitle_mutex;
++    struct FFPBitmapSubtitle *bitmap_subtitle;
++    int64_t subtitle_revision;
++    int subtitle_active;
++    int subtitle_seek_pending;
+ 
+     /* format/codec options */
+     AVDictionary *format_opts;
+diff --git a/ijkmedia/ijkplayer/android/ijkplayer_jni.c b/ijkmedia/ijkplayer/android/ijkplayer_jni.c
+index 3c7e5f8..f3fd701 100644
+--- a/ijkmedia/ijkplayer/android/ijkplayer_jni.c
++++ b/ijkmedia/ijkplayer/android/ijkplayer_jni.c
+@@ -39,6 +39,8 @@
+ #include "ijksdl/android/ijksdl_android_jni.h"
+ #include "ijksdl/android/ijksdl_codec_android_mediadef.h"
+ #include "ijkavformat/ijkavformat.h"
++#include "../ijkplayer_internal.h"
++#include "bitmap_subtitles.h"
+ 
+ #define JNI_MODULE_PACKAGE      "tv/danmaku/ijk/media/player"
+ #define JNI_CLASS_IJKPLAYER     "tv/danmaku/ijk/media/player/IjkMediaPlayer"
+@@ -73,6 +75,29 @@ static IjkMediaPlayer *jni_get_media_player(JNIEnv* env, jobject thiz)
+     return mp;
+ }
+ 
++JNIEXPORT jobject JNICALL
++Java_com_vibeplayer_app_player_NativeBitmapSubtitles_read(JNIEnv *env, jobject bridge,
++                                                         jobject player, jlong revision)
++{
++    jobject result;
++    IjkMediaPlayer *mp;
++    (void)bridge;
++    if (!player) {
++        jclass exception = (*env)->FindClass(env, "java/lang/IllegalArgumentException");
++        if (exception) {
++            (*env)->ThrowNew(env, exception, "Bitmap subtitle player is null");
++            (*env)->DeleteLocalRef(env, exception);
++        }
++        return NULL;
++    }
++    mp = jni_get_media_player(env, player);
++    if (!mp)
++        return NULL;
++    result = vibe_bitmap_subtitles_read(env, mp->ffplayer, revision);
++    ijkmp_dec_ref_p(&mp);
++    return result;
++}
++
+ static IjkMediaPlayer *jni_set_media_player(JNIEnv* env, jobject thiz, IjkMediaPlayer *mp)
+ {
+     pthread_mutex_lock(&g_clazz.mutex);
+@@ -313,7 +338,11 @@ IjkMediaPlayer_seekTo(JNIEnv *env, jobject thiz, jlong msec)
+     IjkMediaPlayer *mp = jni_get_media_player(env, thiz);
+     JNI_CHECK_GOTO(mp, env, "java/lang/IllegalStateException", "mpjni: seekTo: null mp", LABEL_RETURN);
+ 
+-    ijkmp_seek_to(mp, msec);
++    vibe_bitmap_subtitles_seek_pending(mp->ffplayer, 1);
++    int ret = ijkmp_seek_to(mp, msec);
++    if (ret != 0)
++        vibe_bitmap_subtitles_seek_pending(mp->ffplayer, 0);
++    IJK_CHECK_MPRET_GOTO(ret, env, LABEL_RETURN);
+ 
+ LABEL_RETURN:
+     ijkmp_dec_ref_p(&mp);

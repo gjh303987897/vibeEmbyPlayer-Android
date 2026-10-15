@@ -12,10 +12,10 @@ hiltNavigationCompose = "1.2.0"
 room = "2.6.1"
 okhttp = "4.12.0"
 coil = "2.7.0"
-media3 = "1.5.0"
 androidxAnnotation = "1.9.1"
 kotlinAnnotationsJvm = "2.0.21"
 checkerFramework = "3.48.0"
+errorprone = "2.23.0"
 kotlinxSerialization = "1.7.3"
 kotlinxCoroutines = "1.9.0"
 datastore = "1.1.1"
@@ -30,6 +30,7 @@ espresso = "3.6.1"
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
 kotlin-annotations-jvm = { group = "org.jetbrains.kotlin", name = "kotlin-annotations-jvm", version.ref = "kotlinAnnotationsJvm" }
 checker-qual = { group = "org.checkerframework", name = "checker-qual", version.ref = "checkerFramework" }
+errorprone-annotations = { group = "com.google.errorprone", name = "error_prone_annotations", version.ref = "errorprone" }
 
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
@@ -61,13 +62,6 @@ okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor",
 
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
-media3-decoder = { group = "androidx.media3", name = "media3-decoder", version.ref = "media3" }
-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
-media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exoplayer-dash", version.ref = "media3" }
-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-serialization-cbor = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-cbor", version.ref = "kotlinxSerialization" }
@@ -79,6 +73,7 @@ androidx-biometric = { group = "androidx.biometric", name = "biometric", version
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 

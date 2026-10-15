@@ -1,35 +1,81 @@
 package com.vibeplayer.app.player
 
 import android.content.Context
-import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.MediaSession
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
-/**
- * Application-scoped [MediaSession] wrapping the single shared [PlayerManager.player].
- *
- * Every in-app playback (Emby/Jellyfin/WebDAV/IPTV/Link/Local) runs on the same
- * ExoPlayer instance, so exposing that player through one MediaSession gives us:
- *
- * - a system media notification with play/pause/seek controls,
- * - lock-screen / bluetooth / assistant controls,
- * - foreground background playback through [com.vibeplayer.app.service.PlaybackService]
- *   without instantiating a second player.
- *
- * A single session is created per process. It lives as long as the process and is
- * released only when the player itself is released.
- */
-@OptIn(UnstableApi::class)
+/** Android framework media session backed by the shared IJKPlayer instance. */
 @Singleton
 class PlaybackSessionManager @Inject constructor(
     @ApplicationContext context: Context,
-    playerManager: PlayerManager
+    private val playerManager: PlayerManager
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    /** The session is exposed to [com.vibeplayer.app.service.PlaybackService]. */
-    val session: MediaSession = MediaSession.Builder(context, playerManager.player).build()
+    val session: MediaSession = MediaSession(context, "VibePlayer").apply {
+        setCallback(object : MediaSession.Callback() {
+            override fun onPlay() = playerManager.play()
+            override fun onPause() = playerManager.pause()
+            override fun onSeekTo(pos: Long) = playerManager.seekTo(pos)
+            override fun onStop() = playerManager.stop()
+        })
+        isActive = true
+    }
 
+    init {
+        scope.launch {
+            var previous: PlayerState? = null
+            playerManager.state.collect { state ->
+                val old = previous
+                if (old == null || old.isPlaying != state.isPlaying || old.buffering != state.buffering ||
+                    old.isPrepared != state.isPrepared || old.error != state.error ||
+                    old.positionMs != state.positionMs || old.playbackSpeed != state.playbackSpeed
+                ) {
+                    val status = when {
+                        state.error != null -> PlaybackState.STATE_ERROR
+                        state.buffering -> PlaybackState.STATE_BUFFERING
+                        !state.isPrepared -> PlaybackState.STATE_NONE
+                        state.isPlaying -> PlaybackState.STATE_PLAYING
+                        else -> PlaybackState.STATE_PAUSED
+                    }
+                    val actions = if (state.isPrepared) PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
+                        PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_STOP else 0L
+                    session.setPlaybackState(
+                        PlaybackState.Builder()
+                            .setActions(actions)
+                            .setState(status, state.positionMs, state.playbackSpeed)
+                            .setErrorMessage(state.error)
+                            .build()
+                    )
+                }
+                if (old == null || old.title != state.title || old.subtitle != state.subtitle ||
+                    old.durationMs != state.durationMs
+                ) {
+                    session.setMetadata(
+                        MediaMetadata.Builder()
+                            .putString(MediaMetadata.METADATA_KEY_TITLE, state.title.orEmpty())
+                            .putString(MediaMetadata.METADATA_KEY_ARTIST, state.subtitle.orEmpty())
+                            .putLong(MediaMetadata.METADATA_KEY_DURATION, state.durationMs)
+                            .build()
+                    )
+                }
+                previous = state
+            }
+        }
+    }
+
+    fun release() {
+        scope.cancel()
+        session.isActive = false
+        session.release()
+    }
 }

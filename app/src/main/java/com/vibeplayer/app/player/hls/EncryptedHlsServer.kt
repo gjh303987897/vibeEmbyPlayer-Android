@@ -18,13 +18,10 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 
 /**
- * Minimal loopback-only HTTP server that exposes an encrypted-HLS package to
- * the Media3/ExoPlayer HLS pipeline.
- *
- * The verified root manifest is served at the virtual [rootManifestName] path
- * (chosen to end in `.m3u8` so Media3 treats it as an HLS stream). [source]
- * fetches raw (still-encrypted) child segment and auxiliary resources by their
- * package-relative path; [document] supplies the TSSL keys and integrity data.
+ * Minimal loopback-only HTTP server that exposes a verified encrypted-HLS package to
+ * the IJKPlayer pipeline. The root manifest is served at the virtual [rootManifestName]
+ * path; child resources are fetched from the package-relative [source] and validated
+ * against [document].
  *
  * `.ts` segments are authenticated (AES-256-GCM) and decrypted in memory before
  * plaintext is written out, so ciphertext never reaches the player. Child

@@ -9,7 +9,6 @@ import com.vibeplayer.app.data.remote.mapper.MediaDtoMapper
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
 import com.vibeplayer.app.model.ServerConfig
-import androidx.media3.common.C
 import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.UserSession
 import kotlinx.serialization.json.Json
@@ -286,8 +285,8 @@ abstract class MediaServerClientBase(
             val uri = makeUrl(session.server.baseUrl, "/Videos/${item.id}/${mediaSourceId}/Subtitles/${stream.Index}/Stream.$format")
                 .plus("?PlaySessionId=$playSessionId")
             val flags = when {
-                stream.IsForced == true -> C.SELECTION_FLAG_FORCED
-                stream.IsDefault == true -> C.SELECTION_FLAG_DEFAULT
+                stream.IsForced == true -> SubtitleConfiguration.SELECTION_FLAG_FORCED
+                stream.IsDefault == true -> SubtitleConfiguration.SELECTION_FLAG_DEFAULT
                 else -> 0
             }
             SubtitleConfiguration(uri, stream.Language, stream.Title ?: stream.DisplayLanguage, flags, if (format == "srt") "application/x-subrip" else "text/vtt")

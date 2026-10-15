@@ -3,7 +3,7 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 VibePlayer 是一个原生 Android 媒体中心：Emby、Jellyfin、WebDAV、IPTV、本地文件夹与直链媒体，
-全部在同一套播放栈里完成浏览与播放。全部代码使用 Kotlin + Jetpack Compose，播放核心是 Media3/ExoPlayer
+全部在同一套播放栈里完成浏览与播放。全部代码使用 Kotlin + Jetpack Compose，播放核心是 IJKPlayer
 —— 不使用 Qt、Electron、WebView 或 libmpv。
 
 本项目是 [vibePlayerQT](vibeEmbyPlayerQT/README.zh-CN.md)（Qt Quick 桌面客户端）的 Android 重写版，
@@ -15,13 +15,14 @@ VibePlayer 是一个原生 Android 媒体中心：Emby、Jellyfin、WebDAV、IPT
 ## 功能亮点
 
 - 原生 Kotlin + Jetpack Compose，Material 3 设计规范，支持 Material You 动态取色并带静态回退配色。
-- 以 Media3 / ExoPlayer 作为唯一播放核心，统一由 `PlayerManager` 管理；在线、本地、WebDAV、IPTV、
+- 以 IJKPlayer 作为唯一播放核心，统一由 `PlayerManager` 管理；在线、本地、WebDAV、IPTV、
   直链、加密 HLS 全部经过同一套播放栈。
 - Emby 与 Jellyfin：登录、多服务器多账号、媒体库、搜索、继续观看、详情页（含季/集）、断点续播与播放进度上报。
-- 客户端音频解码：当本机无法解码某部影片的音轨（AC-3、E-AC-3、DTS / DTS-HD、TrueHD 等）时，
-  由 Media3 官方 FFmpeg 解码扩展在**手机本机**软解码；播放地址仍然是 `static=true` 直连，
-  服务器不做任何转码，也不会再出现「有画面没声音还不报错」。
-  详见 `docs/audio-software-decoding.md`。
+- 客户端音频解码：IJK 的 FFmpeg 音频路径在**手机本机**解码受支持音轨，视频按设备支持情况使用
+  MediaCodec。Emby/Jellyfin 播放地址仍然是 `static=true`，服务器不做转码，播放页显示音频解码状态。
+  原生构建要求与实际验证边界详见 `docs/audio-software-decoding.md`。
+- 所有播放来源提供字幕选择，支持内嵌文本、带鉴权的外挂 SRT/WebVTT，以及按视频画面定位的
+  PGS/DVD/DVB 图片字幕。
 - WebDAV：PROPFIND 目录浏览、MKCOL 建目录、上传、经前台服务的后台下载，以及直接播放。
 - 加密 HLS 包：播放桌面端产出的 `.m3u8s` 目录包与 `.m3u8sp` 单文件容器，
   由本机环回代理逐分片解密并校验后交给播放器。
@@ -69,7 +70,7 @@ app/src/main/java/com/vibeplayer/app/
   data/remote/      OkHttp 传输层、Emby 与 Jellyfin 客户端、WebDAV 与 IPTV 客户端
   data/repository/  每个来源唯一数据入口，供多个 ViewModel 复用
   domain/           链接播放、本地媒体、TSSL 用例
-  player/           PlayerManager（Media3）、播放会话、HTTP 请求头处理
+  player/           PlayerManager（IJK）、播放会话、鉴权 HTTP 代理
   player/hls/       加密 HLS：环回代理、TAR/CBOR 索引、manifest 元数据
   domain/tssl/      TSSL 文档模型与 HLS 打包器
   service/          PlaybackService 与 TransferService 前台服务
@@ -84,7 +85,7 @@ app/src/main/java/com/vibeplayer/app/
 - Kotlin 2.0.21，JVM target 17
 - AGP 8.7.3、Gradle 8.10.2，compileSdk / targetSdk 35，**minSdk 26**
 - Jetpack Compose（BOM 2024.12.01）+ Material 3 + Material You 动态取色
-- Media3 1.5.0（ExoPlayer、HLS、DASH、session、OkHttp data source）
+ - IJKPlayer 0.8.8（FFmpeg 3.4、MediaCodec、原生 SurfaceView）
 - Hilt 2.52 依赖注入，Navigation Compose 2.8.5
 - Room 2.6.1、DataStore 1.1.1、Coil 2.7.0
 - OkHttp 4.12.0 配合 kotlinx.serialization（JSON 与 CBOR），不使用 Retrofit
@@ -95,8 +96,10 @@ app/src/main/java/com/vibeplayer/app/
 ### 环境要求
 
 - JDK 17（完整 JDK，不能是仅 JRE 或仅 JBR 运行时）
-- Android SDK：platform 35 与 build-tools 35.x
+- Android SDK：platform 35，以及 build-tools 34.0.0 和 35.x
 - 使用项目自带的 Gradle Wrapper，无需本机另装 Gradle
+
+Windows 的实际安装版本、环境变量以及卸载命令见 [Windows Android 构建环境](docs/windows-android-build-environment.md)。
 
 `local.properties` 需指向你的 SDK：
 
@@ -123,16 +126,7 @@ debug 构建刻意强制开启 v1、v2、v3 三种签名方案。AGP 在 `minSdk
 而不少真机安装路径 —— OEM 自带文件管理器、侧载工具、部分 `pm install` 分支 —— 会先读 JAR 签名块，
 读不到就判定 APK 未签名从而拒绝安装。
 
-本机解不了的音频由 `third_party/media3-decoder-ffmpeg`（Media3 官方 FFmpeg 解码扩展源码副本）负责，
-该模块用普通 Gradle 即可编译，日常构建不需要 NDK。若要在真·设备上软解码（而不只是提示用户该音轨
-不受支持），需要先用 NDK 产出原生库（一次性）：
-
-```bash
-ANDROID_NDK_HOME=/path/to/ndk ./scripts/build-ffmpeg-decoder.sh  # Linux/macOS/WSL2/Git-Bash，产物写入 src/main/jniLibs/<abi>/libffmpegJNI.so
-```
-
-也可以手动跑 `FFmpeg decoder binaries` 工作流，它会以上述产物打包成可下载的 artifact。
-
+IJKPlayer 使用内置 FFmpeg 原生库处理直连播放和软件解码，四个 ABI AAR 保存在 `third_party/ijkplayer/`，不使用服务端音频转码。外挂字幕通过带鉴权的 OkHttp 获取；内嵌文本与图片字幕由原生播放时钟调度。所有来源共用 Android 音频焦点与耳机断开处理。
 ### Release 签名
 
 Release 构建一定会签名；缺少凭据时直接失败，绝不产出未签名包。执行 `./gradlew assembleRelease` 前设置：
@@ -160,7 +154,7 @@ keystore 与密码一律不得提交进仓库。
 - `docs/self-signed-certificates.md` —— 自签名证书服务器的信任策略
 - `docs/player-fullscreen-audio-tracks.md` —— 全屏行为与音轨选择
 - `docs/audio-software-decoding.md` —— AC-3 / E-AC-3 / DTS / TrueHD 的客户端软解码
-- `THIRD_PARTY_LICENSES.md` —— FFmpeg（LGPL）与随项目分发的 Media3 解码扩展（Apache-2.0）
+- `THIRD_PARTY_LICENSES.md` —— IJKPlayer 及其 FFmpeg（LGPL）
 - `docs/user-messages.md` —— 面向用户的错误文案约定
 - `fix20260927.md` —— 2026-09-27 代码审查发现的未修问题（附 文件:行号 证据），以及由此定下的
   隐私模式方案：所遵循的 QT 语义、已定模型（默认隐藏、PIN 解锁、离开自动回锁）与 PR 划分

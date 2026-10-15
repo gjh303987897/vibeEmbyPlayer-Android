@@ -165,9 +165,8 @@ class EncryptedHlsPackager @Inject constructor(
         identifier: String,
         sourceNameBase64: String
     ): String = buildString {
-        // #EXT-X-TARGETDURATION is required by RFC 8216 for every media playlist
-        // and ExoPlayer rejects playlists without it, so it is derived from the
-        // segment durations instead of being copied from the source playlist.
+        // #EXT-X-TARGETDURATION is required by RFC 8216 for every media playlist.
+        // Segment durations are rounded up instead of copying a stale source value.
         val targetDuration = entries.maxOf { (it.duration ?: DEFAULT_SEGMENT_DURATION) }
             .let { Math.max(1L, Math.ceil(it.toDouble()).toLong()) }
         appendLine("#EXTM3U")

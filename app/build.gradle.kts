@@ -130,6 +130,8 @@ ksp {
 dependencies {
     // AndroidX core & lifecycle
     implementation(libs.androidx.core.ktx)
+    // Tink's class annotations must also resolve during release R8 processing.
+    implementation(libs.errorprone.annotations)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -178,23 +180,22 @@ dependencies {
     // Coil
     implementation(libs.coil.compose)
 
-    // Media3 (ExoPlayer)
-    implementation(libs.media3.exoplayer)
-    implementation(libs.media3.exoplayer.hls)
-    implementation(libs.media3.exoplayer.dash)
-    implementation(libs.media3.ui)
-    implementation(libs.media3.session)
-    implementation(libs.media3.datasource.okhttp)
-    // On-device FFmpeg audio decoding (AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD) so those
-    // tracks play with sound without asking the server to transcode. The Media3 FFmpeg
-    // extension is not on Google's Maven, so it is vendored under third_party/.
-    implementation(libs.media3.decoder)
-    implementation(project(":media3-decoder-ffmpeg"))
+
+    // Official 0.8.8 Java API; all native libraries rebuilt from pinned LGPL source
+    // with full decoders/demuxers and 16 KB ELF alignment (native-build.json).
+    implementation(files(
+        "$rootDir/third_party/ijkplayer/ijkplayer-java-0.8.8.aar",
+        "$rootDir/third_party/ijkplayer/ijkplayer-armv7a-0.8.8-full.aar",
+        "$rootDir/third_party/ijkplayer/ijkplayer-arm64-0.8.8-full.aar",
+        "$rootDir/third_party/ijkplayer/ijkplayer-x86-0.8.8-full.aar",
+        "$rootDir/third_party/ijkplayer/ijkplayer-x86_64-0.8.8-full.aar"
+    ))
 
     // Tests
     testImplementation(libs.junit)
     // Android provides org.json at runtime; JVM unit tests need its reference implementation.
     testImplementation(libs.org.json)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

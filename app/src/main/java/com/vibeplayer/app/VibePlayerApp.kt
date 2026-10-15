@@ -64,8 +64,7 @@ class VibePlayerApp : Application(), ImageLoaderFactory {
                 if (wasUnlocked && !unlocked) {
                     val activeServerIsPrivate = activeSessionManager.activeSession.value?.server?.privateMode == true
                     if (playerManager.state.value.privatePlayback) {
-                        playerManager.player.pause()
-                        playerManager.player.clearMediaItems()
+                        playerManager.pause()
                         playerManager.beginLoading()
                         privacyManager.notifyPrivatePlaybackStopped()
                     }

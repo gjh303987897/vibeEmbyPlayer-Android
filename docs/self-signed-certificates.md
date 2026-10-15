@@ -4,8 +4,10 @@
 
 - 添加或编辑 Emby、Jellyfin（以及共用服务表单的 WebDAV）服务时，可显式启用“信任自签发证书”。
 - 该设置按服务保存在 `ServerConfig.trustSelfSignedCertificate` 中，默认关闭；升级前保存的服务也按关闭处理。
-- 关闭时，API 请求和 Media3 播放均使用 Android/OkHttp 的标准证书链与主机名验证。
+- 关闭时，API 请求和 IJK 播放的远程请求均使用 Android/OkHttp 的标准证书链与主机名验证。
 - 开启时，仅该服务的 API 请求及其播放流使用独立的证书链客户端；其他服务不受影响。
+- 播放通过 `PlaybackHttpProxy` 将 OkHttp 响应流送至 IJK；HLS URI 与 DASH BaseURL/绝对资源 URL 重写到环回地址，Range 和 HEAD 请求转发到上游。
+- 不依赖原生 FFmpeg 的 `tls_verify` 选项；服务信任策略沿用同一个 `OkHttpClientFactory`。
 
 ## 安全说明
 

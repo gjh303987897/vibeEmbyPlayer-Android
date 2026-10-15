@@ -5,7 +5,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
-/** Validates every HLS URI before a verified playlist is exposed to Media3. */
+/** Validates every HLS URI before a verified playlist is exposed to the player. */
 internal fun validateHlsPlaylist(
     bytes: ByteArray,
     manifestPath: String,

@@ -2,8 +2,7 @@ package com.vibeplayer.app.domain.local
 
 /**
  * Local media file support helpers ported from the Qt LocalMediaService.
- * The extension list controls visibility only; actual codec support is decided
- * by the Media3/FFmpeg stack.
+ * IJKPlayer exposes the decoder path through its media metadata and callbacks.
  */
 object LocalPlaybackService {
 

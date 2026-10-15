@@ -13,6 +13,7 @@ import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.model.UserSession
 import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.player.AudioTrack
+import com.vibeplayer.app.player.BitmapSubtitleFrame
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.player.SubtitleTrack
 import com.vibeplayer.app.security.PrivacyManager
@@ -44,6 +45,8 @@ data class PlayerUiState(
     val volume: Float = 1f,
     val subtitleTracks: List<SubtitleTrack> = emptyList(),
     val selectedSubtitleKey: String? = null,
+    val subtitleText: String? = null,
+    val bitmapSubtitleFrame: BitmapSubtitleFrame? = null,
     val audioTracks: List<AudioTrack> = emptyList(),
     val selectedAudioTrackKey: String? = null,
     /**
@@ -66,8 +69,9 @@ class PlayerViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
-    /** The shared ExoPlayer instance used to render video. */
+    /** The shared IJKPlayer instance used to render video. */
     val player = playerManager.player
+    fun setVideoSurface(holder: android.view.SurfaceHolder, attached: Boolean) = playerManager.setVideoSurface(holder, attached)
 
     private var session: UserSession? = null
     private var report: PlaybackReport = PlaybackReport("", "", "")
@@ -100,6 +104,8 @@ class PlayerViewModel @Inject constructor(
                         volume = p.volume,
                         subtitleTracks = p.subtitleTracks,
                         selectedSubtitleKey = p.selectedSubtitleKey,
+                        subtitleText = p.subtitleText,
+                        bitmapSubtitleFrame = p.bitmapSubtitleFrame,
                         audioTracks = p.audioTracks,
                         selectedAudioTrackKey = p.selectedAudioTrackKey,
                         audioDecode = p.audioDecode
@@ -151,14 +157,7 @@ class PlayerViewModel @Inject constructor(
                 headers = mapOf("X-Emby-Token" to s.accessToken),
                 trustSelfSignedCertificate = s.server.trustSelfSignedCertificate,
                 privatePlayback = s.server.privateMode,
-                subtitleConfigurations = target.subtitleConfigurations.map { subtitle ->
-                    androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitle.uri))
-                        .setMimeType(subtitle.mimeType)
-                        .setLanguage(subtitle.language)
-                        .setLabel(subtitle.label)
-                        .setSelectionFlags(subtitle.selectionFlags)
-                        .build()
-                }
+                subtitleConfigurations = target.subtitleConfigurations
             )
             report = PlaybackReport(
                 itemId = item.id,
@@ -207,7 +206,7 @@ class PlayerViewModel @Inject constructor(
 
     fun stopPlayback() {
         stopReporter()
-        playerManager.player.pause()
+        playerManager.stop()
         if (started) {
             val s = session
             val target = historyTarget
@@ -250,7 +249,7 @@ class PlayerViewModel @Inject constructor(
             }
             started = false
         }
-        playerManager.player.pause()
+        playerManager.pause()
     }
 
     private fun startReporter(client: com.vibeplayer.app.data.remote.MediaServerClient) {

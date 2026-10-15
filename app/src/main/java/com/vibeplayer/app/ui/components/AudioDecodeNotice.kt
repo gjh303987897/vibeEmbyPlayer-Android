@@ -31,10 +31,8 @@ import com.vibeplayer.app.player.AudioDecodeMode
  * phone cannot decode on its own.
  *
  * Streams are fetched with `static=true`, so the server sends the original file. When the
- * device has no MediaCodec decoder for it (AC-3 on non-Dolby phones, DTS / DTS-HD without a
- * DTS licence, TrueHD almost anywhere) Media3 normally drops the track and the user only
- * notices a mute picture. The FFmpeg decoder extension added on the player side is what
- * fixes that, and this row is what tells the user it is happening:
+ * device has no hardware decoder for it (AC-3, DTS / DTS-HD, TrueHD), IJKPlayer's
+ * bundled FFmpeg path handles the track and this row tells the user it is happening:
  *
  * - [AudioDecodeMode.SOFTWARE]: the on-device FFmpeg decoder took over - sound works, and
  *   the user learns why the app mentions "client decoding".

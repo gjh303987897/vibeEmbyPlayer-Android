@@ -1,25 +1,17 @@
 package com.vibeplayer.app.player
 
 import android.content.Context
-import androidx.annotation.OptIn
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem as PlayerMediaItem
-import androidx.media3.common.MediaMetadata
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.Tracks
-import androidx.media3.exoplayer.analytics.AnalyticsListener
-import androidx.media3.exoplayer.source.LoadEventInfo
-import androidx.media3.exoplayer.source.MediaLoadData
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import dagger.hilt.android.qualifiers.ApplicationContext
-import com.vibeplayer.app.di.OkHttpClientFactory
+import android.net.Uri
+import android.util.Log
+import androidx.annotation.MainThread
+import android.view.SurfaceHolder
 import com.vibeplayer.app.data.local.datastore.SettingsDataStore
+import com.vibeplayer.app.data.remote.SubtitleConfiguration
+import com.vibeplayer.app.di.OkHttpClientFactory
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.nio.charset.Charset
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -33,124 +25,234 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.withContext
+import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import tv.danmaku.ijk.media.player.IjkMediaPlayer
+import tv.danmaku.ijk.media.player.IMediaPlayer
+import tv.danmaku.ijk.media.player.misc.IMediaFormat
+import tv.danmaku.ijk.media.player.misc.ITrackInfo
 
-data class SubtitleTrack(val key: String, val label: String, val language: String?, val selected: Boolean)
-
+data class SubtitleTrack(val key: String, val label: String, val language: String?, val selected: Boolean, val selectionFlags: Int)
 data class AudioTrack(val key: String, val label: String, val language: String?, val selected: Boolean)
 
 data class PlayerState(
-    val isPlaying: Boolean = false, val positionMs: Long = 0L, val durationMs: Long = 0L,
-    val isPrepared: Boolean = false, val buffering: Boolean = false, val title: String? = null,
-    val subtitle: String? = null, val error: String? = null, val playbackSpeed: Float = 1f,
-    val volume: Float = 1f, val subtitleTracks: List<SubtitleTrack> = emptyList(),
-    val selectedSubtitleKey: String? = null, val audioTracks: List<AudioTrack> = emptyList(),
+    val isPlaying: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val isPrepared: Boolean = false,
+    val buffering: Boolean = false,
+    val title: String? = null,
+    val subtitle: String? = null,
+    val subtitleText: String? = null,
+    val bitmapSubtitleFrame: BitmapSubtitleFrame? = null,
+    val error: String? = null,
+    val playbackSpeed: Float = 1f,
+    val volume: Float = 1f,
+    val subtitleTracks: List<SubtitleTrack> = emptyList(),
+    val selectedSubtitleKey: String? = null,
+    val audioTracks: List<AudioTrack> = emptyList(),
     val selectedAudioTrackKey: String? = null,
-    /**
-     * How the current audio track is being decoded, or null while no audio track is known.
-     * Non-[AudioDecodeMode.HARDWARE] values must be surfaced to the user: a stream the phone
-     * cannot decode by itself otherwise plays as silent video with no error at all.
-     */
     val audioDecode: AudioDecodeInfo? = null,
     val privatePlayback: Boolean = false
 )
 
-@OptIn(UnstableApi::class)
+private data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
+
 @Singleton
 class PlayerManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    clientFactory: OkHttpClientFactory,
+    private val clientFactory: OkHttpClientFactory,
     private val settingsDataStore: SettingsDataStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val headerFactory = AuthHeaderDataSourceFactory(clientFactory)
-    val player: ExoPlayer = ExoPlayer.Builder(context)
-        .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(DefaultDataSource.Factory(context, headerFactory)))
-        .setRenderersFactory(audioRenderersFactory(context))
-        .build()
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+    val player = IjkMediaPlayer()
+    private var boundHolder: SurfaceHolder? = null
+
+    fun setVideoSurface(holder: SurfaceHolder, attached: Boolean) {
+        if (attached) {
+            boundHolder = holder
+            player.setDisplay(holder)
+        } else if (boundHolder === holder) {
+            boundHolder = null
+            player.setDisplay(null)
+        }
+    }
+
+    private fun resetPlayer() {
+        audioFocus.abandon()
+        acceptNativeSubtitles = false
+        subtitleSeekPending = false
+        subtitleSelectionInitialized = false
+        clearVisibleSubtitles()
+        player.reset()
+        // reset() creates a new native player whose revision starts again at zero.
+        bitmapSubtitleRevision = -1L
+        player.setDisplay(boundHolder)
+    }
+
     private var positionTicker: Job? = null
+    private var subtitleJob: Job? = null
+    private var httpProxy: PlaybackHttpProxy? = null
+    private var subtitleCues: List<SubtitleCue> = emptyList()
+    private var currentHeaders: Map<String, String> = emptyMap()
+    private var currentTrustSelfSigned = false
+    private var preferredTextLanguage = ""
+    private var preferredTextLanguageLoaded = false
     private var lastSpeed = 1f
     private var speedBeforeTemporary = 1f
     private var temporarySpeedActive = false
-    private var subtitleSelectionApplied = false
-    private var preferredTextLanguage = ""
-    private var preferredTextLanguageLoaded = false
+    private var lastNativeDownloadedBytes = 0L
     private val downloadedBytes = AtomicLong(0L)
-
-    fun drainDownloadedBytes(): Long = downloadedBytes.getAndSet(0L).coerceAtLeast(0L)
+    private var bitmapSubtitleRevision = -1L
+    private var acceptNativeSubtitles = false
+    private var subtitleSeekPending = false
+    private var subtitleSelectionInitialized = false
+    private val audioFocus = PlaybackAudioFocus(
+        context,
+        onPauseForLoss = { pauseForFocusLoss() },
+        onResumeAfterGain = { play() },
+        onDuckingChanged = { multiplier ->
+            val volume = _state.value.volume * multiplier
+            runCatching { player.setVolume(volume, volume) }
+        }
+    )
 
     init {
         scope.launch {
             settingsDataStore.preferredTextLanguage.collect {
                 preferredTextLanguage = it
                 preferredTextLanguageLoaded = true
-                if (!subtitleSelectionApplied) selectInitialSubtitle(player.currentTracks)
+                if (_state.value.isPrepared && !subtitleSelectionInitialized) selectInitialSubtitle()
             }
         }
-        // Reading the MediaCodec registry and probing the FFmpeg native library is cheap but
-        // not free; do it off the main thread once, before the first track callback arrives.
-        scope.launch(Dispatchers.Default) { warmUpAudioDecodeSupport() }
-        player.addListener(object : Player.Listener {
-            override fun onTracksChanged(tracks: Tracks) {
-                updateTracks(tracks)
-                if (!subtitleSelectionApplied && preferredTextLanguageLoaded) {
-                    subtitleSelectionApplied = true
-                    selectInitialSubtitle(tracks)
-                }
-            }
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                updateDerived()
-                when (playbackState) {
-                    Player.STATE_ENDED -> { _state.update { it.copy(buffering = false) }; stopPositionTicker() }
-                    Player.STATE_BUFFERING -> _state.update { it.copy(buffering = true) }
-                    Player.STATE_READY -> _state.update { it.copy(buffering = false, isPrepared = true) }
-                    Player.STATE_IDLE -> _state.update { it.copy(buffering = false, isPrepared = false) }
-                }
-            }
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _state.update { it.copy(isPlaying = isPlaying, buffering = if (isPlaying) false else it.buffering) }
-                if (isPlaying) startPositionTicker() else stopPositionTicker()
-            }
-            override fun onPlayerError(error: PlaybackException) {
-                _state.update { it.copy(error = error.errorCodeName, buffering = false, isPrepared = false) }
-                stopPositionTicker()
-            }
-        })
-        player.addAnalyticsListener(object : AnalyticsListener {
-            override fun onLoadCompleted(
-                eventTime: AnalyticsListener.EventTime,
-                loadEventInfo: LoadEventInfo,
-                mediaLoadData: MediaLoadData
-            ) {
-                downloadedBytes.addAndGet(loadEventInfo.bytesLoaded.coerceAtLeast(0L))
-            }
-        })
+        installListeners()
     }
 
-    fun setPlaybackHeaders(headers: Map<String, String>) = headerFactory.configure(headers, false)
-    fun clearError() { _state.update { it.copy(error = null) } }
-    /**
-     * Starts a new playback session on the shared player: stops the current item
-     * and replaces every per-item field of [state] with a blank slate.
-     *
-     * [PlayerManager] is a singleton, so its state outlives a player screen.
-     * Each player ViewModel therefore calls this as soon as it is created - and
-     * again with the real title before any asynchronous preparation - and mirrors
-     * [state] verbatim. A screen that skipped this call would keep showing the
-     * title, subtitle, progress and track list of the item the user just left.
-     */
+    fun drainDownloadedBytes(): Long = downloadedBytes.getAndSet(0L).coerceAtLeast(0L)
+
+    @MainThread
+    private fun installListeners() {
+        player.setOnPreparedListener {
+            acceptNativeSubtitles = true
+            _state.update { it.copy(isPrepared = true, buffering = false, error = null) }
+            updateTracks()
+            if (lastSpeed != 1f) player.setSpeed(lastSpeed)
+            val start = _state.value.positionMs
+            if (start > 0L) seekTo(start)
+            if (preferredTextLanguageLoaded) selectInitialSubtitle()
+            play()
+        }
+        player.setOnCompletionListener {
+            audioFocus.abandon()
+            stopPositionTicker()
+            acceptNativeSubtitles = false
+            clearVisibleSubtitles()
+            updateDerived(isPlaying = false)
+            _state.update { it.copy(buffering = false, isPrepared = true, subtitleText = null) }
+        }
+        player.setOnBufferingUpdateListener { _, percent ->
+            _state.update { it.copy(buffering = percent < 100 && !it.isPlaying) }
+        }
+        player.setOnInfoListener { _, what, _ ->
+            when (what) {
+                IMediaPlayer.MEDIA_INFO_BUFFERING_START -> _state.update { it.copy(buffering = true) }
+                IMediaPlayer.MEDIA_INFO_BUFFERING_END,
+                IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START,
+                IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update { it.copy(buffering = false) }
+            }
+            if (what == IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START || what == IMediaPlayer.MEDIA_INFO_METADATA_UPDATE) {
+                updateTracks()
+                if (preferredTextLanguageLoaded && !subtitleSelectionInitialized) selectInitialSubtitle()
+            }
+            false
+        }
+        player.setOnErrorListener { _, what, extra ->
+            stop()
+            _state.update {
+                it.copy(
+                    error = "IJK_ERROR_${what}_${extra}",
+                    buffering = false,
+                    isPrepared = false,
+                    isPlaying = false
+                )
+            }
+            true
+        }
+        player.setOnSeekCompleteListener {
+            subtitleSeekPending = false
+            if (acceptNativeSubtitles && _state.value.selectedSubtitleKey.orEmpty().startsWith("timedtext:")) {
+                readBitmapSubtitle()
+            }
+        }
+        player.setOnTimedTextListener { _, text ->
+            if (acceptNativeSubtitles && !subtitleSeekPending &&
+                _state.value.selectedSubtitleKey.orEmpty().startsWith("timedtext:")) {
+                readBitmapSubtitle()
+                if (!acceptNativeSubtitles) return@setOnTimedTextListener
+                _state.update {
+                    it.copy(subtitleText = if (it.bitmapSubtitleFrame == null) text?.text?.takeIf(String::isNotEmpty) else null)
+                }
+            }
+        }
+    }
+
+    private fun clearVisibleSubtitles() {
+        _state.update { it.copy(subtitleText = null, bitmapSubtitleFrame = null) }
+    }
+
+    private fun readBitmapSubtitle() {
+        val frame = readNativeBitmapSubtitle(bitmapSubtitleRevision) ?: return
+        bitmapSubtitleRevision = frame.revision
+        val visible = frame.takeIf { it.regions.isNotEmpty() }
+        _state.update {
+            it.copy(bitmapSubtitleFrame = visible, subtitleText = if (visible != null) null else it.subtitleText)
+        }
+    }
+
+    private fun discardBitmapSubtitleSnapshot() {
+        // Record the synchronous native clear so queued old timed-text events cannot redisplay it.
+        readNativeBitmapSubtitle(-1L)?.let {
+            // A new cue may already have arrived; leave it unread for its event/seek completion.
+            if (it.regions.isEmpty()) bitmapSubtitleRevision = it.revision
+        }
+    }
+
+    private fun readNativeBitmapSubtitle(revision: Long): BitmapSubtitleFrame? = try {
+        NativeBitmapSubtitles.read(player, revision)
+    } catch (error: Exception) {
+        failBitmapSubtitle(error)
+        null
+    } catch (error: OutOfMemoryError) {
+        failBitmapSubtitle(error)
+        null
+    }
+
+    private fun failBitmapSubtitle(error: Throwable) {
+        acceptNativeSubtitles = false
+        Log.e("PlayerManager", "Bitmap subtitle snapshot failed (${error.javaClass.simpleName})")
+        _state.update { it.copy(subtitleText = null, bitmapSubtitleFrame = null, error = "IJK_SUBTITLE_ERROR") }
+    }
+
+    fun clearError() = _state.update { it.copy(error = null) }
+
     fun beginLoading(title: String? = null, subtitle: String? = null) {
-        player.pause(); player.stop(); player.clearMediaItems()
-        subtitleSelectionApplied = false
+        stopPositionTicker()
+        subtitleJob?.cancel()
+        subtitleCues = emptyList()
+        runCatching { resetPlayer() }
+        httpProxy?.close()
+        httpProxy = null
         _state.value = PlayerState(
             title = title,
             subtitle = subtitle,
             playbackSpeed = lastSpeed,
-            volume = player.volume
+            volume = _state.value.volume
         )
     }
+
     fun play(
         url: String,
         title: String?,
@@ -159,41 +261,108 @@ class PlayerManager @Inject constructor(
         headers: Map<String, String> = emptyMap(),
         trustSelfSignedCertificate: Boolean = false,
         privatePlayback: Boolean = false,
-        subtitleConfigurations: List<PlayerMediaItem.SubtitleConfiguration> = emptyList()
+        subtitleConfigurations: List<SubtitleConfiguration> = emptyList()
     ) {
+        stopPositionTicker()
+        subtitleJob?.cancel()
+        subtitleCues = emptyList()
+        externalSubtitleCandidates = subtitleConfigurations
+        currentHeaders = headers.toMap()
+        currentTrustSelfSigned = trustSelfSignedCertificate
+        lastNativeDownloadedBytes = 0L
         downloadedBytes.set(0L)
-        subtitleSelectionApplied = false
-        headerFactory.configure(headers, trustSelfSignedCertificate); player.stop(); player.clearMediaItems()
+        runCatching { resetPlayer() }
+        httpProxy?.close()
+        httpProxy = null
         _state.value = PlayerState(
             title = title,
             subtitle = subtitle,
-            positionMs = startPositionMs,
+            positionMs = startPositionMs.coerceAtLeast(0L),
             playbackSpeed = lastSpeed,
-            volume = player.volume,
+            volume = _state.value.volume,
             privatePlayback = privatePlayback
         )
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-            .build()
-        player.setMediaItem(
-            PlayerMediaItem.Builder()
-                .setUri(url)
-                .setSubtitleConfigurations(subtitleConfigurations)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(subtitle).build())
-                .build()
-        )
-        runCatching { context.startForegroundService(android.content.Intent(context, com.vibeplayer.app.service.PlaybackService::class.java)) }
-        player.prepare(); if (lastSpeed != 1f) player.setPlaybackSpeed(lastSpeed); if (startPositionMs > 0) player.seekTo(startPositionMs); player.play()
+        try {
+            val remoteUrl = url.toHttpUrlOrNull()
+            val sourceUrl = if (remoteUrl != null && remoteUrl.host != "127.0.0.1") {
+                PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate), remoteUrl, headers)
+                    .also { httpProxy = it }.playbackUrl
+            } else url
+            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L)
+            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
+            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
+            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "subtitle", 1L)
+            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1L)
+            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0L)
+            player.setScreenOnWhilePlaying(true)
+            player.setVolume(_state.value.volume, _state.value.volume)
+            _state.update { it.copy(buffering = true) }
+            player.setDataSource(context, Uri.parse(sourceUrl), emptyMap())
+            context.startForegroundService(android.content.Intent(context, com.vibeplayer.app.service.PlaybackService::class.java))
+            player.prepareAsync()
+        } catch (error: Exception) {
+            audioFocus.abandon()
+            _state.update { it.copy(error = "IJK_SOURCE_ERROR", buffering = false) }
+        }
     }
-    fun togglePlayPause() { if (player.isPlaying) player.pause() else player.play() }
-    fun seekTo(positionMs: Long) { player.seekTo(positionMs.coerceAtLeast(0L)); updateDerived() }
-    /**
-     * Starts a temporary speed-up (long press to fast-forward). The speed the user
-     * had picked is remembered so [endTemporarySpeed] can restore it; starting twice
-     * is safe because only the first call captures the original speed.
-     */
+
+    private var externalSubtitleCandidates: List<SubtitleConfiguration> = emptyList()
+
+    fun togglePlayPause() {
+        if (_state.value.isPlaying) pause() else play()
+    }
+
+    fun play() {
+        if (!_state.value.isPrepared || _state.value.isPlaying) return
+        if (!audioFocus.request()) return
+        try {
+            acceptNativeSubtitles = true
+            player.start()
+            startPositionTicker()
+            updateDerived()
+        } catch (error: Exception) {
+            audioFocus.abandon()
+            _state.update { it.copy(error = "IJK_START_ERROR", isPlaying = false) }
+        }
+    }
+
+    fun pause() {
+        audioFocus.abandon()
+        pauseForFocusLoss()
+    }
+
+    private fun pauseForFocusLoss() {
+        runCatching { player.pause() }
+        stopPositionTicker()
+        updateDerived(isPlaying = false)
+    }
+
+    fun stop() {
+        audioFocus.abandon()
+        acceptNativeSubtitles = false
+        subtitleSeekPending = false
+        subtitleJob?.cancel()
+        subtitleCues = emptyList()
+        stopPositionTicker()
+        clearVisibleSubtitles()
+        runCatching { player.stop() }
+        _state.update { it.copy(isPrepared = false, buffering = false) }
+    }
+
+    fun seekTo(positionMs: Long) {
+        clearVisibleSubtitles()
+        if (!_state.value.isPrepared) return
+        subtitleSeekPending = true
+        try {
+            player.seekTo(positionMs.coerceAtLeast(0L))
+            discardBitmapSubtitleSnapshot()
+        } catch (error: Exception) {
+            subtitleSeekPending = false
+        }
+        updateDerived()
+        updateSubtitleText(positionMs)
+    }
+
     fun beginTemporarySpeed(speed: Float) {
         if (temporarySpeedActive) return
         speedBeforeTemporary = lastSpeed
@@ -201,17 +370,12 @@ class PlayerManager @Inject constructor(
         applySpeed(speed)
     }
 
-    /** Leaves a temporary speed-up, back to the speed selected before it. */
     fun endTemporarySpeed() {
         if (!temporarySpeedActive) return
         temporarySpeedActive = false
         applySpeed(speedBeforeTemporary)
     }
 
-    /**
-     * A deliberate speed choice always wins over a long-press speed-up: picking a
-     * speed while one is running ends it instead of having the release revert it.
-     */
     fun setPlaybackSpeed(speed: Float) {
         temporarySpeedActive = false
         applySpeed(speed)
@@ -219,26 +383,52 @@ class PlayerManager @Inject constructor(
 
     private fun applySpeed(speed: Float) {
         lastSpeed = speed.coerceIn(.25f, 4f)
-        player.setPlaybackSpeed(lastSpeed)
+        runCatching { player.setSpeed(lastSpeed) }
         _state.update { it.copy(playbackSpeed = lastSpeed) }
     }
 
-    fun setVolume(volume: Float) { val safe = volume.coerceIn(0f, 1f); player.volume = safe; _state.update { it.copy(volume = safe) } }
+    fun setVolume(volume: Float) {
+        val safe = volume.coerceIn(0f, 1f)
+        val effectiveVolume = safe * audioFocus.volumeMultiplier
+        runCatching { player.setVolume(effectiveVolume, effectiveVolume) }
+        _state.update { it.copy(volume = safe) }
+    }
+
+    fun selectAudioTrack(track: AudioTrack) {
+        val index = track.key.removePrefix("audio:").toIntOrNull() ?: return
+        runCatching { player.selectTrack(index) }
+        updateTracks()
+    }
+
     fun selectSubtitle(track: SubtitleTrack?, persist: Boolean = true) {
-        val b = player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, track == null)
-            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-        if (track != null) {
-            val p = track.key.split(":")
-            val g = p.getOrNull(0)?.toIntOrNull()
-            val t = p.getOrNull(1)?.toIntOrNull()
-            if (g != null && t != null) {
-                player.currentTracks.groups.getOrNull(g)?.let {
-                    b.addOverride(TrackSelectionOverride(it.mediaTrackGroup, listOf(t)))
-                }
+        val key = track?.key
+        if (!persist && subtitleSelectionInitialized && key == _state.value.selectedSubtitleKey) return
+        subtitleJob?.cancel()
+        subtitleCues = emptyList()
+        clearVisibleSubtitles()
+        subtitleSelectionInitialized = true
+        currentSubtitleTrackIndex()?.let { runCatching { player.deselectTrack(it) } }
+        _state.update {
+            it.copy(
+                selectedSubtitleKey = key,
+                subtitleTracks = it.subtitleTracks.map { candidate -> candidate.copy(selected = candidate.key == key) }
+            )
+        }
+        when {
+            key?.startsWith("timedtext:") == true -> {
+                val index = key.removePrefix("timedtext:").toIntOrNull()
+                if (index != null) runCatching { player.selectTrack(index) }
+            }
+            key?.startsWith("external:") == true -> {
+                val index = key.removePrefix("external:").toIntOrNull()
+                val configuration = index?.let { externalSubtitleCandidates.getOrNull(it) }
+                if (configuration != null) loadExternalSubtitle(configuration, key)
             }
         }
-        player.trackSelectionParameters = b.build(); updateTracks(player.currentTracks)
+        if (_state.value.isPrepared) {
+            acceptNativeSubtitles = true
+            discardBitmapSubtitleSnapshot()
+        }
         if (persist) scope.launch(Dispatchers.IO) {
             when {
                 track == null -> settingsDataStore.setPreferredTextLanguage("off")
@@ -246,144 +436,172 @@ class PlayerManager @Inject constructor(
             }
         }
     }
-    fun selectAudioTrack(track: AudioTrack) {
-        val (groupIndex, trackIndex) = parseTrackKey(track.key) ?: return
-        val group = player.currentTracks.groups.getOrNull(groupIndex) ?: return
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-            .addOverride(TrackSelectionOverride(group.mediaTrackGroup, listOf(trackIndex)))
-            .build()
-        updateTracks(player.currentTracks)
+
+    private fun selectInitialSubtitle() {
+        val tracks = _state.value.subtitleTracks
+        if (tracks.isEmpty()) return
+        if (preferredTextLanguage.equals("off", true)) {
+            selectSubtitle(null, persist = false)
+            return
+        }
+        val preferred = preferredTextLanguage.trim().lowercase(Locale.US)
+        val selected = tracks.firstOrNull { preferred.isNotEmpty() && it.language?.lowercase(Locale.US)?.let { lang -> lang == preferred || lang.startsWith("$preferred-") } == true }
+            ?: tracks.firstOrNull { it.selectionFlags and SubtitleConfiguration.SELECTION_FLAG_FORCED != 0 }
+            ?: tracks.firstOrNull { it.selectionFlags and SubtitleConfiguration.SELECTION_FLAG_DEFAULT != 0 }
+            ?: tracks.firstOrNull { it.selected }
+        selectSubtitle(selected, persist = false)
     }
-    private fun startPositionTicker() { if (positionTicker != null) return; positionTicker = scope.launch { while (true) { updateDerived(); delay(500) } } }
-    private fun stopPositionTicker() { updateDerived(); positionTicker?.cancel(); positionTicker = null }
-    private fun updateTracks(tracks: Tracks) {
-        val subtitles = subtitleTracks(tracks)
-        val audio = audioTracks(tracks)
+
+    private fun updateTracks() {
+        val infos = runCatching { player.trackInfo?.toList() ?: emptyList() }.getOrDefault(emptyList())
+        val selectedAudio = runCatching { player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_AUDIO) }.getOrDefault(-1)
+        val selectedText = runCatching { player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT) }.getOrDefault(-1)
+        val externalKey = _state.value.selectedSubtitleKey?.takeIf { it.startsWith("external:") }
+        val selectedSubtitleKey = if (subtitleSelectionInitialized) _state.value.selectedSubtitleKey
+            else externalKey ?: selectedText.takeIf { it >= 0 }?.let { "timedtext:$it" }
+        val audio = infos.mapIndexedNotNull { index, info ->
+            if (info.trackType != ITrackInfo.MEDIA_TRACK_TYPE_AUDIO) return@mapIndexedNotNull null
+            AudioTrack("audio:$index", formatLabel(info.format, info.language), info.language, index == selectedAudio)
+        }
+        val timedText = infos.mapIndexedNotNull { index, info ->
+            if (info.trackType != ITrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT) return@mapIndexedNotNull null
+            val disposition = info.format?.getString("disposition")?.toIntOrNull() ?: 0
+            val flags = (if (disposition and 0x40 != 0) SubtitleConfiguration.SELECTION_FLAG_FORCED else 0) or
+                (if (disposition and 1 != 0) SubtitleConfiguration.SELECTION_FLAG_DEFAULT else 0)
+            val label = info.format?.getString("title")?.takeIf { it.isNotBlank() }
+                ?: info.language?.takeIf { it.isNotBlank() } ?: "Subtitle ${index + 1}"
+            SubtitleTrack("timedtext:$index", label, info.language, selectedSubtitleKey == "timedtext:$index", flags)
+        }
+        val external = externalSubtitleCandidates.mapIndexed { index, config ->
+            SubtitleTrack("external:$index", config.label ?: config.language ?: "Subtitle ${index + 1}", config.language, selectedSubtitleKey == "external:$index", config.selectionFlags)
+        }
+        val allSubtitles = timedText + external
+        val audioInfo = (audio.firstOrNull { it.selected } ?: audio.firstOrNull())?.let { track ->
+            val info = infos.getOrNull(track.key.removePrefix("audio:").toIntOrNull() ?: -1)
+            val codec = info?.format?.getString("codec_name") ?: return@let null
+            val decoder = runCatching { player.mediaInfo?.mAudioDecoder }.getOrNull()
+            decideAudioDecode(codec, hardwareDecoder = decoder == "MediaCodec", decoderAvailable = !decoder.isNullOrBlank())
+        }
         _state.update {
             it.copy(
-                subtitleTracks = subtitles,
-                selectedSubtitleKey = subtitles.firstOrNull { track -> track.selected }?.key,
                 audioTracks = audio,
                 selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key,
-                audioDecode = audioDecodeInfo(tracks)
+                subtitleTracks = allSubtitles,
+                selectedSubtitleKey = allSubtitles.firstOrNull { track -> track.selected }?.key,
+                audioDecode = audioInfo
             )
         }
     }
 
-    /**
-     * Which decoder the selected audio track will actually go through.
-     *
-     * Streams are always fetched with `static=true`, so the server never transcodes and an
-     * audio format the platform cannot decode is dropped by Media3 *silently* - the user
-     * just gets a mute picture. [AudioDecodeInfo] is what lets the UI explain that, and what
-     * tells them the bundled FFmpeg renderer is decoding the track on the device instead.
-     */
-    private fun audioDecodeInfo(tracks: Tracks): AudioDecodeInfo? {
-        val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-        if (audioGroups.isEmpty()) return null
-        // Prefer the track that is playing, then any decodable track, then the first one: when
-        // nothing can decode it Media3 selects no audio at all and we still want the reason.
-        val group = audioGroups.firstOrNull { selectedTrackIndex(it) != null }
-            ?: audioGroups.firstOrNull { supportedTrackIndex(it) != null }
-            ?: audioGroups.first()
-        val index = selectedTrackIndex(group) ?: supportedTrackIndex(group) ?: 0
-        return AudioDecodeSupport.decide(
-            mimeType = group.getTrackFormat(index).sampleMimeType,
-            rendererSupportsTrack = group.isTrackSupported(index)
-        )
+    private fun formatLabel(format: IMediaFormat?, language: String?): String {
+        return format?.getString("title")?.takeIf { it.isNotBlank() }
+            ?: language?.takeIf { it.isNotBlank() }
+            ?: format?.getString("ijk-codec-name-ui")?.takeIf { it.isNotBlank() }
+            ?: "Audio"
     }
 
-    private fun selectedTrackIndex(group: Tracks.Group): Int? =
-        (0 until group.length).firstOrNull { group.isTrackSelected(it) }
+    private fun currentSubtitleTrackIndex(): Int? = _state.value.selectedSubtitleKey
+        ?.removePrefix("timedtext:")?.takeIf { it != _state.value.selectedSubtitleKey }?.toIntOrNull()
 
-    private fun supportedTrackIndex(group: Tracks.Group): Int? =
-        (0 until group.length).firstOrNull { group.isTrackSupported(it) }
-
-    private fun subtitleTracks(tracks: Tracks): List<SubtitleTrack> = tracks.groups.mapIndexedNotNull { gi, group ->
-        if (group.type != C.TRACK_TYPE_TEXT) return@mapIndexedNotNull null
-            (0 until group.length).mapNotNull { ti ->
-                val f = group.getTrackFormat(ti)
-                if (!group.isTrackSupported(ti)) return@mapNotNull null
-                val label = f.label?.takeIf { it.isNotBlank() } ?: f.language?.takeIf { it.isNotBlank() } ?: "Subtitle ${ti + 1}"
-                SubtitleTrack("$gi:$ti", label, f.language, group.isTrackSelected(ti))
+    private fun loadExternalSubtitle(configuration: SubtitleConfiguration, key: String) {
+        val subtitleHeaders = currentHeaders
+        val trustSelfSigned = currentTrustSelfSigned
+        subtitleJob = scope.launch(Dispatchers.IO) {
+            val cues = runCatching {
+                val request = Request.Builder().url(configuration.uri).apply {
+                    subtitleHeaders.forEach { (name, value) -> header(name, value) }
+                }.build()
+                clientFactory.client(trustSelfSigned).newCall(request).execute().use { response ->
+                    require(response.isSuccessful) { "subtitle HTTP ${response.code}" }
+                    parseSubtitle(requireNotNull(response.body).bytes(), configuration.mimeType)
+                }
+            }.getOrElse {
+                withContext(Dispatchers.Main.immediate) {
+                    if (_state.value.selectedSubtitleKey == key) _state.update { it.copy(error = "IJK_SUBTITLE_ERROR") }
+                }
+                return@launch
             }
-    }.flatten()
-
-    private fun selectInitialSubtitle(tracks: Tracks) {
-        val preferred = preferredTextLanguage.trim().lowercase()
-        if (preferred == "off") return
-        val candidates = tracks.groups.flatMapIndexed { gi, group ->
-            if (group.type != C.TRACK_TYPE_TEXT) return@flatMapIndexed emptyList<Triple<String, androidx.media3.common.Format, Tracks.Group>>()
-            (0 until group.length).mapNotNull { ti ->
-                if (!group.isTrackSupported(ti)) return@mapNotNull null
-                val format = group.getTrackFormat(ti)
-                Triple("$gi:$ti", format, group)
+            withContext(Dispatchers.Main.immediate) {
+                if (_state.value.selectedSubtitleKey == key) {
+                    subtitleCues = cues
+                    updateSubtitleText(player.currentPosition)
+                }
             }
         }
-        val selected = candidates.firstOrNull {
-            preferred.isNotEmpty() && it.second.language?.lowercase()?.let { language ->
-                language == preferred || language.startsWith("$preferred-")
-            } == true
-        }
-            ?: candidates.firstOrNull { it.second.selectionFlags and C.SELECTION_FLAG_FORCED != 0 }
-            ?: candidates.firstOrNull { it.second.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0 }
-        if (selected != null) {
-            selectSubtitle(SubtitleTrack(selected.first, selected.second.label.orEmpty(), selected.second.language, false), persist = false)
+    }
+
+    private fun updateSubtitleText(positionMs: Long) {
+        if (!_state.value.selectedSubtitleKey.orEmpty().startsWith("external:")) return
+        val cue = subtitleCues.firstOrNull { positionMs in it.startMs..it.endMs }
+        _state.update { it.copy(subtitleText = cue?.text) }
+    }
+
+    private fun startPositionTicker() {
+        if (positionTicker != null) return
+        positionTicker = scope.launch {
+            while (true) {
+                updateDerived()
+                updateSubtitleText(_state.value.positionMs)
+                delay(500)
+            }
         }
     }
-    private fun audioTracks(tracks: Tracks): List<AudioTrack> = tracks.groups.mapIndexedNotNull { gi, group ->
-        if (group.type != C.TRACK_TYPE_AUDIO) return@mapIndexedNotNull null
-        (0 until group.length).mapNotNull { ti ->
-            val format = group.getTrackFormat(ti)
-            if (!group.isTrackSupported(ti)) return@mapNotNull null
-            val label = format.label?.takeIf { it.isNotBlank() }
-                ?: format.language?.takeIf { it.isNotBlank() }
-                ?: "Audio ${ti + 1}"
-            AudioTrack("$gi:$ti", label, format.language, group.isTrackSelected(ti))
+
+    private fun stopPositionTicker() {
+        updateDerived(isPlaying = false)
+        positionTicker?.cancel()
+        positionTicker = null
+    }
+
+    private fun updateDerived(isPlaying: Boolean = runCatching { player.isPlaying }.getOrDefault(false)) {
+        val position = runCatching { player.currentPosition }.getOrDefault(_state.value.positionMs).coerceAtLeast(0L)
+        val duration = runCatching { player.duration }.getOrDefault(_state.value.durationMs).coerceAtLeast(0L)
+        val totalBytes = runCatching { player.getTrafficStatisticByteCount() }.getOrDefault(0L).coerceAtLeast(0L)
+        if (totalBytes >= lastNativeDownloadedBytes) {
+            downloadedBytes.addAndGet(totalBytes - lastNativeDownloadedBytes)
         }
-    }.flatten()
-    private fun updateDerived() {
-        _state.update {
-            it.copy(
-                isPlaying = player.isPlaying,
-                isPrepared = player.playbackState != Player.STATE_IDLE,
-                positionMs = player.currentPosition,
-                durationMs = player.duration.takeIf { duration -> duration > 0 } ?: it.durationMs
-            )
+        lastNativeDownloadedBytes = totalBytes
+        _state.update { it.copy(isPlaying = isPlaying, positionMs = position, durationMs = duration) }
+    }
+
+    private fun parseSubtitle(bytes: ByteArray, mimeType: String): List<SubtitleCue> {
+        if (bytes.isEmpty()) return emptyList()
+        val text = bytes.toString(Charset.forName("UTF-8")).removePrefix("\uFEFF")
+        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+        val blocks = normalized.split("\n\n")
+        return blocks.mapNotNull { block ->
+            val lines = block.lines().filter { it.isNotBlank() }
+            val timingIndex = lines.indexOfFirst { it.contains(" --> ") }
+            if (timingIndex < 0) return@mapNotNull null
+            val times = lines[timingIndex].split(" --> ")
+            if (times.size != 2) return@mapNotNull null
+            val start = parseSubtitleTime(times[0]) ?: return@mapNotNull null
+            val end = parseSubtitleTime(times[1].substringBefore(' ')) ?: return@mapNotNull null
+            val cueText = lines.drop(timingIndex + 1).joinToString("\n")
+                .replace(Regex("<[^>]+>"), "")
+            SubtitleCue(start, end, cueText)
         }
     }
-}
 
-internal fun parseTrackKey(key: String): Pair<Int, Int>? {
-    val parts = key.split(":")
-    if (parts.size != 2) return null
-    val groupIndex = parts[0].toIntOrNull() ?: return null
-    val trackIndex = parts[1].toIntOrNull() ?: return null
-    if (groupIndex < 0 || trackIndex < 0) return null
-    return groupIndex to trackIndex
-}
+    private fun parseSubtitleTime(value: String): Long? {
+        val normalized = value.trim().replace(',', '.')
+        val parts = normalized.split(':')
+        if (parts.size !in 2..3) return null
+        val seconds = parts.last().toDoubleOrNull() ?: return null
+        val minutes = parts[parts.size - 2].toLongOrNull() ?: return null
+        val hours = if (parts.size == 3) parts[0].toLongOrNull() ?: return null else 0L
+        return ((hours * 3600 + minutes * 60) * 1000 + (seconds * 1000).toLong())
+    }
 
-/**
- * Renderer chain for every playback path in the app (all five player screens share one
- * [ExoPlayer], so this is the single place where decoding is decided).
- *
- * [DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON] tells Media3 to instantiate the
- * optional extension renderers it finds on the classpath and to place them *behind* the
- * platform's MediaCodec renderer. Hardware therefore still does everything it is capable
- * of, and only what it cannot decode - AC-3 / E-AC-3 / DTS / DTS-HD / TrueHD on devices
- * without the corresponding licence - falls through to the on-device FFmpeg decoder from
- * `:media3-decoder-ffmpeg`. [DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER] would
- * route all audio through FFmpeg and needlessly burn battery.
- *
- * This is what removes the "picture but no sound" failure for those formats while streams
- * stay `static=true` direct copies: nothing is transcoded server-side, and servers without
- * FFmpeg work just as well. If the extension's native library is not packaged,
- * `FfmpegLibrary.isAvailable()` returns false, the renderer claims no format, and behaviour
- * is exactly the platform default - the player then says so instead of failing silently.
- */
-@OptIn(UnstableApi::class)
-private fun audioRenderersFactory(context: Context): DefaultRenderersFactory =
-    DefaultRenderersFactory(context)
-        .setEnableDecoderFallback(true)
-        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+    fun release() {
+        audioFocus.abandon()
+        acceptNativeSubtitles = false
+        clearVisibleSubtitles()
+        stopPositionTicker()
+        subtitleJob?.cancel()
+        runCatching { player.release() }
+        httpProxy?.close()
+        httpProxy = null
+        scope.cancel()
+    }
+}

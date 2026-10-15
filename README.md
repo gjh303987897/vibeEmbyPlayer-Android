@@ -4,7 +4,7 @@
 
 VibePlayer is a native Android media center: Emby, Jellyfin, WebDAV, IPTV, local folders and plain
 media links all browse and play through one player stack. It is written in Kotlin with Jetpack
-Compose and Media3/ExoPlayer — no Qt, no Electron, no WebView, no libmpv.
+Compose and IJKPlayer — no Qt, no Electron, no WebView, no libmpv.
 
 This project is the Android rewrite of
 [vibePlayerQT](vibeEmbyPlayerQT/README.md), the Qt Quick desktop client that lives in this
@@ -17,15 +17,16 @@ The app is still under active development: `0.1.0`, `versionCode 1`, no store re
 
 - Native Kotlin + Jetpack Compose UI on Material 3, with Material You dynamic colour and a static
   fallback palette.
-- Media3 / ExoPlayer as the single playback core, owned by one `PlayerManager`; every source
+- IJKPlayer as the single playback core, owned by one `PlayerManager`; every source
   (online, local, WebDAV, IPTV, link, encrypted HLS) goes through it.
 - Emby and Jellyfin: login, multiple servers and accounts, libraries, search, continue watching,
   details with seasons and episodes, resume plus server-side progress reporting.
-- Client-side audio decoding: when the device cannot decode a title's audio (AC-3, E-AC-3,
-  DTS / DTS-HD, TrueHD …), Media3's official FFmpeg decoder extension decodes it **on the
-  phone**, so the stream stays a `static=true` direct copy and the server transcodes nothing —
-  instead of silently playing the picture with no sound. The player says so when it happens.
-  See `docs/audio-software-decoding.md`.
+- Client-side audio decoding: IJK's FFmpeg audio path decodes supported streams **on the phone**,
+  while MediaCodec handles supported video. Emby/Jellyfin URLs remain `static=true`; the server
+  transcodes nothing. The player displays the selected audio decoder status.
+  See `docs/audio-software-decoding.md` for native build requirements and verification limits.
+- Subtitle selection for every source, including embedded text, authenticated external SRT/WebVTT,
+  and PGS/DVD/DVB bitmap captions positioned within the video image.
 - WebDAV: PROPFIND browsing, MKCOL, upload, download via a foreground transfer service, and direct
   playback.
 - Encrypted HLS packages: plays `.m3u8s` directories and `.m3u8sp` single-file containers produced
@@ -79,7 +80,7 @@ app/src/main/java/com/vibeplayer/app/
   data/remote/      OkHttp transport, Emby and Jellyfin clients, WebDAV and IPTV clients
   data/repository/  single entry point per source, shared by several ViewModels
   domain/           link, local and TSSL use cases
-  player/           PlayerManager (Media3), playback sessions, HTTP header plumbing
+  player/           PlayerManager (IJK), playback sessions, authenticated HTTP proxy
   player/hls/       encrypted HLS: loopback proxy, TAR/CBOR index, manifest metadata
   domain/tssl/      TSSL document model and HLS packager
   service/          PlaybackService and TransferService foreground services
@@ -94,7 +95,7 @@ app/src/main/java/com/vibeplayer/app/
 - Kotlin 2.0.21, JVM target 17
 - AGP 8.7.3, Gradle 8.10.2, compileSdk / targetSdk 35, **minSdk 26**
 - Jetpack Compose (BOM 2024.12.01) with Material 3 and Material You dynamic colour
-- Media3 1.5.0 (ExoPlayer, HLS, DASH, session, OkHttp data source)
+ - IJKPlayer 0.8.8 (FFmpeg 3.4, MediaCodec, native SurfaceView)
 - Hilt 2.52 for injection, Navigation Compose 2.8.5
 - Room 2.6.1, DataStore 1.1.1, Coil 2.7.0
 - OkHttp 4.12.0 with kotlinx.serialization (JSON and CBOR) — no Retrofit
@@ -105,8 +106,10 @@ app/src/main/java/com/vibeplayer/app/
 ### Requirements
 
 - JDK 17 (a full JDK, not a JRE-only or JBR-only runtime)
-- Android SDK with platform 35 and build-tools 35.x
+- Android SDK with platform 35 and build-tools 34.0.0 plus 35.x
 - The Gradle wrapper — no local Gradle install needed
+
+For the verified Windows installation and removal commands, see [Windows Android build environment](docs/windows-android-build-environment.md).
 
 `local.properties` must point at your SDK:
 
@@ -133,17 +136,7 @@ The debug build forces signature schemes v1, v2 and v3 on purpose. AGP drops the
 `minSdk >= 24`, and several on-device installers — OEM file managers, sideload tools, some
 `pm install` paths — read the JAR block first and reject the APK as unsigned.
 
-Audio formats the phone cannot decode are handled by the vendored Media3 FFmpeg decoder module
-(`third_party/media3-decoder-ffmpeg`), which builds with plain Gradle out of the box. To actually
-*decode* on-device — instead of only telling the user the track is unsupported — the native library
-must be produced once with the Android NDK:
-
-```bash
-ANDROID_NDK_HOME=/path/to/ndk ./scripts/build-ffmpeg-decoder.sh  # Linux/macOS/WSL2/Git-Bash; writes jniLibs/<abi>/libffmpegJNI.so
-```
-
-or by running the `FFmpeg decoder binaries` workflow, which uploads the same files as an artifact.
-See `docs/audio-software-decoding.md`.
+IJKPlayer handles direct playback and software decoding through its bundled FFmpeg native libraries. The four ABI AARs are vendored under `third_party/ijkplayer/`; no server-side audio transcoding is used. External subtitles use authenticated OkHttp; embedded text and bitmap subtitles follow the native playback clock. Android audio focus and headset disconnect handling are shared by all sources.
 
 ### Release signing
 
@@ -174,7 +167,7 @@ Never commit a keystore or a password.
 - `docs/self-signed-certificates.md` — trusting self-signed media servers
 - `docs/player-fullscreen-audio-tracks.md` — fullscreen behaviour and audio track selection
 - `docs/audio-software-decoding.md` — on-device FFmpeg decoding of AC-3 / E-AC-3 / DTS / TrueHD
-- `THIRD_PARTY_LICENSES.md` — FFmpeg (LGPL) and the vendored Media3 module (Apache-2.0)
+- `THIRD_PARTY_LICENSES.md` — IJKPlayer and its bundled FFmpeg (LGPL)
 - `docs/user-messages.md` — user-facing error wording
 - `fix20260927.md` — open issues found by the 2026-09-27 code review (with file:line evidence) and
   the privacy-mode design it produced: the QT semantics followed, the agreed model (hidden by

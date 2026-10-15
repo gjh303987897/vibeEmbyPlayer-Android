@@ -59,12 +59,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.vibeplayer.app.ui.player.IjkPlayerView
 import com.vibeplayer.app.R
 import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.player.SubtitleTrack
 import com.vibeplayer.app.ui.components.AudioDecodeNotice
+import com.vibeplayer.app.ui.components.PlayerSubtitleOverlay
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
@@ -105,14 +106,17 @@ fun PlayerScreen(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                IjkPlayerView(ctx, viewModel::setVideoSurface).apply {
                     player = viewModel.player
-                    useController = false
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                 }
+            },
+            update = {
+                if (state.isPrepared) it.updateVideoSize()
+                it.bitmapSubtitleFrame = state.bitmapSubtitleFrame
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -140,6 +144,8 @@ fun PlayerScreen(
             indicator = gestures.indicator,
             modifier = Modifier.matchParentSize()
         )
+
+        PlayerSubtitleOverlay(state.subtitleText, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
 
         // Loading + failure feedback: a playback error must never look like an
         // endless spinner.
@@ -364,12 +370,13 @@ private fun PlayPauseButton(
 private val speedOptions = listOf(0.5f, 1f, 1.25f, 1.5f, 2f)
 
 @Composable
-private fun SubtitleSelector(
+internal fun SubtitleSelector(
     tracks: List<SubtitleTrack>,
     selectedKey: String?,
     onSelect: (SubtitleTrack?) -> Unit,
     compact: Boolean = false
 ) {
+    if (tracks.isEmpty()) return
     var expanded by remember { mutableStateOf(false) }
     Button(
         onClick = { expanded = true },

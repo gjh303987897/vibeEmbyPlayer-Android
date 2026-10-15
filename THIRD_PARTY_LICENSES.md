@@ -1,48 +1,55 @@
-# 第三方组件与许可
+# Third-party components and licenses
 
-VibePlayer（Android）本体以项目仓库所选许可证发布。除官方 AndroidX / Jetpack / Media3 /
-Kotlin / OkHttp / Coil / Room 等依赖（Apache-2.0 或 BSD）之外，音频客户端解码会引入下列
-第三方原生组件，分发包含它们的安装包时必须一并说明。
+The playback backend uses the upstream IJKPlayer 0.8.8 Java API with native libraries rebuilt
+from pinned source. Application dependencies are the Java AAR and the four `*-0.8.8-full.aar`
+archives under `third_party/ijkplayer/`.
 
-## FFmpeg
+## Native playback components
 
-- 用途：`third_party/media3-decoder-ffmpeg`（Media3 官方 FFmpeg 解码扩展的本地副本）在
-  **客户端本机**解码 AC-3 / E-AC-3 / DTS 核心 / TrueHD 等手机硬件不支持的音轨，
-  从而修复「有画面没声音」，同时保持 `static=true` 直连、服务器零转码。
-- 版本：FFmpeg `release/6.0`（由 `scripts/build-ffmpeg-decoder.sh` 克隆后交叉编译）。
-- 许可证：**LGPL-2.1-or-later**（构建时未使用 `--enable-gpl`，也未启用任何 GPL 组件、
-  nonfree 组件或外部专利编解码器库）。
-- 上游：<https://ffmpeg.org/>
-- 许可原文：<https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt>
+| Component | Pinned source | License |
+| --- | --- | --- |
+| IJKPlayer | [`cced91e3`](https://github.com/bilibili/ijkplayer/tree/cced91e3ae3730f5c63f3605b00d25eafcf5b97b), tag `k0.8.8` | LGPL-2.1-or-later; Java/JNI files also carry Apache-2.0 notices |
+| FFmpeg | [`2902e33f`](https://github.com/Bilibili/FFmpeg/tree/2902e33f6e59ed77ddc1b372586c1ab8db1fb096), IJK's FFmpeg 3.4 fork | LGPL-2.1-or-later; GPL/nonfree components disabled |
+| libxml2 | [`02d57771`](https://github.com/GNOME/libxml2/tree/02d577715e1951cf114ca4e9adaf5605156c4f4c), version 2.12.10 | MIT |
+| libyuv | [`a0c7dd3e`](https://github.com/Bilibili/libyuv/tree/a0c7dd3e4b095649881f39152655437b8cde1589) | BSD-3-Clause |
+| SoundTouch | [`6bf39cd3`](https://github.com/Bilibili/soundtouch/tree/6bf39cd3bf6b0c156267d12446b0d6bdcfcd53c2) | LGPL-2.1-or-later |
 
-### LGPL 义务与本项目做法
+The official ABI AARs disable several required decoders, subtitle formats and Matroska demuxing.
+They are retained only as packaging inputs; Gradle ships the `-full.aar` derivatives, which replace
+all three native libraries (`libijkffmpeg.so`, `libijkplayer.so`, `libijksdl.so`). The upstream Java
+AAR is unmodified. Native libraries are linked for 16 KB page alignment with NDK r26b.
 
-1. **声明使用**：本文档 + 播放页在真正使用客户端解码时的用户提示。
-2. **可重新链接（relocation）**：FFmpeg 以静态库形式链入 `libffmpegJNI.so`。为保留用户
-   自行替换/重链接的自由，本仓库提供完整可复现的构建配方：
-   - `scripts/build-ffmpeg-decoder.sh`（唯一的构建入口，参数化 ABI 与启用的解码器）；
-   - `third_party/media3-decoder-ffmpeg`（Apache-2.0 的 JNI 包装源码，随仓库分发）；
-   - `.github/workflows/ffmpeg-decoder.yml`（可一键复现上述产物）。
-   分发二进制（APK / AAB）的一方应同时提供该脚本与所用 FFmpeg 源码对应方式（本文档即为
-   该「书面要约」）。若更倾向严格做法，可改用 `--enable-shared` 输出 `libffmpeg.so` 后
-   动态链接（`third_party/media3-decoder-ffmpeg/src/main/jni/build_ffmpeg.sh` 的
-   `COMMON_OPTIONS` 即为此预留）。
-3. **许可证文本**：随包分发 LGPL-2.1 与 Apache-2.0（`third_party/media3-decoder-ffmpeg/LICENSE`）
-   文本，或在应用内「关于 / 开源许可」页面提供同等内容。
-4. **不升级许可证**：不启用 `--enable-gpl`、`--enable-nonfree`、`libx264`、`libfdk-aac`
-   等选项，因此产物不受 GPL 传染，也不会声称拥有 H.264/AAC 等编码的专利授权。
+The source patches adapt the old native sources to current Clang/NDK, build the required formats,
+and expose each stream's `disposition` and `title` to preserve subtitle defaults and track labels.
+An additional subtitle patch and distributed support sources implement synchronized bitmap subtitle
+snapshots, the application JNI bridge, premultiplied palette conversion and safe ASS text parsing.
+DASH uses libxml2. Remote HTTPS uses the application's OkHttp loopback transport rather than a
+native FFmpeg TLS backend. Audio remains client-decoded; Emby/Jellyfin streams retain `static=true`.
 
-## Media3（ExoPlayer）FFmpeg 解码扩展
+## Source, build and redistribution files
 
-- 用途：`FfmpegAudioRenderer` / `FfmpegAudioDecoder` / `FfmpegLibrary`。
-- 来源：`androidx/media`（`libraries/decoder_ffmpeg`）tag `1.5.0`，与项目依赖的
-  `androidx.media3:*:1.5.0` 同版本；因其**不在 Google Maven 发布**（上游 issue #2781），
-  按官方 README 的做法以源码方式随项目分发。
-- 许可证：Apache-2.0，原文见 `third_party/media3-decoder-ffmpeg/LICENSE`，文件头保留原版权与
-  许可声明。
+- `scripts/build-ijkplayer-native.mjs`: fetches exact source revisions and rebuilds all four ABIs.
+- `third_party/ijkplayer/CMakeLists.txt`: builds the IJK player, SDL and supporting native sources.
+- `third_party/ijkplayer/ffmpeg-ndk26.patch` and `ijkplayer-ndk26.patch`: distributed source changes.
+- `third_party/ijkplayer/ijkplayer-bitmap-subtitles.patch`: playback-clock subtitle scheduling and JNI integration.
+- `third_party/ijkplayer/bitmap_subtitles.{c,h}`, `bitmap_subtitle_pixels.{c,h}`: distributed subtitle bridge and pixel conversion sources.
+- `third_party/ijkplayer/native-build.json`: source revisions, patch hashes, configuration and output hashes.
+- `third_party/ijkplayer/ffmpeg-<abi>-config.h`: retained FFmpeg feature configuration for each ABI.
+- `third_party/ijkplayer/NOTICE`, `COPYING.LGPLv2.1`, `COPYING.libxml2`, `COPYING.libyuv`,
+  `COPYING.soundtouch`, `NOTICE.NDK.toolchain`, `NOTICE.cpufeatures`: upstream licensing notices.
+- `docs/windows-android-build-environment.md`: prerequisites and build commands.
 
-## 专利提示
+The complete corresponding sources can be obtained using the pinned repositories and distributed
+patches. Retain the source recipe, source changes and license notices with native redistributions;
+include the corresponding source and relinking materials required by the applicable LGPL terms.
 
-硬件或软件「能解码」不等于「有专利授权」。Dolby（AC-3 / E-AC-3 / TrueHD）与 DTS 相关技术
-可能受专利约束；本项目的客户端解码仅用于用户自身拥有合法授权的媒体内容，且分发包中启用的
-解码器清单（见 `scripts/build-ffmpeg-decoder.sh`）在法务需要时可按需裁剪。
+## Other dependencies
+
+Official AndroidX/Jetpack, Kotlin, OkHttp, Coil, Room, Hilt and related dependencies retain their
+upstream licenses and notices. Android Framework `MediaSession` provides system playback controls.
+Media3 ExoPlayer and the Media3 FFmpeg extension are no longer application dependencies.
+
+## Patent notice
+
+Codec support does not imply patent licensing. Dolby and DTS technologies may be patent-protected.
+The application is intended for media content the user is legally authorized to play.

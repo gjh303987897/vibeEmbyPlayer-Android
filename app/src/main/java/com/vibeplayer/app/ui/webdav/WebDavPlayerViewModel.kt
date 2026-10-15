@@ -42,6 +42,7 @@ class WebDavPlayerViewModel @Inject constructor(
 ) : ViewModel() {
 
     val player = playerManager.player
+    fun setVideoSurface(holder: android.view.SurfaceHolder, attached: Boolean) = playerManager.setVideoSurface(holder, attached)
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -77,12 +78,15 @@ class WebDavPlayerViewModel @Inject constructor(
                         volume = p.volume,
                         subtitleTracks = p.subtitleTracks,
                         selectedSubtitleKey = p.selectedSubtitleKey,
+                        subtitleText = p.subtitleText,
+                        bitmapSubtitleFrame = p.bitmapSubtitleFrame,
                         audioTracks = p.audioTracks,
                         selectedAudioTrackKey = p.selectedAudioTrackKey,
                         audioDecode = p.audioDecode
                     )
                 }
             }
+
         }
     }
 
@@ -206,7 +210,7 @@ class WebDavPlayerViewModel @Inject constructor(
         val pos = playerManager.state.value.positionMs / 1000
         val dur = playerManager.state.value.durationMs / 1000
         val watchedSeconds = (pos - lastUsagePositionSeconds).coerceAtLeast(0L)
-        playerManager.player.pause()
+        playerManager.stop()
         if (started) {
             val srv = server
             started = false
@@ -246,7 +250,7 @@ class WebDavPlayerViewModel @Inject constructor(
             }
             started = false
         }
-        playerManager.player.pause()
+        playerManager.pause()
     }
 
     private fun startReporter(server: com.vibeplayer.app.model.ServerConfig) {

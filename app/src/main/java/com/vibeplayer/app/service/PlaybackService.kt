@@ -3,72 +3,96 @@ package com.vibeplayer.app.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
-import androidx.annotation.OptIn
-import androidx.core.app.NotificationCompat
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import android.content.Intent
 import com.vibeplayer.app.R
 import com.vibeplayer.app.player.PlaybackSessionManager
+import com.vibeplayer.app.player.PlayerManager
+import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import com.vibeplayer.app.security.PrivacyManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
-/**
- * Media3 [MediaSessionService] enabling system-level media controls and
- * background playback.
- *
- * The service is intentionally thin: it returns the application-scoped
- * [PlaybackSessionManager] session (which wraps the single shared ExoPlayer).
- * The Media3 stack then automatically publishes a media notification with
- * play/pause/seek controls and keeps playback alive while the app is in the
- * background or the screen is locked.
- *
- * Crash fix: a service started via `startForegroundService()` must call
- * `startForeground()` within the system time limit or the platform throws
- * `ForegroundServiceDidNotStartInTimeException` and kills the process. Media3's
- * internal scheduling can miss that window when playback starts and the app is
- * moving to the background, so we proactively promote the service to foreground
- * (with a minimal placeholder notification) in [onCreate]. Media3 then replaces
- * the placeholder with the real transport/media notification as soon as the
- * session produces one.
- */
-@OptIn(UnstableApi::class)
+/** Foreground service that keeps IJK playback alive and publishes framework media controls. */
 @AndroidEntryPoint
-class PlaybackService : MediaSessionService() {
-
+class PlaybackService : android.app.Service() {
     @Inject lateinit var sessionManager: PlaybackSessionManager
+    @Inject lateinit var playerManager: PlayerManager
     @Inject lateinit var privacyManager: PrivacyManager
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var notifiedPlaying: Boolean? = null
+    private var notifiedTitle: String? = null
 
-    override fun onTaskRemoved(rootIntent: android.content.Intent?) {
+    override fun onCreate() {
+        super.onCreate()
+        createChannel(this)
+        val state = playerManager.state.value
+        startForeground(NOTIFICATION_ID, buildNotification(state.title, state.isPlaying))
+        notifiedPlaying = state.isPlaying
+        notifiedTitle = state.title
+        scope.launch {
+            playerManager.state.collect { updateNotification(it.isPlaying, it.title) }
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        sessionManager.session.isActive = true
+        when (intent?.action) {
+            ACTION_PLAY -> playerManager.play()
+            ACTION_PAUSE -> playerManager.pause()
+        }
+        updateNotification(playerManager.state.value.isPlaying, playerManager.state.value.title)
+        return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
         privacyManager.onTaskRemoved()
         super.onTaskRemoved(rootIntent)
     }
 
-    override fun onCreate() {
-        createChannel(this)
-        // Promote to foreground as early as possible to satisfy the
-        // startForegroundService() contract and avoid the foreground-timeout
-        // crash. This is a placeholder; Media3 will refresh it with real
-        // play/pause/seek controls once playback is active.
-        startForeground(NOTIFICATION_ID, buildPlaceholderNotification())
-        super.onCreate()
+    override fun onDestroy() {
+        scope.cancel()
+        sessionManager.session.isActive = false
+        super.onDestroy()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession =
-        sessionManager.session
+    override fun onBind(intent: Intent?) = null
 
-    private fun buildPlaceholderNotification(): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.playback_notification_title))
+    private fun updateNotification(isPlaying: Boolean, title: String?) {
+        if (notifiedPlaying == isPlaying && notifiedTitle == title) return
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(title, isPlaying))
+        notifiedPlaying = isPlaying
+        notifiedTitle = title
+    }
+    private fun buildNotification(title: String? = null, isPlaying: Boolean = false): Notification {
+        val action = if (isPlaying) ACTION_PAUSE else ACTION_PLAY
+        val actionTitle = if (isPlaying) getString(R.string.pause) else getString(R.string.play)
+        val actionIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        val intent = Intent(this, PlaybackService::class.java).setAction(action)
+        val pendingIntent = PendingIntent.getService(
+            this, if (isPlaying) 1 else 2, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(title ?: getString(R.string.playback_notification_title))
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setOngoing(true)
+            .setOngoing(isPlaying)
+            .setOnlyAlertOnce(true)
+            .setStyle(Notification.MediaStyle().setMediaSession(sessionManager.session.sessionToken).setShowActionsInCompactView(0))
+            .addAction(actionIcon, actionTitle, pendingIntent)
             .build()
+    }
 
     companion object {
         const val CHANNEL_ID = "playback"
         const val NOTIFICATION_ID = 1002
+        private const val ACTION_PLAY = "com.vibeplayer.app.playback.PLAY"
+        private const val ACTION_PAUSE = "com.vibeplayer.app.playback.PAUSE"
 
         private fun createChannel(context: Context) {
             val channel = NotificationChannel(
@@ -76,9 +100,7 @@ class PlaybackService : MediaSessionService() {
                 context.getString(R.string.playback_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 }

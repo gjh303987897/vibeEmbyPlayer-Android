@@ -27,7 +27,12 @@ data class SubtitleConfiguration(
     val label: String?,
     val selectionFlags: Int,
     val mimeType: String
-)
+) {
+    companion object {
+        const val SELECTION_FLAG_DEFAULT = 1
+        const val SELECTION_FLAG_FORCED = 2
+    }
+}
 
 /**
  * Abstraction over an Emby or Jellyfin media server. Mirrors the Qt reference

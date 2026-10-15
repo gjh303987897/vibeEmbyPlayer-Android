@@ -39,6 +39,7 @@ class LinkPlayerViewModel @Inject constructor(
 ) : ViewModel() {
 
     val player = playerManager.player
+    fun setVideoSurface(holder: android.view.SurfaceHolder, attached: Boolean) = playerManager.setVideoSurface(holder, attached)
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -69,6 +70,10 @@ class LinkPlayerViewModel @Inject constructor(
                         error = p.error,
                         audioTracks = p.audioTracks,
                         selectedAudioTrackKey = p.selectedAudioTrackKey,
+                        subtitleText = p.subtitleText,
+                        bitmapSubtitleFrame = p.bitmapSubtitleFrame,
+                        subtitleTracks = p.subtitleTracks,
+                        selectedSubtitleKey = p.selectedSubtitleKey,
                         audioDecode = p.audioDecode
                     )
                 }
@@ -131,6 +136,8 @@ class LinkPlayerViewModel @Inject constructor(
 
     fun selectAudioTrack(track: AudioTrack) = playerManager.selectAudioTrack(track)
 
+    fun selectSubtitle(track: com.vibeplayer.app.player.SubtitleTrack?) = playerManager.selectSubtitle(track)
+
     fun seekTo(positionMs: Long) = playerManager.seekTo(positionMs)
 
     fun onPlaybackEnded() {
@@ -149,7 +156,7 @@ class LinkPlayerViewModel @Inject constructor(
             }
             started = false
         }
-        playerManager.player.pause()
+        playerManager.pause()
     }
 
     fun stopPlayback() {
@@ -157,7 +164,7 @@ class LinkPlayerViewModel @Inject constructor(
         val pos = playerManager.state.value.positionMs / 1000
         val dur = playerManager.state.value.durationMs / 1000
         val watchedSeconds = (pos - lastUsageSeconds).coerceAtLeast(0L)
-        playerManager.player.pause()
+        playerManager.stop()
         if (started) {
             started = false
             appScope.launch { withContext(NonCancellable) {

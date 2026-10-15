@@ -117,10 +117,8 @@ fun PlaybackStatusOverlay(
 }
 
 /**
- * Turns a Media3 `PlaybackException.errorCodeName` (or a message we produced
- * ourselves) into text a user can act on. Only the error *code* ever reaches the
- * UI - the exception message is deliberately not published because it can
- * contain a stream URL with credentials.
+ * Turns an IJKPlayer error code (or a message we produced ourselves) into text a user can act on.
+ * Only the sanitized error code ever reaches the UI.
  */
 @Composable
 private fun playbackErrorText(code: String): String = when {

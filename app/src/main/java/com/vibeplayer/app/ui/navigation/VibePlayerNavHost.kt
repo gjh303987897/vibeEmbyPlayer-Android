@@ -166,7 +166,7 @@ fun VibePlayerNavHost(
                             initialOffsetX = { it / 12 },
                             animationSpec = tween(260, easing = FastOutSlowInEasing)
                         )
-                    // PlayerView contains a native video surface, so keep it stationary.
+                    // IjkPlayerView contains a native video surface, so keep it stationary.
                     PageTransition.PLAYER -> EnterTransition.None
                 }
             },

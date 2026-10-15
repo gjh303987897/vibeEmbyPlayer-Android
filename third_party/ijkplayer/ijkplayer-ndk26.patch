@@ -1,0 +1,86 @@
+diff --git a/ijkmedia/ijkplayer/android/ijkplayer_jni.c b/ijkmedia/ijkplayer/android/ijkplayer_jni.c
+index b5a50e7..3c7e5f8 100755
+--- a/ijkmedia/ijkplayer/android/ijkplayer_jni.c
++++ b/ijkmedia/ijkplayer/android/ijkplayer_jni.c
+@@ -692,6 +692,8 @@ IjkMediaPlayer_getMediaMeta(JNIEnv *env, jobject thiz)
+ 
+             fillMetaInternal(env, jstream_bundle, streamRawMeta, IJKM_KEY_TYPE,     IJKM_VAL_TYPE__UNKNOWN);
+             fillMetaInternal(env, jstream_bundle, streamRawMeta, IJKM_KEY_LANGUAGE, NULL);
++            fillMetaInternal(env, jstream_bundle, streamRawMeta, IJKM_KEY_DISPOSITION, "0");
++            fillMetaInternal(env, jstream_bundle, streamRawMeta, IJKM_KEY_TITLE, NULL);
+             const char *type = ijkmeta_get_string_l(streamRawMeta, IJKM_KEY_TYPE);
+             if (type) {
+                 fillMetaInternal(env, jstream_bundle, streamRawMeta, IJKM_KEY_CODEC_NAME, NULL );
+diff --git a/ijkmedia/ijkplayer/android/pipeline/ffpipeline_android.c b/ijkmedia/ijkplayer/android/pipeline/ffpipeline_android.c
+index cbb1d7b..54fd99f 100644
+--- a/ijkmedia/ijkplayer/android/pipeline/ffpipeline_android.c
++++ b/ijkmedia/ijkplayer/android/pipeline/ffpipeline_android.c
+@@ -106,7 +106,7 @@ static IJKFF_Pipenode *func_init_video_decoder(IJKFF_Pipeline *pipeline, FFPlaye
+ static int func_config_video_decoder(IJKFF_Pipeline *pipeline, FFPlayer *ffp)
+ {
+     IJKFF_Pipeline_Opaque *opaque = pipeline->opaque;
+-    int                       ret = NULL;
++    int                       ret = 0;
+ 
+     if (ffp->node_vdec) {
+         ret = ffpipenode_config_from_android_mediacodec(ffp, pipeline, opaque->weak_vout, ffp->node_vdec);
+diff --git a/ijkmedia/ijkplayer/ff_ffplay.c b/ijkmedia/ijkplayer/ff_ffplay.c
+index 52aba31..041a32b 100755
+--- a/ijkmedia/ijkplayer/ff_ffplay.c
++++ b/ijkmedia/ijkplayer/ff_ffplay.c
+@@ -86,14 +86,6 @@
+ #define AV_CODEC_CAP_DR1 CODEC_CAP_DR1
+ #endif
+ 
+-// FIXME: 9 work around NDKr8e or gcc4.7 bug
+-// isnan() may not recognize some double NAN, so we test both double and float
+-#if defined(__ANDROID__)
+-#ifdef isnan
+-#undef isnan
+-#endif
+-#define isnan(x) (isnan((double)(x)) || isnanf((float)(x)))
+-#endif
+ 
+ #if defined(__ANDROID__)
+ #define printf(...) ALOGD(__VA_ARGS__)
+diff --git a/ijkmedia/ijkplayer/ijkmeta.c b/ijkmedia/ijkplayer/ijkmeta.c
+index 10380b8..d705895 100755
+--- a/ijkmedia/ijkplayer/ijkmeta.c
++++ b/ijkmedia/ijkplayer/ijkmeta.c
+@@ -274,6 +274,11 @@ void ijkmeta_set_avformat_context_l(IjkMediaMeta *meta, AVFormatContext *ic)
+         if (lang && lang->value)
+             ijkmeta_set_string_l(stream_meta, IJKM_KEY_LANGUAGE, lang->value);
+ 
++        ijkmeta_set_int64_l(stream_meta, IJKM_KEY_DISPOSITION, st->disposition);
++        AVDictionaryEntry *title = av_dict_get(st->metadata, "title", NULL, 0);
++        if (title && title->value)
++            ijkmeta_set_string_l(stream_meta, IJKM_KEY_TITLE, title->value);
++
+         ijkmeta_append_child_l(meta, stream_meta);
+         stream_meta = NULL;
+     }
+diff --git a/ijkmedia/ijkplayer/ijkmeta.h b/ijkmedia/ijkplayer/ijkmeta.h
+index 4334b2f..ff76f4f 100755
+--- a/ijkmedia/ijkplayer/ijkmeta.h
++++ b/ijkmedia/ijkplayer/ijkmeta.h
+@@ -43,6 +43,8 @@
+ #define IJKM_VAL_TYPE__TIMEDTEXT "timedtext"
+ #define IJKM_VAL_TYPE__UNKNOWN  "unknown"
+ #define IJKM_KEY_LANGUAGE       "language"
++#define IJKM_KEY_DISPOSITION    "disposition"
++#define IJKM_KEY_TITLE          "title"
+ 
+ #define IJKM_KEY_CODEC_NAME         "codec_name"
+ #define IJKM_KEY_CODEC_PROFILE      "codec_profile"
+diff --git a/ijkmedia/ijksdl/ijksdl_egl.c b/ijkmedia/ijksdl/ijksdl_egl.c
+index f2c995a..069f23b 100644
+--- a/ijkmedia/ijksdl/ijksdl_egl.c
++++ b/ijkmedia/ijksdl/ijksdl_egl.c
+@@ -25,6 +25,7 @@
+ 
+ #include <stdlib.h>
+ #include <stdbool.h>
++#include <android/native_window.h>
+ #include "ijksdl/ijksdl_gles2.h"
+ #include "ijksdl/ijksdl_log.h"
+ #include "ijksdl/ijksdl_vout.h"

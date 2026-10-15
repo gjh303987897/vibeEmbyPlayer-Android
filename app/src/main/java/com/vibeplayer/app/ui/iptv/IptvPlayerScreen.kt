@@ -39,11 +39,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
+import com.vibeplayer.app.ui.player.IjkPlayerView
 import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.ui.components.AudioDecodeNotice
+import com.vibeplayer.app.ui.components.PlayerSubtitleOverlay
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.PlayerGestureOverlay
 import com.vibeplayer.app.ui.player.PlayerScreenLock
@@ -88,18 +89,24 @@ fun IptvPlayerScreen(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                IjkPlayerView(ctx, viewModel::setVideoSurface).apply {
                     player = viewModel.player
-                    useController = false
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                 }
             },
+            update = {
+                if (state.isPrepared) it.updateVideoSize()
+                it.bitmapSubtitleFrame = state.bitmapSubtitleFrame
+            },
             modifier = Modifier.fillMaxSize()
         )
 
+        state.subtitleText?.let { text ->
+            PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+        }
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.
         if (!locked) Box(
@@ -143,6 +150,9 @@ fun IptvPlayerScreen(
                 audioDecode = state.audioDecode,
                 onBack = { navController.popBackStack() },
                 actions = {
+                    com.vibeplayer.app.ui.player.SubtitleSelector(
+                        state.subtitleTracks, state.selectedSubtitleKey, viewModel::selectSubtitle, compact = true
+                    )
                     PlayerExtraActions(
                         fullscreen = fullscreen,
                         onToggleFullscreen = { fullscreen = !fullscreen },

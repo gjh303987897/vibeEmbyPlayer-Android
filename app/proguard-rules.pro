@@ -17,3 +17,12 @@
 -keepclasseswithmembers class com.vibeplayer.app.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# Constructors and native method names are resolved from the bundled IJK JNI library.
+-keep class com.vibeplayer.app.player.BitmapSubtitleRegion { *; }
+-keep class com.vibeplayer.app.player.BitmapSubtitleFrame { *; }
+-keep class com.vibeplayer.app.player.NativeBitmapSubtitles { *; }
+
+# The upstream Java AAR has no consumer rules. Native J4A bindings resolve
+# player fields, callbacks and data-source interfaces by their original names.
+-keep class tv.danmaku.ijk.media.player.** { *; }

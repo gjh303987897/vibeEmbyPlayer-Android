@@ -21,11 +21,11 @@ Qt 使用 `QByteArray::toHex()` 写入每个成员的 `sha256`，因此该字段
 3. 从 index 定位根 manifest，按成员 header 与 SHA-256 校验。
 4. 用 root manifest digest 选择本机 TSSL（与桌面端一致），identifier 作为交叉校验；本机存在多个包时不会被相邻包顶替。
 5. 同时匹配 index digest、container length 和 container format。
-6. 后续 TS/playlist/resource 按 index 随机读取并校验；TS 继续在 AES-256-GCM tag 验证后才交给 Media3。
+6. 后续 TS/playlist/resource 按 index 随机读取并校验；TS 继续在 AES-256-GCM tag 验证后才交给 IJK。
 
-环回解密代理（`EncryptedHlsServer`）使用弹性线程池 + 连接槽上限，读完请求行后把读超时提高到 120 秒，避免 Media3 的空闲 keep-alive 连接占死固定线程池而让真实分片请求超时（表现为「进去没有画面，随后报错」）。
+环回解密代理（`EncryptedHlsServer`）使用弹性线程池 + 连接槽上限，读完请求行后把读超时提高到 120 秒，避免播放器的空闲 keep-alive 连接占死固定线程池而让真实分片请求超时（表现为「进去没有画面，随后报错」）。
 
-代理绑定 `127.0.0.1`，并向 Media3 提供该地址的 HTTP 播放 URL。`network_security_config.xml` 必须明确允许 `127.0.0.1` 的明文流量；只放行 `localhost` 不会覆盖这个数字地址，否则 WebDAV 的范围读取和 TSSL 校验成功后仍会在播放器连接本机代理时失败。其他远程地址仍遵循原有网络安全配置。
+代理绑定 `127.0.0.1`，并向 IJK 提供该地址的 HTTP 播放 URL。`network_security_config.xml` 必须明确允许 `127.0.0.1` 的明文流量；只放行 `localhost` 不会覆盖这个数字地址，否则 WebDAV 的范围读取和 TSSL 校验成功后仍会在播放器连接本机代理时失败。其他远程地址仍遵循原有网络安全配置。
 
 新扩展已加入本地和 WebDAV 媒体识别。TSSL import 使用完整 v2/v3/v4 schema 验证，不再只检查版本和 identifier 是否非空。源文件名加密 AAD 和标准 Base64 编码也与 Qt 定义保持一致。
 
@@ -41,7 +41,7 @@ identifier 优先按严格规则解析（4096 字符 Base64URL），失败时再
 
 ## 打包
 
-Android 不集成 FFmpeg，因此输入仍须是现成 HLS 文件夹；但移动端打包器现在默认将加密后的 manifest/TS 写为 Qt 兼容的 `.m3u8sp` POSIX/PAX TAR，并生成绑定 index digest 与 container length 的 TSSL v4。生成的根 manifest 会按分段时长写入 `#EXT-X-TARGETDURATION`（RFC 8216 必需项，缺失会被 ExoPlayer 拒绝）。Packager API 仍提供 `DIRECTORY_V3` 显式兼容模式，以便需要旧目录格式的调用方使用。TSSL 备份按原始字节传输，因此完整保留 v4 字段。
+Android 打包器不执行 FFmpeg 转码，因此输入仍须是现成 HLS 文件夹；移动端打包器默认将加密后的 manifest/TS 写为 Qt 兼容的 `.m3u8sp` POSIX/PAX TAR，并生成绑定 index digest 与 container length 的 TSSL v4。生成的根 manifest 按分段时长写入 `#EXT-X-TARGETDURATION`（RFC 8216 必需项）。Packager API 仍提供 `DIRECTORY_V3` 显式兼容模式，以便需要旧目录格式的调用方使用。TSSL 备份按原始字节传输，完整保留 v4 字段。
 
 ## 验证
 
