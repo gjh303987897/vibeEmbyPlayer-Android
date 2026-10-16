@@ -1,14 +1,15 @@
 package com.vibeplayer.app.ui.components
 
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutoutPadding
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 
 /**
  * Keeps content that sits against the top edge of the window - player overlays,
@@ -23,7 +24,22 @@ import androidx.compose.ui.Modifier
 fun Modifier.topEdgeInsets(): Modifier =
     statusBarsPadding().displayCutoutPadding()
 
-/** Keeps bottom playback controls and settings inside the same navigation/cutout safe area. */
+/** Keeps controls centred on the screen even when a landscape cutout occupies only one side. */
 @Composable
-fun Modifier.bottomEdgeInsets(): Modifier =
-    windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+fun Modifier.bottomEdgeInsets(): Modifier {
+    val safe = WindowInsets.safeDrawing
+    return windowInsetsPadding(remember(safe) { CentredBottomInsets(safe) })
+}
+
+/** Read at layout time so animated system bars are still handled by windowInsetsPadding. */
+private class CentredBottomInsets(private val safe: WindowInsets) : WindowInsets {
+    override fun getLeft(density: Density, layoutDirection: LayoutDirection): Int =
+        maxOf(safe.getLeft(density, layoutDirection), safe.getRight(density, layoutDirection))
+
+    override fun getRight(density: Density, layoutDirection: LayoutDirection): Int =
+        getLeft(density, layoutDirection)
+
+    override fun getTop(density: Density): Int = 0
+
+    override fun getBottom(density: Density): Int = safe.getBottom(density)
+}

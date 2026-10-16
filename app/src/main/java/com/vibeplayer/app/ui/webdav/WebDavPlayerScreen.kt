@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.VolumeDown
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Pause
@@ -42,24 +41,22 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.ui.player.IjkPlayerView
-import com.vibeplayer.app.player.AudioDecodeInfo
-import com.vibeplayer.app.ui.components.AudioDecodeNotice
 import com.vibeplayer.app.ui.components.PlayerSubtitleOverlay
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.PlayerGestureOverlay
 import com.vibeplayer.app.ui.player.PlayerSettings
 import com.vibeplayer.app.ui.player.PlayerSettingsViewModel
+import com.vibeplayer.app.ui.player.PlayerTopBar
+import com.vibeplayer.app.ui.player.PlayerPerformanceReadout
 import com.vibeplayer.app.ui.player.PlayerScreenLock
 import com.vibeplayer.app.ui.player.playerGestureSurface
 import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 import com.vibeplayer.app.ui.components.bottomEdgeInsets
-import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.player.PlayerExtraActions
 import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
 import java.util.concurrent.TimeUnit
@@ -157,8 +154,12 @@ fun WebDavPlayerScreen(
         )
 
         if (controlsVisible && !locked) {
-            WebDavTopBar(
-                performanceVisible = playerPreferences.showPerformance,
+            PlayerTopBar(
+                performance = {
+                    if (playerPreferences.showPerformance) PlayerPerformanceReadout(
+                        playerSettings, compact = LocalConfiguration.current.screenWidthDp < 600
+                    )
+                },
                 title = state.title,
                 subtitle = state.subtitle,
                 audioDecode = state.audioDecode,
@@ -186,7 +187,7 @@ fun WebDavPlayerScreen(
                 onSeek = viewModel::seekTo,
                 onSpeedChange = viewModel::setPlaybackSpeed,
                 onVolumeChange = viewModel::setVolume,
-                modifier = Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(start = 56.dp)
+                modifier = Modifier.align(Alignment.BottomCenter).bottomEdgeInsets()
             )
         }
 
@@ -200,32 +201,6 @@ fun WebDavPlayerScreen(
                 controlsVisible = !locked
             }
         )
-    }
-}
-
-@Composable
-private fun WebDavTopBar(performanceVisible: Boolean, title: String, subtitle: String, audioDecode: AudioDecodeInfo?, onBack: () -> Unit, actions: @Composable () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .topEdgeInsets()
-            .padding(top = if (performanceVisible) 32.dp else 0.dp)
-            .background(Color.Black.copy(alpha = 0.5f))
-            .padding(vertical = 8.dp)
-            .zIndex(1f)
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.back), tint = Color.White)
-        }
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(text = title, color = Color.White, style = MaterialTheme.typography.titleMedium)
-            subtitle.takeIf { it.isNotBlank() }?.let {
-                Text(text = it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
-            }
-            AudioDecodeNotice(audioDecode)
-        }
-        actions()
     }
 }
 
@@ -258,37 +233,29 @@ private fun WebDavControls(
                 vertical = if (landscape) 4.dp else 0.dp
             )
     ) {
+        Slider(
+            value = sliderPosition,
+            onValueChange = { sliderPosition = it },
+            onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatMs(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+            Text(formatMs(durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+        }
         if (landscape) {
-            // Keep the scrubber and primary action on one compact row so the
-            // video retains most of the available height in landscape.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                PlayPauseButton(isPlaying, onTogglePlay)
-                Slider(
-                    value = sliderPosition,
-                    onValueChange = { sliderPosition = it },
-                    onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) },
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                )
-                Text(
-                    text = "${formatMs(positionMs)} / ${formatMs(durationMs)}",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 56.dp)
             ) {
                 WebDavSpeedSelector(
                     current = playbackSpeed,
                     onSpeedChange = onSpeedChange,
-                    modifier = Modifier.weight(1.1f),
+                    modifier = Modifier.weight(1f),
                     compact = true
                 )
+                PlayPauseButton(isPlaying, onTogglePlay)
                 WebDavVolumeControl(
                     volume = volume,
                     onVolumeChange = onVolumeChange,
@@ -297,18 +264,6 @@ private fun WebDavControls(
                 )
             }
         } else {
-            Slider(
-                value = sliderPosition,
-                onValueChange = { sliderPosition = it },
-                onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) }
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = formatMs(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
-                Text(text = formatMs(durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
-            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
@@ -317,7 +272,8 @@ private fun WebDavControls(
                 PlayPauseButton(isPlaying, onTogglePlay)
             }
             WebDavSpeedSelector(current = playbackSpeed, onSpeedChange = onSpeedChange)
-            WebDavVolumeControl(volume = volume, onVolumeChange = onVolumeChange)
+            WebDavVolumeControl(volume = volume, onVolumeChange = onVolumeChange,
+                modifier = Modifier.padding(horizontal = 56.dp))
             Spacer(Modifier.height(8.dp))
         }
     }

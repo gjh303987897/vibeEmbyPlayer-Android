@@ -69,26 +69,17 @@ fun BoxScope.PlayerSettings(
     if (controlsVisible && !locked) {
         IconButton(
             onClick = { expanded = true; speedPage = false },
-            modifier = Modifier.align(Alignment.BottomStart).bottomEdgeInsets().padding(start = 8.dp, bottom = 8.dp)
+            modifier = Modifier.align(Alignment.BottomEnd).bottomEdgeInsets().padding(end = 8.dp, bottom = 8.dp)
                 .background(Color.Black.copy(alpha = .65f), CircleShape).zIndex(3f)
         ) {
             Icon(Icons.Outlined.Settings, stringResource(R.string.player_settings), tint = Color.White)
         }
     }
-    if (preferences.showPerformance) {
-        val performance by viewModel.performance.collectAsStateWithLifecycle()
-        Row(
+    if (preferences.showPerformance && (!controlsVisible || locked)) {
+        PlayerPerformanceReadout(viewModel,
             modifier = Modifier.align(Alignment.TopEnd).topEdgeInsets().padding(top = 4.dp, end = 8.dp)
-                .background(Color.Black.copy(alpha = .75f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp).zIndex(3f),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            val unavailable = stringResource(R.string.player_metric_unavailable)
-            Text("CPU ${performance.cpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}",
-                color = Color.White, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
-            Text("GPU ${performance.gpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}",
-                color = Color.White, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
-        }
+                .zIndex(3f)
+        )
     }
     if (expanded && !locked) {
         val decoder by viewModel.decoder.collectAsStateWithLifecycle()
@@ -162,6 +153,31 @@ fun BoxScope.PlayerSettings(
             }
         }
     }
+}
+
+/** Fits beside the header actions in portrait; also used independently when controls are hidden. */
+@Composable
+internal fun PlayerPerformanceReadout(
+    viewModel: PlayerSettingsViewModel,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
+    val performance by viewModel.performance.collectAsStateWithLifecycle()
+    val unavailable = stringResource(R.string.player_metric_unavailable)
+    val labels = listOf(
+        "CPU ${performance.cpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}",
+        "GPU ${performance.gpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}"
+    )
+    val readout = modifier.background(Color.Black.copy(alpha = .75f), RoundedCornerShape(6.dp))
+        .padding(horizontal = 8.dp, vertical = 4.dp)
+    val content: @Composable () -> Unit = {
+        labels.forEach { label ->
+            Text(label, color = Color.White, style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace, maxLines = 1)
+        }
+    }
+    if (compact) Column(readout, content = { content() })
+    else Row(readout, horizontalArrangement = Arrangement.spacedBy(12.dp), content = { content() })
 }
 
 private fun decodeLabel(mode: VideoDecodeMode): Int = when (mode) {

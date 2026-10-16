@@ -1,11 +1,24 @@
 # Player controls and settings
 
 All five source screens (Emby/Jellyfin, WebDAV, IPTV, links and local media) use the same
-gesture handling and settings panel. The lower-left settings button reserves space beside
-the playback controls. The panel uses three Material 3 tabs; long-press speed has a separate
+gesture handling and settings panel. The settings button sits independently at the lower right.
+The panel uses three Material 3 tabs; long-press speed has a separate
 selection page with a back action.
-The button and bottom playback controls share navigation/cutout safe-area padding, with a
-56 dp settings area reserved inside that padding.
+The button and bottom playback controls share navigation/cutout safe-area padding. The seek
+area uses the larger of the left/right safe insets on both sides, so a one-sided landscape
+cutout cannot move the primary action away from the physical screen centre. Insets are read
+at layout time and remain responsive to system-bar visibility changes. The seek
+bar and timestamps span the full safe width. Only the bottom action/volume row reserves 56 dp
+symmetrically on both sides, keeping play/pause centred and leaving the settings button clear
+of the volume slider. In landscape, Emby/Jellyfin and WebDAV place play/pause between equal-width
+speed and volume areas instead of before the seek bar.
+
+All sources use the same top bar. Performance readouts occupy a trailing slot beside the
+header actions (stacked in portrait); enabling them adds no top padding and does not change
+the header row's height. The title/subtitle remain at the top safe inset, and the audio decode
+notice occupies its own row underneath. With controls hidden or locked, the readout remains
+an independent upper-right overlay. Long title/subtitle text is ellipsized rather than wrapping
+and shifting controls.
 
 ## Volume and screen lock
 
@@ -86,6 +99,15 @@ cover speed-page navigation, the CPU/GPU overlay while locked and fullscreen con
 CPU sampling works on this phone; GPU is unavailable because its driver counters are not
 readable by an ordinary application. Device test APKs use a separate application ID and
 leave the installed release application's data intact.
+
+Layout regression verified on 2026-10-17: final `assembleDebug`, `lint` and all 37 JVM tests
+pass. The same HUAWEI phone plays a generated ten-minute AC-3/MP4 sample through a local USB
+HTTP forwarding endpoint in the isolated application. Portrait play/pause is centred at
+x=540 on the 1080-pixel display; landscape play/pause is centred at x=1170 on the 2340-pixel
+display, including the one-sided cutout. The seek bar and timestamps have matching left/right
+margins, and the settings action is at the bottom right. Enabling/disabling performance leaves
+the landscape title bounds unchanged at `[249,36][640,108]`. Checks also cover the portrait
+stacked readout, dismissed audio notice, lock/unlock readout visibility and settings access.
 
 ## References
 

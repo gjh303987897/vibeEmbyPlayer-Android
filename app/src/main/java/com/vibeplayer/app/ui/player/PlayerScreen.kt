@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.VolumeDown
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Pause
@@ -57,20 +56,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.ui.player.IjkPlayerView
 import com.vibeplayer.app.R
-import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.player.SubtitleTrack
-import com.vibeplayer.app.ui.components.AudioDecodeNotice
 import com.vibeplayer.app.ui.components.PlayerSubtitleOverlay
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 import com.vibeplayer.app.ui.components.bottomEdgeInsets
-import com.vibeplayer.app.ui.components.topEdgeInsets
 import java.util.concurrent.TimeUnit
 import java.util.Locale
 
@@ -171,7 +166,11 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             PlayerTopBar(
-                performanceVisible = playerPreferences.showPerformance,
+                performance = {
+                    if (playerPreferences.showPerformance) PlayerPerformanceReadout(
+                        playerSettings, compact = LocalConfiguration.current.screenWidthDp < 600
+                    )
+                },
                 title = state.title,
                 subtitle = state.subtitle,
                 audioDecode = state.audioDecode,
@@ -191,7 +190,7 @@ fun PlayerScreen(
             visible = controlsVisible,
             enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(280)) + fadeIn(tween(280)),
             exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(220)) + fadeOut(tween(220)),
-            modifier = Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(start = 56.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).bottomEdgeInsets()
         ) {
             ControlsBottom(
                 isPlaying = state.isPlaying,
@@ -219,39 +218,6 @@ fun PlayerScreen(
                 controlsVisible = !locked
             }
         )
-    }
-}
-
-@Composable
-private fun PlayerTopBar(
-    performanceVisible: Boolean,
-    title: String,
-    subtitle: String,
-    audioDecode: AudioDecodeInfo?,
-    onBack: () -> Unit,
-    actions: @Composable () -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .topEdgeInsets()
-            .padding(top = if (performanceVisible) 32.dp else 0.dp)
-            .background(Color.Black.copy(alpha = 0.5f))
-            .padding(vertical = 8.dp)
-            .zIndex(1f)
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.back), tint = Color.White)
-        }
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(text = title, color = Color.White, style = MaterialTheme.typography.titleMedium)
-            subtitle.takeIf { it.isNotBlank() }?.let {
-                Text(text = it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
-            }
-            AudioDecodeNotice(audioDecode)
-        }
-        actions()
     }
 }
 
@@ -287,46 +253,30 @@ private fun ControlsBottom(
                 vertical = if (landscape) 2.dp else 0.dp
             )
     ) {
+        Slider(
+            value = sliderPosition,
+            onValueChange = { sliderPosition = it },
+            onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+            Text(formatTime(durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+        }
         if (landscape) {
-            // In landscape the window is barely taller than the status-bar-free
-            // video, so the six stacked portrait rows would cover most of the
-            // picture. Scrubber + primary controls share compact rows instead.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                PlayPauseButton(isPlaying, onTogglePlay)
-                Slider(
-                    value = sliderPosition,
-                    onValueChange = { sliderPosition = it },
-                    onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) },
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                )
-                Text(
-                    text = "${formatTime(positionMs)} / ${formatTime(durationMs)}",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
+            // Equal side weights keep the primary action on the video centre line.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 56.dp)
             ) {
                 SpeedSelector(
                     current = playbackSpeed,
                     onSpeedChange = onSpeedChange,
-                    modifier = Modifier.weight(1.15f),
+                    modifier = Modifier.weight(1f),
                     compact = true
                 )
-                if (subtitleTracks.isNotEmpty()) {
-                    SubtitleSelector(
-                        subtitleTracks,
-                        selectedSubtitleKey,
-                        onSubtitleChange,
-                        compact = true
-                    )
-                }
+                PlayPauseButton(isPlaying, onTogglePlay)
                 VolumeControl(
                     volume = volume,
                     onVolumeChange = onVolumeChange,
@@ -334,19 +284,12 @@ private fun ControlsBottom(
                     compact = true
                 )
             }
-        } else {
-            Slider(
-                value = sliderPosition,
-                onValueChange = { sliderPosition = it },
-                onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) }
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
-                Text(text = formatTime(durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+            if (subtitleTracks.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 56.dp), horizontalArrangement = Arrangement.Center) {
+                    SubtitleSelector(subtitleTracks, selectedSubtitleKey, onSubtitleChange, compact = true)
+                }
             }
+        } else {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
@@ -355,9 +298,12 @@ private fun ControlsBottom(
                 PlayPauseButton(isPlaying, onTogglePlay, contentPadding = 8.dp)
             }
             SpeedSelector(current = playbackSpeed, onSpeedChange = onSpeedChange)
-            VolumeControl(volume = volume, onVolumeChange = onVolumeChange)
+            VolumeControl(volume = volume, onVolumeChange = onVolumeChange,
+                modifier = Modifier.padding(horizontal = 56.dp))
             if (subtitleTracks.isNotEmpty()) {
-                SubtitleSelector(subtitleTracks, selectedSubtitleKey, onSubtitleChange)
+                Row(Modifier.fillMaxWidth().padding(horizontal = 56.dp), horizontalArrangement = Arrangement.Center) {
+                    SubtitleSelector(subtitleTracks, selectedSubtitleKey, onSubtitleChange)
+                }
             }
         }
     }
