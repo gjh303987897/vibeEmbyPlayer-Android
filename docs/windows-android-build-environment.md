@@ -108,6 +108,14 @@ The original official ABI AARs are packaging inputs; Gradle includes only the re
 native variants. To resume selected architectures, pass `--abi x86,x86_64`; completed objects are
 reused when configuration matches. See `THIRD_PARTY_LICENSES.md` for source and notice details.
 
+The recipe also applies `ffmpeg-int64-options.patch`. It keeps decimal `INT64` options exact when
+IJK passes Android tagged heap pointers through FFmpeg dictionaries. Run the packaged-library
+regression on a connected device after rebuilding:
+
+```powershell
+node scripts/test-ijkplayer-int64.mjs --ndk "$env:ANDROID_NDK_HOME"
+```
+
 After rebuilding native dependencies, run:
 
 ```powershell

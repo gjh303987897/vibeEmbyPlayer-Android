@@ -1,0 +1,28 @@
+diff --git a/libavutil/opt.c b/libavutil/opt.c
+--- a/libavutil/opt.c
++++ b/libavutil/opt.c
+@@ -230,6 +230,23 @@ static int set_string_number(void *obj, void *target_obj, const AVOption *o, const c
+     int num, den;
+     char c;
+-
++
++    /* IJK transports native context pointers as decimal INT64 options. Android
++     * tagged heap pointers exceed double's 53-bit precision; evaluating them as
++     * expressions changes the address before the HTTP/TCP callback uses it.
++     * Keep integer literals exact and retain expression parsing for other input.
++     */
++    if (o->type == AV_OPT_TYPE_INT64) {
++        char *end;
++        int64_t integer;
++        errno = 0;
++        integer = strtoll(val, &end, 10);
++        if (end != val && !*end) {
++            if (errno == ERANGE)
++                return AVERROR(ERANGE);
++            return write_number(obj, o, dst, 1, 1, integer);
++        }
++    }
++
+     if (sscanf(val, "%d%*1[:/]%d%c", &num, &den, &c) == 2) {
+         if ((ret = write_number(obj, o, dst, 1, den, num)) >= 0)
+             return ret;

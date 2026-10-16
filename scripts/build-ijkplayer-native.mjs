@@ -65,6 +65,10 @@ const ffmpeg = path.join(source, 'ffmpeg');
 const patch = path.join(vendor, 'ffmpeg-ndk26.patch');
 const patchCheck = spawnSync('git', ['apply', '--reverse', '--check', patch], { cwd: ffmpeg, stdio: 'ignore' });
 if (patchCheck.status !== 0) run('git', ['apply', patch], ffmpeg);
+const int64Patch = path.join(vendor, 'ffmpeg-int64-options.patch');
+if (spawnSync('git', ['apply', '--reverse', '--check', int64Patch], { cwd: ffmpeg, stdio: 'ignore' }).status !== 0) {
+  run('git', ['apply', int64Patch], ffmpeg);
+}
 const ijkSource = path.join(source, 'ijkplayer');
 const ijkPatch = path.join(vendor, 'ijkplayer-ndk26.patch');
 if (spawnSync('git', ['apply', '--reverse', '--check', ijkPatch], { cwd: ijkSource, stdio: 'ignore' }).status !== 0) {
@@ -88,6 +92,10 @@ const jar = process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin', `jar
 const metadata = {
   nativeLibraries: ['libijkffmpeg.so', 'libijkplayer.so', 'libijksdl.so'],
   sources: repos, ndk: '26.1.10909125', androidApi: 21, patchSha256: sha256(patch), ijkPatchSha256: sha256(ijkPatch),
+  int64Options: {
+    patchSha256: sha256(int64Patch),
+    regressionSha256: sha256(path.join(vendor, 'tests/int64_options_test.c')),
+  },
   bitmapSubtitles: {
     patchSha256: sha256(bitmapPatch),
     supportSha256: Object.fromEntries(['bitmap_subtitles.c', 'bitmap_subtitles.h', 'bitmap_subtitle_pixels.c', 'bitmap_subtitle_pixels.h']
@@ -124,7 +132,7 @@ for (const name of selected) {
     `--extra-cflags=-DANDROID -I${forward(path.join(xmlOutput, 'include/libxml2'))}`,
     `--extra-ldflags=-L${forward(path.join(xmlOutput, 'lib'))}`,
   ];
-  const configuration = JSON.stringify({ flags, patch: metadata.patchSha256 });
+  const configuration = JSON.stringify({ flags, patch: metadata.patchSha256, int64Patch: metadata.int64Options.patchSha256 });
   const savedConfiguration = path.join(location, 'configure-arguments.json');
   if (!fs.existsSync(savedConfiguration) || fs.readFileSync(savedConfiguration, 'utf8') !== configuration) {
     shell(['bash', forward(path.join(ffmpeg, 'configure')), ...flags], location);

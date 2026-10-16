@@ -45,6 +45,10 @@
   "androidApi": 21,
   "patchSha256": "c4a618fe47e45455c996ca6107fc6a3171d3c546c5cedf0c4627e0cce56c758a",
   "ijkPatchSha256": "a891de21d37e8ed9c121556e9dfa69380f488db2d48d94c45002638ead49ed1e",
+  "int64Options": {
+    "patchSha256": "89f13deeaf0e430c3d3507a45afae88ba3f80629a3e386195a2cd1cfa774a583",
+    "regressionSha256": "c6609c5c7843bb17bc85b08aeb3531ac705fc2bd0b6f2c94d5b55758b0ff5e2b"
+  },
   "bitmapSubtitles": {
     "patchSha256": "71a5c0fb2750b8af0e829e5f0680e4b4789317faa7925b15109d45777b70f7d2",
     "supportSha256": {
@@ -60,10 +64,10 @@
   "artifacts": {
     "arm64": {
       "file": "ijkplayer-arm64-0.8.8-full.aar",
-      "sha256": "747785a1ecc085d2070b35fd6eefd3e07c326f97deb04a932880f9793dd5af1d",
+      "sha256": "a370df6c621bb26e3a78d3de331d413b9e58e00bcbb51d74603b4bb7099cfa68",
       "upstreamAarSha256": "12d5324160415afd678e901cf9cbfb28c2be5ff2918f9e576f40b8d7c1ac9841",
       "nativeHashes": {
-        "libijkffmpeg.so": "221f062fe7c04edf00c6b07c1e07fa52734921ddf57e431ef388553b4b0a07f3",
+        "libijkffmpeg.so": "bcc28d8d8bb55f54945b1ea99ccf4635de80b7ac9139b2e5609ea9b0fb9eb671",
         "libijkplayer.so": "7ffff1960b7a3450bae40d7aae6ba8bbf5530179efcb6d08e38bf4aaee9e6b56",
         "libijksdl.so": "451a24668b65834745ff5c98a745753c43f1e1343249e4cc206c2beac68a0285"
       },
@@ -121,10 +125,10 @@
     },
     "armv7a": {
       "file": "ijkplayer-armv7a-0.8.8-full.aar",
-      "sha256": "ce5c556bd2500c2896090b4826dc5b39cf9b190d57142cc1731d7848ca419b03",
+      "sha256": "b688c2f9bc06c4f4036eb886163402b6ecfd509f8fe9a4f2395da4570aeddedc",
       "upstreamAarSha256": "dcd76afad49954d5bd205ada8f661804c0c9f8e8e8f113fc931799b4df2b866a",
       "nativeHashes": {
-        "libijkffmpeg.so": "7f34ffd24c854fe4d115757dede6536ecf39cd50dacaa9d769efa4209cfae905",
+        "libijkffmpeg.so": "314bca3efca8518cb22cf6ec3e38c13296b1b4307486a697f4b9872cae262bbe",
         "libijkplayer.so": "c62c5bf9cc71eeabf4f26efc1f000fd1a7572221c495f9db7776f76fb08bcb61",
         "libijksdl.so": "eedfd1a2e5f0cc95707f1280d0568b9395ee5176489099e74afc5935730104af"
       },
@@ -184,10 +188,10 @@
     },
     "x86": {
       "file": "ijkplayer-x86-0.8.8-full.aar",
-      "sha256": "c41aa37b4eaef84603e70bb4bd7baae2d7a9b5f06dc8054ce1d0943eee2a7b24",
+      "sha256": "8dcecf9b1e3834fa8b68d05c8ade31abdcec85369e1493d4a0a30a92c371657d",
       "upstreamAarSha256": "1a23aa9da7b8e51877abb26538dcaa487bb1c2d5be8b15da71a4b9a6f39ce50a",
       "nativeHashes": {
-        "libijkffmpeg.so": "9a10018e8ed88fd5808178bc37a38bab8a848bc70a27bcfdc24367b0677b982b",
+        "libijkffmpeg.so": "b54e93baa16b2cc18709eea6c28d71e634b99e07932db6064abefe237fc98e16",
         "libijkplayer.so": "b5c58e2f2e1913e638d79023288a9c6c4f5db1d8580047597e3ca0e573205c63",
         "libijksdl.so": "25cd5c34090c395f4c1c96b362ecef36b46ef332771250d83434920d2c989d06"
       },
@@ -248,10 +252,10 @@
     },
     "x86_64": {
       "file": "ijkplayer-x86_64-0.8.8-full.aar",
-      "sha256": "65fb7056ea5d8885ba004e9643d4a79bede350d0dd9148987eaf058f609eebca",
+      "sha256": "3964c43b61d67b19081b38c242caa38c2ed141365fd7402aca30d6d80ec74a70",
       "upstreamAarSha256": "ef93518f7bf943a562ba01dd41163f19e03acec8e71ecce07213b9f49d7a255d",
       "nativeHashes": {
-        "libijkffmpeg.so": "5d5f19b0a9a0a7bf30f46611000070a6931fd9aad9ca0ca19372e4d102543cf8",
+        "libijkffmpeg.so": "a66dabfbe50629db1e6a942d48cd5e6d0d452794b5f61e1111ffe7c02db811b4",
         "libijkplayer.so": "778ab00f8df8c07b8ecf22fa7e780c0be413cdae330ced634a4cea64ead336d9",
         "libijksdl.so": "0115cb518dadc6aafe891b729b8076ef03045f1e36da6c4ce39a18376e305d3f"
       },

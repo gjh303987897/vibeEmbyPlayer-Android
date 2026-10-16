@@ -31,6 +31,8 @@ native FFmpeg TLS backend. Audio remains client-decoded; Emby/Jellyfin streams r
 - `scripts/build-ijkplayer-native.mjs`: fetches exact source revisions and rebuilds all four ABIs.
 - `third_party/ijkplayer/CMakeLists.txt`: builds the IJK player, SDL and supporting native sources.
 - `third_party/ijkplayer/ffmpeg-ndk26.patch` and `ijkplayer-ndk26.patch`: distributed source changes.
+- `third_party/ijkplayer/ffmpeg-int64-options.patch`: lossless integer option parsing for Android tagged native pointers.
+- `third_party/ijkplayer/tests/int64_options_test.c` and `scripts/test-ijkplayer-int64.mjs`: on-device regression against the packaged FFmpeg library.
 - `third_party/ijkplayer/ijkplayer-bitmap-subtitles.patch`: playback-clock subtitle scheduling and JNI integration.
 - `third_party/ijkplayer/bitmap_subtitles.{c,h}`, `bitmap_subtitle_pixels.{c,h}`: distributed subtitle bridge and pixel conversion sources.
 - `third_party/ijkplayer/native-build.json`: source revisions, patch hashes, configuration and output hashes.
