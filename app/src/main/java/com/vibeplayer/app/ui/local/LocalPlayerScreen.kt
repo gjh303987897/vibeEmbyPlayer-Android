@@ -47,10 +47,13 @@ import com.vibeplayer.app.ui.components.AudioDecodeNotice
 import com.vibeplayer.app.ui.components.PlayerSubtitleOverlay
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.PlayerGestureOverlay
+import com.vibeplayer.app.ui.player.PlayerSettings
+import com.vibeplayer.app.ui.player.PlayerSettingsViewModel
 import com.vibeplayer.app.ui.player.PlayerScreenLock
 import com.vibeplayer.app.ui.player.playerGestureSurface
 import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
+import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.player.PlayerExtraActions
 import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
@@ -68,6 +71,8 @@ fun LocalPlayerScreen(
     var locked by rememberSaveable { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
     val gestures = rememberPlayerGestureState()
+    val playerSettings: PlayerSettingsViewModel = hiltViewModel()
+    val playerPreferences by playerSettings.preferences.collectAsState()
     PlayerFullscreenEffect(fullscreen)
     // Playing keeps the display awake; pausing lets it sleep again.
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
@@ -96,6 +101,7 @@ fun LocalPlayerScreen(
                 }
             },
             update = {
+                it.updateSurfaceGeneration(state.surfaceGeneration)
                 if (state.isPrepared) it.updateVideoSize()
                 it.bitmapSubtitleFrame = state.bitmapSubtitleFrame
             },
@@ -107,10 +113,12 @@ fun LocalPlayerScreen(
         }
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.
-        if (!locked) Box(
+        Box(
             Modifier
                 .matchParentSize()
                 .playerGestureSurface(
+                    enabled = !locked,
+                    speedWhilePressed = playerPreferences.longPressSpeed,
                     gesture = gestures,
                     onToggleControls = { controlsVisible = !controlsVisible },
                     onTogglePlayPause = viewModel::togglePlayPause,
@@ -143,6 +151,7 @@ fun LocalPlayerScreen(
 
         if (controlsVisible && !locked) {
             LocalTopBar(
+                performanceVisible = playerPreferences.showPerformance,
                 title = state.title,
                 subtitle = state.subtitle,
                 audioDecode = state.audioDecode,
@@ -166,9 +175,11 @@ fun LocalPlayerScreen(
                 durationMs = state.durationMs,
                 onTogglePlay = viewModel::togglePlayPause,
                 onSeek = viewModel::seekTo,
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(start = 56.dp)
             )
         }
+
+        PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings)
 
         PlayerScreenLock(
             locked = locked,
@@ -182,12 +193,13 @@ fun LocalPlayerScreen(
 }
 
 @Composable
-private fun LocalTopBar(title: String, subtitle: String, audioDecode: AudioDecodeInfo?, onBack: () -> Unit, actions: @Composable () -> Unit) {
+private fun LocalTopBar(performanceVisible: Boolean, title: String, subtitle: String, audioDecode: AudioDecodeInfo?, onBack: () -> Unit, actions: @Composable () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .topEdgeInsets()
+            .padding(top = if (performanceVisible) 32.dp else 0.dp)
             .background(Color.Black.copy(alpha = 0.5f))
             .padding(vertical = 8.dp)
             .zIndex(1f)

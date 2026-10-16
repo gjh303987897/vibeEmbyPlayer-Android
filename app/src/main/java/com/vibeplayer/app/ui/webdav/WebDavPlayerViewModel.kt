@@ -82,7 +82,8 @@ class WebDavPlayerViewModel @Inject constructor(
                         bitmapSubtitleFrame = p.bitmapSubtitleFrame,
                         audioTracks = p.audioTracks,
                         selectedAudioTrackKey = p.selectedAudioTrackKey,
-                        audioDecode = p.audioDecode
+                        audioDecode = p.audioDecode,
+                        surfaceGeneration = p.surfaceGeneration
                     )
                 }
             }

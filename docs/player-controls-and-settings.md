@@ -1,0 +1,99 @@
+# Player controls and settings
+
+All five source screens (Emby/Jellyfin, WebDAV, IPTV, links and local media) use the same
+gesture handling and settings panel. The lower-left settings button reserves space beside
+the playback controls. The panel uses three Material 3 tabs; long-press speed has a separate
+selection page with a back action.
+The button and bottom playback controls share navigation/cutout safe-area padding, with a
+56 dp settings area reserved inside that padding.
+
+## Volume and screen lock
+
+Vertical gestures on the right and the volume slider control Android `STREAM_MUSIC` through
+`PlaybackVolumeController`. The displayed fraction comes from the actual stream index, including
+quantization and fixed-volume devices. `MODIFY_AUDIO_SETTINGS` is a normal manifest permission.
+Native IJK volume stays at unity except for audio-focus ducking, avoiding two independent volume
+attenuators. Physical volume keys target the music stream while a player screen is present.
+
+Locking disables the existing gesture modifier instead of removing its composable. Removing it
+used to dispose `PlayerBrightnessController`, restoring system brightness and causing the visible
+brightness jump. The window override now remains across lock/unlock and is restored on navigation
+away. Cancelling a long press clears the temporary speed and gesture indicator.
+
+## Preferences and decoding
+
+`SettingsDataStore` persists hold speeds (1.25x, 1.5x, 2x, 2.5x, 3x, 4x), the performance overlay
+toggle and the video decode preference. Defaults are 2x, hidden and hardware, respectively.
+The first source preparation waits for persisted preferences, so a saved software preference also
+applies on a cold launch. Settings failures are shown in the panel.
+
+Hardware selects IJK `mediacodec-all-videos=1`; software selects `0` on a freshly reset player.
+The other codec-specific MediaCodec options default to zero in the pinned IJK sources. Hardware
+uses the platform video decoder, which is a dedicated media engine rather than necessarily the
+general-purpose GPU. Unsupported hardware formats retain IJK's software fallback. The panel shows
+the actual native decoder independently of the preference.
+
+Changing the mode reloads the current source through `PlayerManager`, retaining credentials and
+TLS policy, external subtitle sources, selected audio/subtitle tracks, speed and pause state.
+On-demand media resumes its position; live media reconnects at the live edge. Download accounting
+continues for the same viewing session. All decoding remains on the client.
+
+Each mode change requests a fresh `SurfaceView` and waits for its holder before preparing.
+IJK's default RV32 software output locks the native window for CPU drawing, which keeps that
+BufferQueue connected to the CPU until its Surface is destroyed. Reusing it for MediaCodec
+failed on the test phone (`nativeWindowConnect: -22`) and silently fell back to software.
+The Surface generation survives source-state resets; obsolete holder-destroy callbacks cannot
+detach the replacement. Pending play/pause actions also update the reload's restoration intent.
+Selecting the already-selected audio track is skipped because pinned IJK otherwise reopens
+the stream and can race its existing decoder thread.
+
+## Performance overlay
+
+The overlay stays at the upper right when controls are hidden or locked. Sampling runs on IO
+every two seconds and stops when the player UI has no active lifecycle subscriber or the setting
+is disabled. CPU is process CPU time divided by elapsed time and the available processor count;
+100% represents all CPU cores available to this process, not one core or the entire device.
+
+GPU reads the KGSL driver busy/total-time counter only when the application can read it. Devices
+without that interface, permission-restricted drivers and invalid samples display unavailable.
+There is no root, ADB, private API, frequency-to-utilization conversion or fabricated zero. GPU
+load is device-wide and does not measure dedicated video-decoder utilization. The supported
+counter family is intentionally explicit; arbitrary vendor sysfs values are not assumed to have
+the same units.
+
+## Validation
+
+Build and lint tasks and the JVM suite must pass. `PlaybackPerformanceTest` covers core
+normalization, invalid sampling intervals and busy/total counter validation.
+`PlayerControlsTest` dispatches touchscreen events through the Activity decor view, checks the system music volume, clicks
+the lock/unlock button while checking the window brightness override, and checks hold-speed
+restoration. `PlayerManagerPlaybackTest` exercises paused software/hardware switching with
+position/audio-track preservation and actual Surface pixels, alongside the existing HTTP HLS,
+MP4/MKV and native audio regressions. Device execution is recorded separately from APK builds.
+
+The decoder-switch fixture is a 30-second lossless remux of the existing generated AC-3 video:
+
+```text
+ffmpeg -stream_loop 7 -i video_sample_ac3.mp4 -t 30 -map 0 -c copy video_sample_controls.mp4
+```
+
+Validated on 2026-10-16: `assembleDebug`, `lint` (zero errors, three existing warnings) and
+37 JVM tests pass. HUAWEI TAS-AL00 / API 31 / ARM64 passes all seven instrumentation tests.
+Native decoder events confirm MediaCodec (2) -> AVCodec (1) -> MediaCodec (2), with actual
+Surface pixels and advancing progress after both reloads. On the configured IPTV source,
+the settings panel also switches both ways and reports the actual decoder. Manual checks
+cover speed-page navigation, the CPU/GPU overlay while locked and fullscreen controls.
+CPU sampling works on this phone; GPU is unavailable because its driver counters are not
+readable by an ordinary application. Device test APKs use a separate application ID and
+leave the installed release application's data intact.
+
+## References
+
+- [Android media volume](https://developer.android.com/media/platform/output)
+- [Window brightness](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness)
+- [Process CPU time](https://developer.android.com/reference/android/os/Process#getElapsedCpuTime())
+- [Material 3 bottom sheets](https://developer.android.com/develop/ui/compose/components/bottom-sheets)
+- [Android Surface ownership](https://source.android.com/docs/core/graphics/arch-sh)
+- [Compose safe drawing insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
+- [Pinned IJK options](https://github.com/bilibili/ijkplayer/blob/k0.8.8/ijkmedia/ijkplayer/ff_ffplay_options.h)
+- [KGSL busy/total-time counter](https://android.googlesource.com/kernel/msm/+/86e532604d9465e4b0fcf69a150a11185f606ff1/drivers/gpu/msm/kgsl_pwrctrl.c)

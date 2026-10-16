@@ -19,7 +19,8 @@ class IjkPlayerView(
     private val onVideoSurfaceChanged: (SurfaceHolder, Boolean) -> Unit,
     attrs: android.util.AttributeSet? = null
 ) : FrameLayout(context, attrs), SurfaceHolder.Callback {
-    private val surfaceView = SurfaceView(context)
+    private var surfaceView = SurfaceView(context)
+    private var surfaceGeneration = 0L
     private val bitmapSubtitleView = BitmapSubtitleView(context)
 
     var bitmapSubtitleFrame: BitmapSubtitleFrame?
@@ -42,6 +43,17 @@ class IjkPlayerView(
 
     var player: IjkMediaPlayer? = null
     private var videoAspectRatio = 0.0
+
+    /** A Surface used by CPU rendering cannot later be connected to MediaCodec. */
+    fun updateSurfaceGeneration(generation: Long) {
+        if (surfaceGeneration == generation) return
+        surfaceGeneration = generation
+        removeView(surfaceView)
+        surfaceView.holder.removeCallback(this)
+        surfaceView = SurfaceView(context)
+        surfaceView.holder.addCallback(this)
+        addView(surfaceView, 0, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
+    }
 
     fun updateVideoSize() {
         val current = player ?: return

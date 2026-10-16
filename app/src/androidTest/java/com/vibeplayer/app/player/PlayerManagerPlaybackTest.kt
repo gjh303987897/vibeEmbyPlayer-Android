@@ -10,6 +10,8 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
 import android.view.SurfaceView
+import android.view.WindowManager
+import androidx.lifecycle.lifecycleScope
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,6 +24,12 @@ import java.io.File
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -45,6 +53,71 @@ import tv.danmaku.ijk.media.player.misc.ITrackInfo
 @RunWith(AndroidJUnit4::class)
 class PlayerManagerPlaybackTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private var surfaceObserver: Job? = null
+
+    @Test
+    fun decoderSwitchRetainsPositionPauseAndTracksAndRendersInSoftware() {
+        val app = instrumentation.targetContext.applicationContext as VibePlayerApp
+        val original = app.playerManager.preferences.value.videoDecodeMode
+        // A 30-second remux leaves room for both decoder reloads and Surface copies on slow devices.
+        val sample = copyResource(R.raw.video_sample_controls, ".mp4")
+        val shared = app.playerManager
+        try {
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(VideoDecodeMode.HARDWARE) }
+            awaitCondition("hardware preference must be loaded") { shared.preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val surface = attachSurface(scenario, shared)
+                callOnMain { shared.play(sample.absolutePath, "Decoder switch", null) }
+                awaitCondition("initial video must play") { shared.state.value.isPlaying && shared.state.value.positionMs >= MIN_POSITION_MS }
+                val originalDecoder = callOnMain { shared.player.videoDecoder }
+                val audio = shared.state.value.selectedAudioTrackKey
+                callOnMain { shared.pause(); shared.seekTo(1_200) }
+                awaitCondition("paused seek position must be retained") { shared.state.value.positionMs >= 1_000 }
+                val position = shared.state.value.positionMs
+                runBlocking { app.settingsDataStore.setVideoDecodeMode(VideoDecodeMode.SOFTWARE) }
+                awaitCondition("software reload must retain the paused position") {
+                    assertNull(shared.state.value.error)
+                    shared.state.value.isPrepared && shared.player.videoDecoder == IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC &&
+                        kotlin.math.abs(shared.state.value.positionMs - position) < 300
+                }
+                callOnMain {
+                    assertFalse("switching must keep a paused video paused", shared.state.value.isPlaying)
+                    assertEquals(audio, shared.state.value.selectedAudioTrackKey)
+                    shared.play()
+                }
+                awaitCondition("software decoder must render and advance after the paused seek") {
+                    shared.player.videoOutputFramesPerSecond > 0f && shared.state.value.isPlaying &&
+                        shared.state.value.positionMs > position + 300
+                }
+                assertColourBarsVisible(surface)
+                val softwarePosition = shared.state.value.positionMs
+                runBlocking { app.settingsDataStore.setVideoDecodeMode(VideoDecodeMode.HARDWARE) }
+                try {
+                    awaitCondition("hardware preference must restart and resume playback") {
+                        assertNull(shared.state.value.error)
+                        shared.preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE &&
+                            shared.state.value.isPlaying && shared.player.videoDecoder == originalDecoder &&
+                            shared.player.videoOutputFramesPerSecond > 0f &&
+                            shared.state.value.positionMs > softwarePosition + 300
+                    }
+                } catch (error: AssertionError) {
+                    throw AssertionError("decoder switch: original=$originalDecoder actual=${shared.player.videoDecoder} " +
+                        "mode=${shared.preferences.value.videoDecodeMode} prepared=${shared.state.value.isPrepared} " +
+                        "playing=${shared.state.value.isPlaying} buffering=${shared.state.value.buffering} " +
+                        "position=${shared.state.value.positionMs}/${shared.state.value.durationMs}", error)
+                }
+                assertColourBarsVisible(surface)
+            }
+        } finally {
+            callOnMain {
+                shared.stop()
+                shared.beginLoading()
+                instrumentation.targetContext.stopService(Intent(instrumentation.targetContext, PlaybackService::class.java))
+            }
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(original) }
+            sample.delete()
+        }
+    }
 
     @Test
     fun httpHlsRendersThroughProxyOutsideLocalhostAllowlist() {
@@ -169,7 +242,7 @@ class PlayerManagerPlaybackTest {
                                     shared.player.videoOutputFramesPerSecond > 0f
                             }
                             callOnMain {
-                                assertTrue("video surface must remain valid", surface.holder.surface.isValid)
+                                assertTrue("video surface must remain valid", (surface.getChildAt(0) as SurfaceView).holder.surface.isValid)
                                 assertTrue("video dimensions must be available", shared.player.videoWidth > 0 && shared.player.videoHeight > 0)
                                 // The app requests MediaCodec, but IJK may legitimately fall back on
                                 // a device without a usable AVC decoder. Both paths must render.
@@ -212,28 +285,35 @@ class PlayerManagerPlaybackTest {
 
     private data class Sample(val file: File, val codec: String)
 
-    private fun attachSurface(scenario: ActivityScenario<MainActivity>, manager: PlayerManager): SurfaceView {
+    private fun attachSurface(scenario: ActivityScenario<MainActivity>, manager: PlayerManager): IjkPlayerView {
         val created = CountDownLatch(1)
-        lateinit var surface: SurfaceView
+        lateinit var view: IjkPlayerView
         scenario.onActivity { activity ->
-            val view = IjkPlayerView(activity, { holder, attached ->
+            surfaceObserver?.cancel()
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            view = IjkPlayerView(activity, { holder, attached ->
                 manager.setVideoSurface(holder, attached)
                 if (attached) created.countDown()
             }).apply { player = manager.player }
-            surface = view.getChildAt(0) as SurfaceView
             activity.setContentView(view)
+            surfaceObserver = activity.lifecycleScope.launch {
+                manager.state.map { it.surfaceGeneration }.distinctUntilChanged().collect {
+                    view.updateSurfaceGeneration(it)
+                }
+            }
         }
         assertTrue("video surface must be created", created.await(TIMEOUT_MS, TimeUnit.MILLISECONDS))
-        return surface
+        return view
     }
 
     /** Native output statistics alone cannot establish that pixels reached the Surface. */
-    private fun assertColourBarsVisible(surface: SurfaceView) {
+    private fun assertColourBarsVisible(view: IjkPlayerView) {
         val bitmap = Bitmap.createBitmap(32, 18, Bitmap.Config.ARGB_8888)
         val copied = CountDownLatch(1)
         var result = PixelCopy.ERROR_UNKNOWN
         try {
             callOnMain {
+                val surface = view.getChildAt(0) as SurfaceView
                 PixelCopy.request(surface, bitmap, { status ->
                     result = status
                     copied.countDown()

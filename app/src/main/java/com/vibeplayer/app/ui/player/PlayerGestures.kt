@@ -179,7 +179,8 @@ fun Modifier.playerGestureSurface(
     onSeek: (Long) -> Unit,
     volume: Float,
     onVolumeChange: (Float) -> Unit,
-    speedWhilePressed: Float = PLAYER_GESTURE_SPEED
+    speedWhilePressed: Float = PLAYER_GESTURE_SPEED,
+    enabled: Boolean = true
 ): Modifier {
     val context = LocalContext.current
     val view = LocalView.current
@@ -206,166 +207,172 @@ fun Modifier.playerGestureSurface(
         }
     }
 
-    return this.pointerInput(Unit) {
+    return this.pointerInput(enabled) {
+        if (!enabled) return@pointerInput
         // ViewConfiguration.touchSlop is already reported in pixels.
         val slopPx = viewConfiguration.touchSlop
-        awaitEachGesture {
-            // Final pass = observe the event after every other node did, so a
-            // control that claimed the touch makes this loop give up instead of
-            // acting on the same touch a second time.
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-            if (down.isConsumed) {
-                // The press already belongs to a control; don't run a gesture that
-                // would only fire its long-press timeout while a button is held.
-                return@awaitEachGesture
-            }
-            val pointerId: PointerId = down.id
-            var axis: PlayerGestureKind? = null
-            var speedBoosted = false
-            var speedIndicatorDocked = false
-            var dragOrigin: Offset? = null
-            var dragInitialValue = 0f
-            var seekStartPositionMs = 0L
-            var seekDurationMs = 0L
-            var seekTargetMs = 0L
-            var done = false
-            while (!done) {
-                // Both deadlines are measured from the original press. A still
-                // finger sends no events, so each timeout must wake this loop.
-                // The floor also keeps either deadline alive after a slow frame.
-                val elapsedMs = SystemClock.uptimeMillis() - down.uptimeMillis
-                val timeoutMs = when {
-                    axis == null && !speedBoosted -> viewConfiguration.longPressTimeoutMillis - elapsedMs
-                    speedBoosted && !speedIndicatorDocked -> SPEED_INDICATOR_DOCK_DELAY_MS - elapsedMs
-                    else -> null
+        try {
+            awaitEachGesture {
+                // Final pass = observe the event after every other node did, so a
+                // control that claimed the touch makes this loop give up instead of
+                // acting on the same touch a second time.
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+                if (down.isConsumed) {
+                    // The press already belongs to a control; don't run a gesture that
+                    // would only fire its long-press timeout while a button is held.
+                    return@awaitEachGesture
                 }
-                val event = if (timeoutMs != null) {
-                    withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
-                        awaitPointerEvent(PointerEventPass.Final)
+                val pointerId: PointerId = down.id
+                var axis: PlayerGestureKind? = null
+                var speedBoosted = false
+                var speedIndicatorDocked = false
+                var dragOrigin: Offset? = null
+                var dragInitialValue = 0f
+                var seekStartPositionMs = 0L
+                var seekDurationMs = 0L
+                var seekTargetMs = 0L
+                var done = false
+                while (!done) {
+                    // Both deadlines are measured from the original press. A still
+                    // finger sends no events, so each timeout must wake this loop.
+                    // The floor also keeps either deadline alive after a slow frame.
+                    val elapsedMs = SystemClock.uptimeMillis() - down.uptimeMillis
+                    val timeoutMs = when {
+                        axis == null && !speedBoosted -> viewConfiguration.longPressTimeoutMillis - elapsedMs
+                        speedBoosted && !speedIndicatorDocked -> SPEED_INDICATOR_DOCK_DELAY_MS - elapsedMs
+                        else -> null
                     }
-                } else awaitPointerEvent(PointerEventPass.Final)
-                if (event == null) {
-                    if (!speedBoosted) {
-                        // Timeout with no decisive movement: long press.
-                        speedBoosted = true
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        currentSpeedStart(currentSpeedWhilePressed)
-                        gesture.showSpeed(currentSpeedWhilePressed, docked = false)
-                    } else {
-                        // A continued hold moves only the readout, not playback speed.
-                        speedIndicatorDocked = true
-                        gesture.showSpeed(currentSpeedWhilePressed, docked = true)
+                    val event = if (timeoutMs != null) {
+                        withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+                            awaitPointerEvent(PointerEventPass.Final)
+                        }
+                    } else awaitPointerEvent(PointerEventPass.Final)
+                    if (event == null) {
+                        if (!speedBoosted) {
+                            // Timeout with no decisive movement: long press.
+                            speedBoosted = true
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            currentSpeedStart(currentSpeedWhilePressed)
+                            gesture.showSpeed(currentSpeedWhilePressed, docked = false)
+                        } else {
+                            // A continued hold moves only the readout, not playback speed.
+                            speedIndicatorDocked = true
+                            gesture.showSpeed(currentSpeedWhilePressed, docked = true)
+                        }
+                        continue
                     }
-                    continue
-                }
-                val change = event.changes.firstOrNull { it.id == pointerId }
-                if (change == null || change.isConsumed) {
-                    // A control took this touch, or the finger left the surface.
-                    done = true
-                    continue
-                }
-                when {
-                    !change.pressed -> {
-                        if (axis == PlayerGestureKind.Seek) {
+                    val change = event.changes.firstOrNull { it.id == pointerId }
+                    if (change == null || change.isConsumed) {
+                        // A control took this touch, or the finger left the surface.
+                        done = true
+                        continue
+                    }
+                    when {
+                        !change.pressed -> {
+                            if (axis == PlayerGestureKind.Seek) {
+                                seekTargetMs = swipeSeekTarget(
+                                    startPositionMs = seekStartPositionMs,
+                                    durationMs = seekDurationMs,
+                                    dragDistancePx = change.position.x - down.position.x,
+                                    surfaceWidthPx = size.width.toFloat()
+                                )
+                                if (currentDurationMs > 0L && seekTargetMs != seekStartPositionMs) {
+                                    currentSeek(seekTargetMs)
+                                }
+                            } else if (axis == null && !speedBoosted) {
+                                // Lifted without becoming a drag or a long press: a tap,
+                                // or the first tap of a double tap.
+                                if (awaitSecondTap(pointerId) != null) {
+                                    currentTogglePlayPause()
+                                    // Swallow the rest of the second tap, otherwise its
+                                    // release would read as one more tap.
+                                    awaitAllPointersUp()
+                                } else {
+                                    currentToggleControls()
+                                }
+                            }
+                            done = true
+                        }
+
+                        axis == PlayerGestureKind.Seek -> {
                             seekTargetMs = swipeSeekTarget(
                                 startPositionMs = seekStartPositionMs,
                                 durationMs = seekDurationMs,
                                 dragDistancePx = change.position.x - down.position.x,
                                 surfaceWidthPx = size.width.toFloat()
                             )
-                            if (currentDurationMs > 0L && seekTargetMs != seekStartPositionMs) {
-                                currentSeek(seekTargetMs)
-                            }
-                        } else if (axis == null && !speedBoosted) {
-                            // Lifted without becoming a drag or a long press: a tap,
-                            // or the first tap of a double tap.
-                            if (awaitSecondTap(pointerId) != null) {
-                                currentTogglePlayPause()
-                                // Swallow the rest of the second tap, otherwise its
-                                // release would read as one more tap.
-                                awaitAllPointersUp()
-                            } else {
-                                currentToggleControls()
-                            }
+                            gesture.showSeek(seekStartPositionMs, seekTargetMs, seekDurationMs)
                         }
-                        done = true
-                    }
 
-                    axis == PlayerGestureKind.Seek -> {
-                        seekTargetMs = swipeSeekTarget(
-                            startPositionMs = seekStartPositionMs,
-                            durationMs = seekDurationMs,
-                            dragDistancePx = change.position.x - down.position.x,
-                            surfaceWidthPx = size.width.toFloat()
+                        axis != null -> applyGestureDrag(
+                            axis = axis,
+                            position = change.position,
+                            origin = dragOrigin ?: down.position,
+                            initialValue = dragInitialValue,
+                            surfaceHeightPx = size.height.toFloat(),
+                            brightness = brightness,
+                            gesture = gesture,
+                            onVolumeChange = currentVolumeChange
                         )
-                        gesture.showSeek(seekStartPositionMs, seekTargetMs, seekDurationMs)
-                    }
 
-                    axis != null -> applyGestureDrag(
-                        axis = axis,
-                        position = change.position,
-                        origin = dragOrigin ?: down.position,
-                        initialValue = dragInitialValue,
-                        surfaceHeightPx = size.height.toFloat(),
-                        brightness = brightness,
-                        gesture = gesture,
-                        onVolumeChange = currentVolumeChange
-                    )
+                        speedBoosted -> Unit // a long press runs until the finger lifts
 
-                    speedBoosted -> Unit // a long press runs until the finger lifts
-
-                    else -> {
-                        val delta = change.position - down.position
-                        if (abs(delta.x) >= slopPx && abs(delta.x) >= abs(delta.y)) {
-                            // Unknown-duration streams have no bounded target to seek to.
-                            if (currentDurationMs <= 0L) {
-                                done = true
+                        else -> {
+                            val delta = change.position - down.position
+                            if (abs(delta.x) >= slopPx && abs(delta.x) >= abs(delta.y)) {
+                                // Unknown-duration streams have no bounded target to seek to.
+                                if (currentDurationMs <= 0L) {
+                                    done = true
+                                    continue
+                                }
+                                axis = PlayerGestureKind.Seek
+                                seekDurationMs = currentDurationMs
+                                seekStartPositionMs = currentPositionMs.coerceIn(0L, seekDurationMs)
+                                seekTargetMs = swipeSeekTarget(
+                                    startPositionMs = seekStartPositionMs,
+                                    durationMs = seekDurationMs,
+                                    dragDistancePx = delta.x,
+                                    surfaceWidthPx = size.width.toFloat()
+                                )
+                                gesture.showSeek(seekStartPositionMs, seekTargetMs, seekDurationMs)
                                 continue
                             }
-                            axis = PlayerGestureKind.Seek
-                            seekDurationMs = currentDurationMs
-                            seekStartPositionMs = currentPositionMs.coerceIn(0L, seekDurationMs)
-                            seekTargetMs = swipeSeekTarget(
-                                startPositionMs = seekStartPositionMs,
-                                durationMs = seekDurationMs,
-                                dragDistancePx = delta.x,
-                                surfaceWidthPx = size.width.toFloat()
-                            )
-                            gesture.showSeek(seekStartPositionMs, seekTargetMs, seekDurationMs)
-                            continue
-                        }
-                        if (abs(delta.y) >= slopPx && abs(delta.y) > abs(delta.x)) {
-                            // Left half = brightness (when a window is reachable),
-                            // right half = the player volume.
-                            axis = if (change.position.x < size.width / 2f &&
-                                brightness.canControl
-                            ) {
-                                PlayerGestureKind.Brightness
-                            } else {
-                                PlayerGestureKind.Volume
+                            if (abs(delta.y) >= slopPx && abs(delta.y) > abs(delta.x)) {
+                                // Left half = brightness (when a window is reachable),
+                                // right half = the player volume.
+                                axis = if (change.position.x < size.width / 2f &&
+                                    brightness.canControl
+                                ) {
+                                    PlayerGestureKind.Brightness
+                                } else {
+                                    PlayerGestureKind.Volume
+                                }
+                                dragOrigin = change.position
+                                dragInitialValue = if (axis == PlayerGestureKind.Brightness) {
+                                    brightness.currentValue
+                                } else {
+                                    currentVolume
+                                }
+                                applyGestureDrag(
+                                    axis = axis,
+                                    position = change.position,
+                                    origin = dragOrigin,
+                                    initialValue = dragInitialValue,
+                                    surfaceHeightPx = size.height.toFloat(),
+                                    brightness = brightness,
+                                    gesture = gesture,
+                                    onVolumeChange = currentVolumeChange
+                                )
                             }
-                            dragOrigin = change.position
-                            dragInitialValue = if (axis == PlayerGestureKind.Brightness) {
-                                brightness.currentValue
-                            } else {
-                                currentVolume
-                            }
-                            applyGestureDrag(
-                                axis = axis,
-                                position = change.position,
-                                origin = dragOrigin,
-                                initialValue = dragInitialValue,
-                                surfaceHeightPx = size.height.toFloat(),
-                                brightness = brightness,
-                                gesture = gesture,
-                                onVolumeChange = currentVolumeChange
-                            )
+                            // Small movements stay undecided until an axis wins.
                         }
-                        // Small movements stay undecided until an axis wins.
                     }
                 }
+                if (speedBoosted) currentSpeedEnd()
+                gesture.hide()
             }
-            if (speedBoosted) currentSpeedEnd()
+        } finally {
+            currentSpeedEnd()
             gesture.hide()
         }
     }

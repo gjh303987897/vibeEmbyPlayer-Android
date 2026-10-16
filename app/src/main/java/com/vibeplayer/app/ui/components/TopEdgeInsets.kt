@@ -1,7 +1,13 @@
 package com.vibeplayer.app.ui.components
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
@@ -16,3 +22,8 @@ import androidx.compose.ui.Modifier
  */
 fun Modifier.topEdgeInsets(): Modifier =
     statusBarsPadding().displayCutoutPadding()
+
+/** Keeps bottom playback controls and settings inside the same navigation/cutout safe area. */
+@Composable
+fun Modifier.bottomEdgeInsets(): Modifier =
+    windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))

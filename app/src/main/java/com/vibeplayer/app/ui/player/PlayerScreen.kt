@@ -69,6 +69,7 @@ import com.vibeplayer.app.ui.components.PlayerSubtitleOverlay
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
 import com.vibeplayer.app.ui.player.rememberPlayerGestureState
 import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
+import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import java.util.concurrent.TimeUnit
 import java.util.Locale
@@ -85,6 +86,8 @@ fun PlayerScreen(
     var locked by rememberSaveable { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
     val gestures = rememberPlayerGestureState()
+    val playerSettings: PlayerSettingsViewModel = hiltViewModel()
+    val playerPreferences by playerSettings.preferences.collectAsState()
     PlayerFullscreenEffect(fullscreen)
     // Playing keeps the display awake; pausing lets it sleep again.
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
@@ -115,6 +118,7 @@ fun PlayerScreen(
                 }
             },
             update = {
+                it.updateSurfaceGeneration(state.surfaceGeneration)
                 if (state.isPrepared) it.updateVideoSize()
                 it.bitmapSubtitleFrame = state.bitmapSubtitleFrame
             },
@@ -123,10 +127,12 @@ fun PlayerScreen(
 
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.
-        if (!locked) Box(
+        Box(
             Modifier
                 .matchParentSize()
                 .playerGestureSurface(
+                    enabled = !locked,
+                    speedWhilePressed = playerPreferences.longPressSpeed,
                     gesture = gestures,
                     onToggleControls = { controlsVisible = !controlsVisible },
                     onTogglePlayPause = viewModel::togglePlayPause,
@@ -165,6 +171,7 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             PlayerTopBar(
+                performanceVisible = playerPreferences.showPerformance,
                 title = state.title,
                 subtitle = state.subtitle,
                 audioDecode = state.audioDecode,
@@ -184,7 +191,7 @@ fun PlayerScreen(
             visible = controlsVisible,
             enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(280)) + fadeIn(tween(280)),
             exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(220)) + fadeOut(tween(220)),
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier = Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(start = 56.dp)
         ) {
             ControlsBottom(
                 isPlaying = state.isPlaying,
@@ -202,6 +209,8 @@ fun PlayerScreen(
             )
         }
 
+        PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings)
+
         PlayerScreenLock(
             locked = locked,
             controlsVisible = controlsVisible,
@@ -215,6 +224,7 @@ fun PlayerScreen(
 
 @Composable
 private fun PlayerTopBar(
+    performanceVisible: Boolean,
     title: String,
     subtitle: String,
     audioDecode: AudioDecodeInfo?,
@@ -226,6 +236,7 @@ private fun PlayerTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .topEdgeInsets()
+            .padding(top = if (performanceVisible) 32.dp else 0.dp)
             .background(Color.Black.copy(alpha = 0.5f))
             .padding(vertical = 8.dp)
             .zIndex(1f)

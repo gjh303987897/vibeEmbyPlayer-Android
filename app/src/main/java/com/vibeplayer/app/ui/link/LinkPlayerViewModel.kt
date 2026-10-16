@@ -74,7 +74,8 @@ class LinkPlayerViewModel @Inject constructor(
                         bitmapSubtitleFrame = p.bitmapSubtitleFrame,
                         subtitleTracks = p.subtitleTracks,
                         selectedSubtitleKey = p.selectedSubtitleKey,
-                        audioDecode = p.audioDecode
+                        audioDecode = p.audioDecode,
+                        surfaceGeneration = p.surfaceGeneration
                     )
                 }
             }

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.Context
 import android.content.ContextWrapper
+import android.media.AudioManager
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Audiotrack
@@ -35,6 +36,11 @@ import com.vibeplayer.app.ui.components.topEdgeInsets
 @Composable
 fun PlayerFullscreenEffect(fullscreen: Boolean) {
     val activity = LocalContext.current.findActivity() ?: return
+    DisposableEffect(activity) {
+        val previousStream = activity.volumeControlStream
+        activity.volumeControlStream = AudioManager.STREAM_MUSIC
+        onDispose { activity.volumeControlStream = previousStream }
+    }
     DisposableEffect(activity, fullscreen) {
         val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         if (fullscreen) {

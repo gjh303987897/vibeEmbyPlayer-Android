@@ -53,7 +53,8 @@ data class PlayerUiState(
      * Decoder actually used for the current audio track. Shared by every player screen, which
      * all render it with `AudioDecodeNotice` - see [AudioDecodeInfo] for the meanings.
      */
-    val audioDecode: AudioDecodeInfo? = null
+    val audioDecode: AudioDecodeInfo? = null,
+    val surfaceGeneration: Long = 0L
 )
 
 @HiltViewModel
@@ -108,7 +109,8 @@ class PlayerViewModel @Inject constructor(
                         bitmapSubtitleFrame = p.bitmapSubtitleFrame,
                         audioTracks = p.audioTracks,
                         selectedAudioTrackKey = p.selectedAudioTrackKey,
-                        audioDecode = p.audioDecode
+                        audioDecode = p.audioDecode,
+                        surfaceGeneration = p.surfaceGeneration
                     )
                 }
             }

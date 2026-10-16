@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -23,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,10 +56,29 @@ data class PlayerState(
     val audioTracks: List<AudioTrack> = emptyList(),
     val selectedAudioTrackKey: String? = null,
     val audioDecode: AudioDecodeInfo? = null,
+    val videoDecodeMode: VideoDecodeMode? = null,
+    val surfaceGeneration: Long = 0L,
     val privatePlayback: Boolean = false
 )
 
 private data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
+
+private data class PlaybackRequest(
+    val url: String,
+    val title: String?,
+    val subtitle: String?,
+    val headers: Map<String, String>,
+    val trustSelfSignedCertificate: Boolean,
+    val privatePlayback: Boolean,
+    val subtitles: List<SubtitleConfiguration>
+)
+
+private data class DecoderRestore(
+    val playWhenReady: Boolean,
+    val audioKey: String?,
+    val subtitleKey: String?,
+    val restoreSubtitle: Boolean
+)
 
 @Singleton
 class PlayerManager @Inject constructor(
@@ -66,8 +87,17 @@ class PlayerManager @Inject constructor(
     private val settingsDataStore: SettingsDataStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val _state = MutableStateFlow(PlayerState())
+    private val volumeController = PlaybackVolumeController(context)
+    private val _state = MutableStateFlow(PlayerState(volume = volumeController.volume))
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+    private val _preferences = MutableStateFlow(PlayerPreferences())
+    val preferences: StateFlow<PlayerPreferences> = _preferences.asStateFlow()
+    private val preferencesReady = CompletableDeferred<Unit>()
+    private var preparationJob: Job? = null
+    private var currentRequest: PlaybackRequest? = null
+    private var decoderRestore: DecoderRestore? = null
+    private var surfaceGeneration = 0L
+    private var surfaceReady: CompletableDeferred<Unit>? = null
     val player = IjkMediaPlayer()
     private var boundHolder: SurfaceHolder? = null
 
@@ -75,6 +105,9 @@ class PlayerManager @Inject constructor(
         if (attached) {
             boundHolder = holder
             player.setDisplay(holder)
+            val ready = surfaceReady
+            surfaceReady = null
+            ready?.complete(Unit)
         } else if (boundHolder === holder) {
             boundHolder = null
             player.setDisplay(null)
@@ -115,12 +148,22 @@ class PlayerManager @Inject constructor(
         onPauseForLoss = { pauseForFocusLoss() },
         onResumeAfterGain = { play() },
         onDuckingChanged = { multiplier ->
-            val volume = _state.value.volume * multiplier
-            runCatching { player.setVolume(volume, volume) }
+            runCatching { player.setVolume(multiplier, multiplier) }
         }
     )
 
     init {
+        scope.launch {
+            settingsDataStore.playerPreferences.catch { error ->
+                if (error is java.io.IOException) emit(PlayerPreferences()) else throw error
+            }.collect { preferences ->
+                val previous = _preferences.value
+                val loaded = preferencesReady.isCompleted
+                _preferences.value = preferences
+                preferencesReady.complete(Unit)
+                if (loaded && previous.videoDecodeMode != preferences.videoDecodeMode) restartForDecoderChange()
+            }
+        }
         scope.launch {
             settingsDataStore.preferredTextLanguage.collect {
                 preferredTextLanguage = it
@@ -136,14 +179,20 @@ class PlayerManager @Inject constructor(
     @MainThread
     private fun installListeners() {
         player.setOnPreparedListener {
+            val restore = decoderRestore
+            decoderRestore = null
+            Log.i("PlayerManager", "Video prepared (decoder=${player.videoDecoder}, restoring=${restore != null})")
             acceptNativeSubtitles = true
             _state.update { it.copy(isPrepared = true, buffering = false, error = null) }
             updateTracks()
             if (lastSpeed != 1f) player.setSpeed(lastSpeed)
             val start = _state.value.positionMs
             if (start > 0L) seekTo(start)
-            if (preferredTextLanguageLoaded) selectInitialSubtitle()
-            play()
+            restore?.audioKey?.let { key -> _state.value.audioTracks.firstOrNull { it.key == key }?.let(::selectAudioTrack) }
+            if (restore?.restoreSubtitle == true) {
+                selectSubtitle(_state.value.subtitleTracks.firstOrNull { it.key == restore.subtitleKey }, persist = false)
+            } else if (preferredTextLanguageLoaded) selectInitialSubtitle()
+            if (restore?.playWhenReady != false) play() else updateDerived(isPlaying = false)
         }
         player.setOnCompletionListener {
             audioFocus.abandon()
@@ -186,6 +235,7 @@ class PlayerManager @Inject constructor(
         }
         player.setOnSeekCompleteListener {
             subtitleSeekPending = false
+            updateDerived()
             if (acceptNativeSubtitles && _state.value.selectedSubtitleKey.orEmpty().startsWith("timedtext:")) {
                 readBitmapSubtitle()
             }
@@ -242,6 +292,11 @@ class PlayerManager @Inject constructor(
     fun clearError() = _state.update { it.copy(error = null) }
 
     fun beginLoading(title: String? = null, subtitle: String? = null) {
+        preparationJob?.cancel()
+        surfaceReady?.cancel()
+        surfaceReady = null
+        currentRequest = null
+        decoderRestore = null
         stopPositionTicker()
         subtitleJob?.cancel()
         subtitleCues = emptyList()
@@ -252,7 +307,8 @@ class PlayerManager @Inject constructor(
             title = title,
             subtitle = subtitle,
             playbackSpeed = lastSpeed,
-            volume = _state.value.volume
+            volume = _state.value.volume,
+            surfaceGeneration = surfaceGeneration
         )
     }
 
@@ -266,6 +322,9 @@ class PlayerManager @Inject constructor(
         privatePlayback: Boolean = false,
         subtitleConfigurations: List<SubtitleConfiguration> = emptyList()
     ) {
+        preparationJob?.cancel()
+        decoderRestore = null
+        currentRequest = PlaybackRequest(url, title, subtitle, headers.toMap(), trustSelfSignedCertificate, privatePlayback, subtitleConfigurations)
         stopPositionTicker()
         subtitleJob?.cancel()
         subtitleCues = emptyList()
@@ -281,38 +340,70 @@ class PlayerManager @Inject constructor(
             title = title,
             subtitle = subtitle,
             positionMs = startPositionMs.coerceAtLeast(0L),
+            buffering = true,
             playbackSpeed = lastSpeed,
             volume = _state.value.volume,
+            surfaceGeneration = surfaceGeneration,
             privatePlayback = privatePlayback
         )
-        try {
-            val remoteUrl = url.toHttpUrlOrNull()
-            val sourceUrl = if (remoteUrl != null && remoteUrl.host != "127.0.0.1") {
-                PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate), remoteUrl, headers)
-                    .also { httpProxy = it }.playbackUrl
-            } else url
-            if (remoteUrl != null) {
-                // IJK's global DNS cache stores sockaddr including the port, keyed only by host.
-                // Each new loopback proxy has a new port; discard the preceding session's entry.
-                player.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1L)
+        preparationJob = scope.launch {
+            preferencesReady.await()
+            // CPU rendering connects the old BufferQueue until its Surface is destroyed.
+            // Wait for the view to supply a fresh Surface before MediaCodec can configure it.
+            surfaceReady?.await()
+            try {
+                val remoteUrl = url.toHttpUrlOrNull()
+                val sourceUrl = if (remoteUrl != null && remoteUrl.host != "127.0.0.1") {
+                    PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate), remoteUrl, headers)
+                        .also { httpProxy = it }.playbackUrl
+                } else url
+                if (remoteUrl != null) {
+                    // IJK's global DNS cache stores sockaddr including the port, keyed only by host.
+                    // Each new loopback proxy has a new port; discard the preceding session's entry.
+                    player.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1L)
+                }
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos",
+                    if (_preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE) 1L else 0L)
+                Log.i("PlayerManager", "Preparing video (mode=${_preferences.value.videoDecodeMode}, startMs=$startPositionMs)")
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "subtitle", 1L)
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1L)
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0L)
+                player.setScreenOnWhilePlaying(true)
+                player.setVolume(audioFocus.volumeMultiplier, audioFocus.volumeMultiplier)
+                _state.update { it.copy(buffering = true) }
+                player.setDataSource(context, Uri.parse(sourceUrl), emptyMap())
+                context.startForegroundService(android.content.Intent(context, com.vibeplayer.app.service.PlaybackService::class.java))
+                player.prepareAsync()
+            } catch (error: Exception) {
+                Log.e("PlayerManager", "Unable to prepare playback (${error.javaClass.simpleName})")
+                audioFocus.abandon()
+                _state.update { it.copy(error = "IJK_SOURCE_ERROR", buffering = false) }
             }
-            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L)
-            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
-            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
-            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "subtitle", 1L)
-            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1L)
-            player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0L)
-            player.setScreenOnWhilePlaying(true)
-            player.setVolume(_state.value.volume, _state.value.volume)
-            _state.update { it.copy(buffering = true) }
-            player.setDataSource(context, Uri.parse(sourceUrl), emptyMap())
-            context.startForegroundService(android.content.Intent(context, com.vibeplayer.app.service.PlaybackService::class.java))
-            player.prepareAsync()
-        } catch (error: Exception) {
-            Log.e("PlayerManager", "Unable to prepare playback (${error.javaClass.simpleName})")
-            audioFocus.abandon()
-            _state.update { it.copy(error = "IJK_SOURCE_ERROR", buffering = false) }
         }
+    }
+
+    private fun restartForDecoderChange() {
+        val request = currentRequest ?: return
+        if (_state.value.isPrepared) updateDerived()
+        val state = _state.value
+        if (!state.isPrepared && !state.buffering) return
+        val restore = decoderRestore ?: DecoderRestore(state.isPlaying || !state.isPrepared, state.selectedAudioTrackKey,
+            state.selectedSubtitleKey, state.isPrepared)
+        val resumeMs = if (!state.isPrepared || state.durationMs > 0L) state.positionMs else 0L
+        Log.i("PlayerManager", "Video decode mode change (mode=${_preferences.value.videoDecodeMode}, positionMs=$resumeMs, playWhenReady=${restore.playWhenReady})")
+        val carriedBytes = downloadedBytes.get()
+        if (boundHolder != null) {
+            surfaceReady = CompletableDeferred()
+            surfaceGeneration++
+            boundHolder = null
+            player.setDisplay(null)
+        }
+        play(request.url, request.title, request.subtitle, resumeMs, request.headers,
+            request.trustSelfSignedCertificate, request.privatePlayback, request.subtitles)
+        downloadedBytes.addAndGet(carriedBytes)
+        decoderRestore = restore
     }
 
     private var externalSubtitleCandidates: List<SubtitleConfiguration> = emptyList()
@@ -322,7 +413,11 @@ class PlayerManager @Inject constructor(
     }
 
     fun play() {
-        if (!_state.value.isPrepared || _state.value.isPlaying) return
+        if (!_state.value.isPrepared) {
+            decoderRestore = decoderRestore?.copy(playWhenReady = true)
+            return
+        }
+        if (_state.value.isPlaying) return
         if (!audioFocus.request()) return
         try {
             acceptNativeSubtitles = true
@@ -341,12 +436,23 @@ class PlayerManager @Inject constructor(
     }
 
     private fun pauseForFocusLoss() {
+        decoderRestore = decoderRestore?.copy(playWhenReady = false)
+        if (!_state.value.isPrepared) {
+            // During a decoder reload the native player has no restored position yet.
+            _state.update { it.copy(isPlaying = false) }
+            return
+        }
         runCatching { player.pause() }
         stopPositionTicker()
         updateDerived(isPlaying = false)
     }
 
     fun stop() {
+        preparationJob?.cancel()
+        surfaceReady?.cancel()
+        surfaceReady = null
+        currentRequest = null
+        decoderRestore = null
         audioFocus.abandon()
         acceptNativeSubtitles = false
         subtitleSeekPending = false
@@ -397,13 +503,14 @@ class PlayerManager @Inject constructor(
     }
 
     fun setVolume(volume: Float) {
-        val safe = volume.coerceIn(0f, 1f)
-        val effectiveVolume = safe * audioFocus.volumeMultiplier
-        runCatching { player.setVolume(effectiveVolume, effectiveVolume) }
-        _state.update { it.copy(volume = safe) }
+        runCatching { volumeController.setVolume(volume) }
+            .onSuccess { actual -> _state.update { it.copy(volume = actual) } }
+            .onFailure { Log.w("PlayerManager", "Unable to change media volume (${it.javaClass.simpleName})") }
     }
 
     fun selectAudioTrack(track: AudioTrack) {
+        // IJK reopens even an already-selected stream, racing its existing decoder thread.
+        if (_state.value.selectedAudioTrackKey == track.key) return
         val index = track.key.removePrefix("audio:").toIntOrNull() ?: return
         runCatching { player.selectTrack(index) }
         updateTracks()
@@ -570,7 +677,13 @@ class PlayerManager @Inject constructor(
             downloadedBytes.addAndGet(totalBytes - lastNativeDownloadedBytes)
         }
         lastNativeDownloadedBytes = totalBytes
-        _state.update { it.copy(isPlaying = isPlaying, positionMs = position, durationMs = duration) }
+        val decoder = if (_state.value.isPrepared) when (player.videoDecoder) {
+            IjkMediaPlayer.FFP_PROPV_DECODER_MEDIACODEC -> VideoDecodeMode.HARDWARE
+            IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC -> VideoDecodeMode.SOFTWARE
+            else -> null
+        } else null
+        _state.update { it.copy(isPlaying = isPlaying, positionMs = position, durationMs = duration,
+            volume = volumeController.volume, videoDecodeMode = decoder) }
     }
 
     private fun parseSubtitle(bytes: ByteArray, mimeType: String): List<SubtitleCue> {
@@ -603,6 +716,9 @@ class PlayerManager @Inject constructor(
     }
 
     fun release() {
+        currentRequest = null
+        surfaceReady?.cancel()
+        surfaceReady = null
         audioFocus.abandon()
         acceptNativeSubtitles = false
         clearVisibleSubtitles()
