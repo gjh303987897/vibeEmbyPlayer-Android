@@ -1,5 +1,7 @@
 package com.vibeplayer.app.player
 
+import com.vibeplayer.app.util.UserErrorKind
+import com.vibeplayer.app.util.UserMessageFormatter
 import java.io.BufferedReader
 import java.io.Closeable
 import java.io.InputStreamReader
@@ -21,6 +23,7 @@ import java.io.StringWriter
 import org.xml.sax.InputSource
 import okhttp3.Call
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -53,7 +56,12 @@ internal class PlaybackHttpProxy(
     private val routes = HashMap<HttpUrl, String>()
     private val dashOrigins = HashMap<String, HttpUrl>()
     val playbackUrl: String = register(origin)
-    private val playbackPath = java.net.URI(playbackUrl).rawPath
+    private val playbackPath = playbackUrl.toHttpUrl().encodedPath
+
+    /** Keep transport failures distinct from IJK's generic open-input error. No URLs or secrets. */
+    @Volatile
+    var failure: UserErrorKind? = null
+        private set
 
     init {
         Thread({
@@ -136,7 +144,16 @@ internal class PlaybackHttpProxy(
             val call = transport.newCall(request.build())
             calls.add(call)
             try {
-                call.execute().use { response ->
+                val upstreamResponse = try {
+                    call.execute()
+                } catch (error: Exception) {
+                    failure = UserMessageFormatter.classify(error).kind
+                    throw error
+                }
+                upstreamResponse.use { response ->
+                    if (!response.isSuccessful) {
+                        failure = UserMessageFormatter.classify("HTTP ${response.code}").kind
+                    }
                     val body = response.body
                     val peek = body?.source()?.peek()
                     val isPlaylist = requestLine[0] != "HEAD" && response.isSuccessful && peek != null &&

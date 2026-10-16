@@ -34,6 +34,60 @@ Android's [tagged-pointer documentation](https://source.android.com/docs/securit
 explicitly describes pointer-to-double conversion as an invalid use. Keep heap pointer tagging
 enabled; disabling it would conceal the parser defect.
 
+## HTTP IPTV and WebDAV playback failures
+
+User-configured media sources can use HTTP, including IPTV channels and LAN WebDAV servers.
+The old network-security configuration allowed cleartext only for localhost and two emulator
+addresses. OkHttp therefore rejected real HTTP upstream requests, and the loopback proxy hid the
+cause behind HTTP 502 / `IJK_ERROR_-10000_0`. The application now opts into HTTP for arbitrary
+user-configured hosts. HTTPS certificate and hostname verification remain enabled. The associated
+`InsecureBaseConfiguration` lint warning is intentional; a static hostname allowlist cannot cover
+user-imported IPTV playlists and their CDN hosts.
+
+Switching sources exposed another failure: IJK's global DNS cache keys entries by hostname but
+keeps the complete socket address, including the port. Every new playback proxy listens on a new
+port, so a later source could connect to the preceding, already-closed proxy and fail with
+`Connection refused` / `Hit dns cache but connect fail`. `PlayerManager` sets the supported
+`dns_cache_clear=1` format option when opening HTTP sources to discard that obsolete entry.
+This also covers the encrypted-HLS loopback input. See the pinned
+[IJK TCP implementation](https://raw.githubusercontent.com/bilibili/FFmpeg/2902e33f6e59ed77ddc1b372586c1ab8db1fb096/libavformat/tcp.c).
+
+Ordinary WebDAV playback now uses the same URL builder as listing/download requests. Decoded
+filenames containing `#`, `?`, literal `%`, spaces or non-ASCII characters are encoded as path
+segments rather than being interpreted as URL fragments or query parameters. The proxy also
+extracts its request path with OkHttp's `HttpUrl`, matching the upstream URL builder. Using the
+stricter `java.net.URI` constructor rejected otherwise valid filenames containing brackets, such
+as `Perfect.Crown.S01E05[EZTVx.to].mkv`, before playback preparation reached IJK. A regression
+reproduces that exception before the fix and checks range requests after the fix. Proxy transport
+failures retain a sanitized category for localized authentication, missing-file, timeout and network
+messages. Downstream socket cancellation during seeking is not recorded as an upstream connection
+failure. Native error numbers remain in diagnostics instead of appearing as the explanation.
+
+The regression inputs deliberately use `127.0.0.2`, outside the former localhost allowlist.
+`PlayerManagerPlaybackTest` covers two consecutive HLS master/child/TS sessions, followed by
+local and HTTP MP4/MKV sessions with AC-3/DTS and bracketed HTTP paths, replacing Surfaces and
+checking rendered pixels.
+`video_sample_hls.ts` remuxes `video_sample_ac3.mp4` with `ffmpeg -map 0 -c copy -f mpegts`.
+JVM regressions cover WebDAV filename encoding and retained HTTP authentication/timeout errors.
+
+The 2026-10-16 follow-up passes `assembleDebug`, `lint`, `testDebugUnitTest` and
+`assembleDebugAndroidTest`: 35 JVM tests, 0 lint errors and 3 lint warnings (including the HTTP
+configuration warning described above). The isolated verification app passes all four
+instrumentation tests on the affected HUAWEI TAS-AL00, with result `OK (4 tests)` after the
+bracketed-filename fix and test APK update. These fixtures
+verify HTTP transport, source switching and rendered video; they do not establish that every
+user-configured IPTV channel or WebDAV object is reachable or decodable.
+
+Manual verification in the isolated app also played two multi-gigabyte MKV files from the
+user-specified WebDAV directory, both with `[EZTVx.to]` in their filenames. The first produced
+visible video and advancing playback, and seeking to approximately 12 minutes completed with
+audio/video seek-rendering-start events. The next file played for over 40 seconds after switching.
+The first CCTV1 entry in the imported IPTV playlist returned upstream HTTP 404 and showed the
+localized missing-media explanation. The second CCTV1 entry rendered HEVC video and advanced for
+over 45 seconds, with both native audio/video rendering-start events. The earlier CBOR array
+message was not reproduced by these ordinary MKV files; their confirmed initialization failure
+was the strict URI parser described above.
+
 ## Video and audio configuration
 
 IJK's MediaCodec video path, auto rotation, resolution changes and timed-text decoding are enabled

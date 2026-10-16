@@ -72,6 +72,12 @@ object UserMessageFormatter {
         val text = raw?.trim().orEmpty()
         if (text.isEmpty()) return UserErrorClassification(UserErrorKind.UNKNOWN)
 
+        UserErrorKind.entries.firstOrNull { text == "PLAYBACK_HTTP_${it.name}" }?.let {
+            return UserErrorClassification(it)
+        }
+        // Native codes are diagnostic identifiers, not user-facing explanations.
+        if (text.startsWith("IJK_")) return UserErrorClassification(UserErrorKind.UNKNOWN)
+
         val status = statusPattern.find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: bareStatusPattern.find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
         classifyStatus(status)?.let { return UserErrorClassification(it) }

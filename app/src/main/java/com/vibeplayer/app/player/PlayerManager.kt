@@ -170,10 +170,13 @@ class PlayerManager @Inject constructor(
             false
         }
         player.setOnErrorListener { _, what, extra ->
+            val errorCode = httpProxy?.failure?.let { "PLAYBACK_HTTP_${it.name}" }
+                ?: "IJK_ERROR_${what}_${extra}"
+            Log.e("PlayerManager", "Playback failed (what=$what, extra=$extra, code=$errorCode)")
             stop()
             _state.update {
                 it.copy(
-                    error = "IJK_ERROR_${what}_${extra}",
+                    error = errorCode,
                     buffering = false,
                     isPrepared = false,
                     isPlaying = false
@@ -288,6 +291,11 @@ class PlayerManager @Inject constructor(
                 PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate), remoteUrl, headers)
                     .also { httpProxy = it }.playbackUrl
             } else url
+            if (remoteUrl != null) {
+                // IJK's global DNS cache stores sockaddr including the port, keyed only by host.
+                // Each new loopback proxy has a new port; discard the preceding session's entry.
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1L)
+            }
             player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L)
             player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
             player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
@@ -301,6 +309,7 @@ class PlayerManager @Inject constructor(
             context.startForegroundService(android.content.Intent(context, com.vibeplayer.app.service.PlaybackService::class.java))
             player.prepareAsync()
         } catch (error: Exception) {
+            Log.e("PlayerManager", "Unable to prepare playback (${error.javaClass.simpleName})")
             audioFocus.abandon()
             _state.update { it.copy(error = "IJK_SOURCE_ERROR", buffering = false) }
         }

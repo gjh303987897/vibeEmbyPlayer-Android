@@ -1,5 +1,8 @@
 package com.vibeplayer.app.player
 
+import com.vibeplayer.app.util.UserErrorKind
+import com.vibeplayer.app.util.UserMessageFormatter
+import java.util.concurrent.TimeUnit
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,6 +18,54 @@ import org.junit.Test
 
 class PlaybackHttpProxyTest {
     private val client = OkHttpClient()
+
+    @Test
+    fun `bracketed media filenames survive proxy creation and range requests`() {
+        val filename = "Perfect.Crown.S01E05[EZTVx.to].mkv"
+        val media = byteArrayOf(1, 2, 3, 4)
+        upstream { request, _ ->
+            assertEquals("/video/perfect_crown/$filename", request.requestUrl!!.encodedPath)
+            assertEquals("bytes=1-3", request.getHeader("Range"))
+            response(206, media.copyOfRange(1, 4)).addHeader("Content-Range", "bytes 1-3/4")
+        }.use { source ->
+            val url = "${source.url}/video/perfect_crown/$filename".toHttpUrl()
+            PlaybackHttpProxy(client, url, emptyMap()).use { proxy ->
+                client.newCall(Request.Builder().url(proxy.playbackUrl).header("Range", "bytes=1-3").build())
+                    .execute().use { response ->
+                        assertEquals(206, response.code)
+                        assertArrayEquals(media.copyOfRange(1, 4), response.body!!.bytes())
+                    }
+            }
+        }
+    }
+
+    @Test
+    fun `upstream authentication and missing files retain their failure category`() {
+        for ((status, kind) in listOf(401 to UserErrorKind.AUTHENTICATION, 404 to UserErrorKind.NOT_FOUND)) {
+            upstream { _, _ -> MockResponse().setResponseCode(status) }.use { source ->
+                PlaybackHttpProxy(client, "${source.url}/video.mkv".toHttpUrl(), emptyMap()).use { proxy ->
+                    client.newCall(Request.Builder().url(proxy.playbackUrl).build()).execute().use { response ->
+                        assertEquals(status, response.code)
+                        assertEquals(kind, proxy.failure)
+                        assertEquals(kind, UserMessageFormatter.classify("PLAYBACK_HTTP_${proxy.failure}").kind)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `upstream timeout survives the loopback gateway response`() {
+        upstream { _, _ -> MockResponse().setBody("video").setHeadersDelay(1, TimeUnit.SECONDS) }.use { source ->
+            val upstreamClient = client.newBuilder().readTimeout(100, TimeUnit.MILLISECONDS).build()
+            PlaybackHttpProxy(upstreamClient, "${source.url}/video.mp4".toHttpUrl(), emptyMap()).use { proxy ->
+                client.newCall(Request.Builder().url(proxy.playbackUrl).build()).execute().use { response ->
+                    assertEquals(502, response.code)
+                    assertEquals(UserErrorKind.TIMEOUT, proxy.failure)
+                }
+            }
+        }
+    }
 
     @Test
     fun `seeking preserves authentication query bytes and range metadata`() {

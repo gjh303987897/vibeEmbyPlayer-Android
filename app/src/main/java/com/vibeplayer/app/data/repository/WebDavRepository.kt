@@ -28,11 +28,7 @@ class WebDavRepository @Inject constructor(
     fun hasPassword(server: ServerConfig): Boolean = !secureSessionStore.password(server.id).isNullOrEmpty()
 
     /** Resolves the raw playback URL for a given server path. */
-    fun playUrl(server: ServerConfig, path: String): String {
-        val base = server.normalizedBaseUrl
-        val normalized = if (path.isEmpty() || path == "/") "" else "/" + path.trimStart('/')
-        return base + normalized
-    }
+    fun playUrl(server: ServerConfig, path: String): String = client.resolveUrl(server, path)
 
     suspend fun list(server: ServerConfig, path: String): Result<List<WebDavItem>> {
         val password = secureSessionStore.password(server.id)

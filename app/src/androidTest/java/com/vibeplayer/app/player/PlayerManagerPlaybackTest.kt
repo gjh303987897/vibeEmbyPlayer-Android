@@ -19,6 +19,7 @@ import com.vibeplayer.app.service.PlaybackService
 import com.vibeplayer.app.test.R
 import com.vibeplayer.app.ui.player.IjkPlayerView
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import okhttp3.mockwebserver.Dispatcher
@@ -46,6 +47,59 @@ class PlayerManagerPlaybackTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
     @Test
+    fun httpHlsRendersThroughProxyOutsideLocalhostAllowlist() {
+        val segment = instrumentation.context.resources.openRawResource(R.raw.video_sample_hls).use { it.readBytes() }
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl?.encodedPath) {
+                    "/iptv/master.m3u8" -> MockResponse().setBody(
+                        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nchannel.m3u8\n"
+                    )
+                    "/iptv/channel.m3u8" -> MockResponse().setBody(
+                        "#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:4.0,\nchunk.ts\n#EXT-X-ENDLIST\n"
+                    )
+                    "/iptv/chunk.ts" -> MockResponse().setBody(Buffer().write(segment))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            start(InetAddress.getByName("0.0.0.0"), 0)
+        }
+        var manager: PlayerManager? = null
+        try {
+            val url = server.url("/iptv/master.m3u8").newBuilder().host("127.0.0.2").build().toString()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                try {
+                    scenario.onActivity { manager = (it.application as VibePlayerApp).playerManager }
+                    val shared = checkNotNull(manager)
+                    val surface = attachSurface(scenario, shared)
+                    // A second play creates another loopback port. IJK's global DNS cache must
+                    // not connect to the closed proxy from the preceding HLS session.
+                    repeat(2) { round ->
+                        callOnMain { shared.play(url, "IPTV HTTP regression $round", null) }
+                        awaitCondition("HTTP HLS must prepare, render and advance in round $round") {
+                            val state = shared.state.value
+                            assertNull("HTTP HLS round $round playback error", state.error)
+                            state.isPrepared && state.isPlaying && state.positionMs >= MIN_POSITION_MS &&
+                                shared.player.videoOutputFramesPerSecond > 0f
+                        }
+                        assertColourBarsVisible(surface)
+                        callOnMain { shared.stop() }
+                    }
+                    assertTrue("both rounds must load the master, child and segment", server.requestCount >= 6)
+                } finally {
+                    callOnMain {
+                        manager?.stop()
+                        manager?.beginLoading()
+                        instrumentation.targetContext.stopService(Intent(instrumentation.targetContext, PlaybackService::class.java))
+                    }
+                }
+            }
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun videoRendersAfterSourceFailureAndRepeatedResetStopAndSurfaceReplacement() {
         val context = instrumentation.targetContext
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -61,7 +115,7 @@ class PlayerManagerPlaybackTest {
         val server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
-                    val sample = samples.firstOrNull { request.path?.substringBefore('?') == "/${it.codec}" }
+                    val sample = samples.firstOrNull { request.path?.substringBefore('?') == "/${it.codec}[sample]" }
                         ?: return MockResponse().setResponseCode(404)
                     val bytes = sample.file.readBytes()
                     val range = request.getHeader("Range")
@@ -75,7 +129,9 @@ class PlayerManagerPlaybackTest {
                     return response.setBody(Buffer().write(bytes, start, bytes.size - start))
                 }
             }
-            start()
+            // Use an address outside the old localhost-only cleartext allowlist.
+            // Otherwise the test passes even when every real HTTP IPTV/DAV source is blocked.
+            start(InetAddress.getByName("0.0.0.0"), 0)
         }
         var manager: PlayerManager? = null
         try {
@@ -99,16 +155,16 @@ class PlayerManagerPlaybackTest {
                         samples.forEach { sample ->
                             // MockWebServer.url() may resolve the local hostname; keep it off main.
                             val url = if (round == 0) sample.file.absolutePath else
-                                server.url("/${sample.codec}").newBuilder().host("localhost").build().toString()
+                                server.url("/${sample.codec}[sample]").newBuilder().host("127.0.0.2").build().toString()
                             callOnMain {
                                 shared.beginLoading(title = "${sample.codec} round $round")
-                                // localhost goes through PlaybackHttpProxy and IJK's HTTP/TCP
+                                // The remote address goes through PlaybackHttpProxy and IJK's HTTP/TCP
                                 // context options. File-only tests miss tagged-pointer corruption.
                                 shared.play(url, sample.codec, null)
                             }
                             awaitCondition("${sample.codec} must prepare, render and advance after reset") {
                                 val state = shared.state.value
-                                assertNull("${sample.codec} playback error", state.error)
+                                assertNull("${sample.codec} round $round playback error", state.error)
                                 state.isPrepared && state.isPlaying && state.positionMs >= MIN_POSITION_MS &&
                                     shared.player.videoOutputFramesPerSecond > 0f
                             }

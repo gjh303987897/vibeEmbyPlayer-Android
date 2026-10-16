@@ -347,7 +347,7 @@ class WebDavClient @Inject constructor(
     }
 
     /** Resolves a path beneath the configured WebDAV base URL. */
-    private fun resolveUrl(server: ServerConfig, path: String): String {
+    internal fun resolveUrl(server: ServerConfig, path: String): String {
         val base = server.normalizedBaseUrl.toHttpUrlOrNull()
             ?: throw IOException("Invalid WebDAV URL")
         val relative = path.trim().trim('/')
