@@ -70,7 +70,8 @@ private data class PlaybackRequest(
     val headers: Map<String, String>,
     val trustSelfSignedCertificate: Boolean,
     val privatePlayback: Boolean,
-    val subtitles: List<SubtitleConfiguration>
+    val subtitles: List<SubtitleConfiguration>,
+    val hlsVariant: HlsVariant?
 )
 
 private data class DecoderRestore(
@@ -96,6 +97,8 @@ class PlayerManager @Inject constructor(
     private var preparationJob: Job? = null
     private var currentRequest: PlaybackRequest? = null
     private var decoderRestore: DecoderRestore? = null
+    private var playWhenPrepared = true
+    val playWhenReady: Boolean get() = playWhenPrepared
     private var surfaceGeneration = 0L
     private var surfaceReady: CompletableDeferred<Unit>? = null
     val player = IjkMediaPlayer()
@@ -192,7 +195,7 @@ class PlayerManager @Inject constructor(
             if (restore?.restoreSubtitle == true) {
                 selectSubtitle(_state.value.subtitleTracks.firstOrNull { it.key == restore.subtitleKey }, persist = false)
             } else if (preferredTextLanguageLoaded) selectInitialSubtitle()
-            if (restore?.playWhenReady != false) play() else updateDerived(isPlaying = false)
+            if (restore?.playWhenReady ?: playWhenPrepared) play() else updateDerived(isPlaying = false)
         }
         player.setOnCompletionListener {
             audioFocus.abandon()
@@ -320,11 +323,22 @@ class PlayerManager @Inject constructor(
         headers: Map<String, String> = emptyMap(),
         trustSelfSignedCertificate: Boolean = false,
         privatePlayback: Boolean = false,
-        subtitleConfigurations: List<SubtitleConfiguration> = emptyList()
+        subtitleConfigurations: List<SubtitleConfiguration> = emptyList(),
+        hlsVariant: HlsVariant? = null,
+        playWhenReady: Boolean = true,
+        recreateSurface: Boolean = false
     ) {
         preparationJob?.cancel()
+        if (recreateSurface && boundHolder != null) {
+            surfaceReady = CompletableDeferred()
+            surfaceGeneration++
+            boundHolder = null
+            player.setDisplay(null)
+        }
         decoderRestore = null
-        currentRequest = PlaybackRequest(url, title, subtitle, headers.toMap(), trustSelfSignedCertificate, privatePlayback, subtitleConfigurations)
+        playWhenPrepared = playWhenReady
+        currentRequest = PlaybackRequest(url, title, subtitle, headers.toMap(), trustSelfSignedCertificate,
+            privatePlayback, subtitleConfigurations, hlsVariant)
         stopPositionTicker()
         subtitleJob?.cancel()
         subtitleCues = emptyList()
@@ -353,8 +367,8 @@ class PlayerManager @Inject constructor(
             surfaceReady?.await()
             try {
                 val remoteUrl = url.toHttpUrlOrNull()
-                val sourceUrl = if (remoteUrl != null && remoteUrl.host != "127.0.0.1") {
-                    PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate), remoteUrl, headers)
+                val sourceUrl = if (remoteUrl != null && (remoteUrl.host != "127.0.0.1" || hlsVariant != null)) {
+                    PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate), remoteUrl, headers, hlsVariant)
                         .also { httpProxy = it }.playbackUrl
                 } else url
                 if (remoteUrl != null) {
@@ -389,7 +403,7 @@ class PlayerManager @Inject constructor(
         if (_state.value.isPrepared) updateDerived()
         val state = _state.value
         if (!state.isPrepared && !state.buffering) return
-        val restore = decoderRestore ?: DecoderRestore(state.isPlaying || !state.isPrepared, state.selectedAudioTrackKey,
+        val restore = decoderRestore ?: DecoderRestore(playWhenPrepared, state.selectedAudioTrackKey,
             state.selectedSubtitleKey, state.isPrepared)
         val resumeMs = if (!state.isPrepared || state.durationMs > 0L) state.positionMs else 0L
         Log.i("PlayerManager", "Video decode mode change (mode=${_preferences.value.videoDecodeMode}, positionMs=$resumeMs, playWhenReady=${restore.playWhenReady})")
@@ -401,7 +415,8 @@ class PlayerManager @Inject constructor(
             player.setDisplay(null)
         }
         play(request.url, request.title, request.subtitle, resumeMs, request.headers,
-            request.trustSelfSignedCertificate, request.privatePlayback, request.subtitles)
+            request.trustSelfSignedCertificate, request.privatePlayback, request.subtitles,
+            request.hlsVariant, restore.playWhenReady)
         downloadedBytes.addAndGet(carriedBytes)
         decoderRestore = restore
     }
@@ -413,6 +428,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun play() {
+        playWhenPrepared = true
         if (!_state.value.isPrepared) {
             decoderRestore = decoderRestore?.copy(playWhenReady = true)
             return
@@ -436,6 +452,7 @@ class PlayerManager @Inject constructor(
     }
 
     private fun pauseForFocusLoss() {
+        playWhenPrepared = false
         decoderRestore = decoderRestore?.copy(playWhenReady = false)
         if (!_state.value.isPrepared) {
             // During a decoder reload the native player has no restored position yet.

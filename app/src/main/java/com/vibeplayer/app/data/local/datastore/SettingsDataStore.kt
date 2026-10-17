@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.vibeplayer.app.player.LONG_PRESS_SPEEDS
 import com.vibeplayer.app.player.PlayerPreferences
 import com.vibeplayer.app.player.VideoDecodeMode
+import com.vibeplayer.app.model.IptvQualityPreference
 import java.io.File
 import com.vibeplayer.app.util.LocaleHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -49,6 +50,7 @@ class SettingsDataStore @Inject constructor(
         val LONG_PRESS_SPEED = floatPreferencesKey("player_long_press_speed")
         val SHOW_PERFORMANCE = booleanPreferencesKey("player_show_performance")
         val VIDEO_DECODE_MODE = stringPreferencesKey("player_video_decode_mode")
+        val IPTV_QUALITY = stringPreferencesKey("iptv_quality_preference")
     }
 
     val themeMode: Flow<String?> = dataStore.data
@@ -76,7 +78,9 @@ class SettingsDataStore @Inject constructor(
             longPressSpeed = preferences[Keys.LONG_PRESS_SPEED]?.takeIf { it in LONG_PRESS_SPEEDS } ?: 2f,
             showPerformance = preferences[Keys.SHOW_PERFORMANCE] ?: false,
             videoDecodeMode = VideoDecodeMode.entries.firstOrNull { it.name == preferences[Keys.VIDEO_DECODE_MODE] }
-                ?: VideoDecodeMode.HARDWARE
+                ?: VideoDecodeMode.HARDWARE,
+            iptvQuality = IptvQualityPreference.entries.firstOrNull { it.name == preferences[Keys.IPTV_QUALITY] }
+                ?: IptvQualityPreference.HIGHEST
         )
     }
 
@@ -91,6 +95,10 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setVideoDecodeMode(mode: VideoDecodeMode) {
         dataStore.edit { it[Keys.VIDEO_DECODE_MODE] = mode.name }
+    }
+
+    suspend fun setIptvQuality(preference: IptvQualityPreference) {
+        dataStore.edit { it[Keys.IPTV_QUALITY] = preference.name }
     }
 
     suspend fun setThemeMode(value: String) {

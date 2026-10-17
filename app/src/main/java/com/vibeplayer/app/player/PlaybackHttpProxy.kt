@@ -31,7 +31,8 @@ import okhttp3.Request
 internal class PlaybackHttpProxy(
     private val client: OkHttpClient,
     private val origin: HttpUrl,
-    headers: Map<String, String>
+    headers: Map<String, String>,
+    private val selectedHlsVariant: HlsVariant? = null
 ) : Closeable {
     private val headers = headers.toMap()
     private val transport = client.newBuilder().addNetworkInterceptor { chain ->
@@ -165,7 +166,8 @@ internal class PlaybackHttpProxy(
                         val source = body.source()
                         require(!source.request(MAX_PLAYLIST_BYTES + 1)) { "Playlist too large" }
                         val text = source.readUtf8()
-                        (if (isDash) rewriteDash(text, response.request.url) else rewritePlaylist(text, response.request.url))
+                        (if (isDash) rewriteDash(text, response.request.url) else rewritePlaylist(
+                            selectHlsVariant(text, response.request.url, selectedHlsVariant), response.request.url))
                             .toByteArray(StandardCharsets.UTF_8)
                     } else null
                     val responseHeaders = buildString {

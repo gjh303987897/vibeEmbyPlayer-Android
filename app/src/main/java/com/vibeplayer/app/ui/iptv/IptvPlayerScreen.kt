@@ -67,6 +67,7 @@ fun IptvPlayerScreen(
     viewModel: IptvPlayerViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val routes by viewModel.routes.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
     var locked by rememberSaveable { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
@@ -183,7 +184,13 @@ fun IptvPlayerScreen(
             )
         }
 
-        PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings)
+        PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings,
+            sourceSummary = iptvSourceSummary(routes),
+            sourceSettings = {
+                IptvSourceSettings(routes, playerPreferences.iptvQuality, playerSettings::setIptvQuality,
+                    viewModel::selectAutomatic, viewModel::selectSource, viewModel::refreshRoutes)
+            }
+        )
 
         PlayerScreenLock(
             locked = locked,

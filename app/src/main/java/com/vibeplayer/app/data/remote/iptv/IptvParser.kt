@@ -45,6 +45,7 @@ object IptvParser {
         var pendingName: String? = null
         var pendingGroup = DEFAULT_GROUP
         var pendingLogo = ""
+        var pendingTvgId = ""
         var hasPending = false
         var sortOrder = 0
 
@@ -60,6 +61,7 @@ object IptvParser {
                 pendingName = name
                 pendingGroup = attributes["group-title"]?.takeIf { it.isNotEmpty() } ?: DEFAULT_GROUP
                 pendingLogo = attributes["tvg-logo"].orEmpty()
+                pendingTvgId = attributes["tvg-id"].orEmpty()
                 hasPending = true
                 continue
             }
@@ -76,9 +78,11 @@ object IptvParser {
                 groupName = group,
                 logoUrl = if (hasPending) pendingLogo else "",
                 streamUrl = line,
-                sortOrder = sortOrder++
+                sortOrder = sortOrder++,
+                tvgId = if (hasPending) pendingTvgId else ""
             )
             hasPending = false
+            pendingName = null
         }
         return channels
     }
@@ -95,7 +99,8 @@ object IptvParser {
         val groupName: String,
         val logoUrl: String,
         val streamUrl: String,
-        val sortOrder: Int
+        val sortOrder: Int,
+        val tvgId: String = ""
     )
 
     private fun tryDecode(bytes: ByteArray, charset: Charset): String = runCatching {

@@ -11,6 +11,26 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * silently deleting history, stats, IPTV, or transfer data.
  */
 object Migrations {
+    /** Keep legacy route IDs/favourites, while scoping routes to their own playlist. */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE iptv_channels_new (
+                    id TEXT NOT NULL, playlist_id TEXT NOT NULL, name TEXT NOT NULL,
+                    group_name TEXT NOT NULL, logo_url TEXT NOT NULL, stream_url TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL, tvg_id TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY(playlist_id, id)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                INSERT INTO iptv_channels_new (id, playlist_id, name, group_name, logo_url, stream_url, sort_order)
+                SELECT id, playlist_id, name, group_name, logo_url, stream_url, sort_order FROM iptv_channels
+            """.trimIndent())
+            db.execSQL("DROP TABLE iptv_channels")
+            db.execSQL("ALTER TABLE iptv_channels_new RENAME TO iptv_channels")
+            db.execSQL("CREATE INDEX index_iptv_channels_playlist_id ON iptv_channels(playlist_id)")
+        }
+    }
 
     /**
      * Version 1 → 2.

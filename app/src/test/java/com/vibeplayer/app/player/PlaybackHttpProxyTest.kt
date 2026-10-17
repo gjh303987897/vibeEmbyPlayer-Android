@@ -136,6 +136,34 @@ class PlaybackHttpProxyTest {
         }
     }
 
+    @Test
+    fun `selected HLS quality is enforced over HTTP while external audio remains accessible`() {
+        upstream { request, _ ->
+            when (request.requestUrl!!.encodedPath) {
+                "/start" -> MockResponse().setResponseCode(302).addHeader("Location", "/master.m3u8")
+                "/master.m3u8" -> MockResponse().setBody("#EXTM3U\n" +
+                    "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"main\",URI=\"audio.m3u8\"\n" +
+                    "#EXT-X-STREAM-INF:BANDWIDTH=500000,RESOLUTION=640x360,AUDIO=\"a\"\nlow.m3u8\n" +
+                    "#EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=1920x1080,AUDIO=\"a\"\nhigh.m3u8\n")
+                "/low.m3u8" -> MockResponse().setBody("low route")
+                "/high.m3u8" -> MockResponse().setBody("high route")
+                "/audio.m3u8" -> MockResponse().setBody("external audio")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }.use { source ->
+            for (quality in listOf("high", "low")) {
+                PlaybackHttpProxy(client, "${source.url}/start".toHttpUrl(), emptyMap(), HlsVariant("${source.url}/$quality.m3u8")).use { proxy ->
+                    val master = fetch(proxy.playbackUrl).toString(Charsets.UTF_8)
+                    val videoUrls = master.lineSequence().filter { it.startsWith("http://") }.toList()
+                    assertEquals(1, videoUrls.size)
+                    assertEquals("$quality route", fetch(videoUrls.single()).toString(Charsets.UTF_8))
+                    val audio = Regex("URI=\"([^\"]+)\"").find(master)!!.groupValues[1]
+                    assertEquals("external audio", fetch(audio).toString(Charsets.UTF_8))
+                }
+            }
+        }
+    }
+
     private fun fetch(url: String): ByteArray = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
         assertEquals(200, response.code)
         response.body!!.bytes()

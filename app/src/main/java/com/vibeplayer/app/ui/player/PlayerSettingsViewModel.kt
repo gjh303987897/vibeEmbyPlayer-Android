@@ -8,6 +8,7 @@ import com.vibeplayer.app.player.PlaybackPerformance
 import com.vibeplayer.app.player.PlaybackPerformanceMonitor
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.player.VideoDecodeMode
+import com.vibeplayer.app.model.IptvQualityPreference
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,6 +41,7 @@ class PlayerSettingsViewModel @Inject constructor(
     fun setLongPressSpeed(speed: Float) = save { settings.setLongPressSpeed(speed) }
     fun setShowPerformance(enabled: Boolean) = save { settings.setShowPerformance(enabled) }
     fun setVideoDecodeMode(mode: VideoDecodeMode) = save { settings.setVideoDecodeMode(mode) }
+    fun setIptvQuality(preference: IptvQualityPreference) = save { settings.setIptvQuality(preference) }
 
     private fun save(action: suspend () -> Unit) {
         viewModelScope.launch {

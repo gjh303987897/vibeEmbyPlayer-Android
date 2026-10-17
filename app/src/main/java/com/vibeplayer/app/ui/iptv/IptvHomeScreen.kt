@@ -21,10 +21,12 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,18 +46,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
-import com.vibeplayer.app.data.local.db.entity.IptvChannelEntity
+import com.vibeplayer.app.model.IptvChannel
 import com.vibeplayer.app.model.MessageTone
 import com.vibeplayer.app.ui.components.AppSnackbarHost
 import com.vibeplayer.app.ui.components.showAppSnackbar
@@ -73,26 +78,41 @@ fun IptvHomeScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var showQuality by remember { mutableStateOf(false) }
+
+    if (showQuality) AlertDialog(
+        onDismissRequest = { showQuality = false },
+        title = { Text(stringResource(R.string.iptv_quality_title)) },
+        text = { Column {
+            IptvQualityChoices(state.qualityPreference, viewModel::setQualityPreference)
+            Text(stringResource(R.string.iptv_quality_help), style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { TextButton(onClick = { showQuality = false }) { Text(stringResource(android.R.string.ok)) } }
+    )
 
     LaunchedEffect(serverId) { viewModel.load(serverId) }
 
     LaunchedEffect(state.error, state.info) {
         val message = state.error ?: state.info
         if (message != null) {
-            snackbarHostState.showAppSnackbar(
-                message,
-                tone = if (state.error != null) MessageTone.ERROR else MessageTone.SUCCESS
-            )
+            val tone = if (state.error != null) MessageTone.ERROR else MessageTone.SUCCESS
+            // Consume before the suspending snackbar. Back/navigation must not replay this result.
             viewModel.clearMessages()
+            scope.launch { snackbarHostState.showAppSnackbar(message, tone = tone) }
         }
     }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            val displayName = queryDisplayName(context, uri)
-            viewModel.importPlaylist(uri.toString(), displayName ?: "playlist.m3u")
+        val displayName = uri?.let { queryDisplayName(context, it) }
+        viewModel.onImportSelectionResult(uri?.toString(), displayName ?: "playlist.m3u")
+    }
+    val launchImport: () -> Unit = {
+        if (viewModel.beginImportSelection()) {
+            try { filePicker.launch(arrayOf("*/*")) }
+            catch (_: RuntimeException) { viewModel.importSelectionFailed() }
         }
     }
+    val canImport = state.server != null && !state.importing && !state.selectingFile
 
     Scaffold(
         snackbarHost = { AppSnackbarHost(snackbarHostState) },
@@ -105,7 +125,10 @@ fun IptvHomeScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
+                    IconButton(onClick = { showQuality = true }) {
+                        Icon(Icons.Outlined.Tune, stringResource(R.string.iptv_quality_title))
+                    }
+                    TextButton(onClick = launchImport, enabled = canImport) {
                         if (state.importing) CircularProgressIndicator(Modifier.width(18.dp).height(18.dp))
                         else { Icon(Icons.Outlined.UploadFile, contentDescription = null); Spacer(Modifier.width(4.dp)); Text("Import") }
                     }
@@ -122,7 +145,7 @@ fun IptvHomeScreen(
             ) {
                 Text(stringResource(R.string.iptv_no_channels), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
+                OutlinedButton(onClick = launchImport, enabled = canImport) {
                     Text(stringResource(R.string.iptv_import_m3u))
                 }
             }
@@ -135,12 +158,12 @@ fun IptvHomeScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(state.filtered, key = { it.id }) { channel ->
+                    items(state.filtered, key = { "${it.playlistId}:${it.id}" }) { channel ->
                         ChannelRow(
                             channel = channel,
-                            favorite = channel.id in state.favoriteIds,
+                            favorite = channel.isFavourite(state.favoriteIds),
                             onPlay = { navController.navigate(Routes.iptvPlayer(serverId, channel.streamUrl, channel.name)) },
-                            onToggleFavorite = { viewModel.toggleFavorite(channel.id) }
+                            onToggleFavorite = { viewModel.toggleFavorite(channel) }
                         )
                     }
                 }
@@ -193,7 +216,7 @@ private fun GroupAndFilterBar(state: IptvUiState, viewModel: IptvHomeViewModel) 
 
 @Composable
 private fun ChannelRow(
-    channel: IptvChannelEntity,
+    channel: IptvChannel,
     favorite: Boolean,
     onPlay: () -> Unit,
     onToggleFavorite: () -> Unit
@@ -208,6 +231,8 @@ private fun ChannelRow(
                 if (channel.groupName.isNotBlank()) {
                     Text(channel.groupName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (channel.streamUrls.size > 1) Text(pluralStringResource(R.plurals.iptv_sources_count, channel.streamUrls.size, channel.streamUrls.size),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
             IconButton(onClick = onToggleFavorite) {
                 Icon(

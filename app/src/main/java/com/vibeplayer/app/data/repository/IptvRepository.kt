@@ -10,6 +10,10 @@ import com.vibeplayer.app.data.local.db.dao.IptvPlaylistDao
 import com.vibeplayer.app.data.local.db.entity.IptvChannelEntity
 import com.vibeplayer.app.data.local.db.entity.IptvPlaylistEntity
 import com.vibeplayer.app.data.remote.iptv.IptvParser
+import com.vibeplayer.app.model.IptvChannel
+import com.vibeplayer.app.model.mergeIptvChannels
+import com.vibeplayer.app.data.local.db.VibePlayerDatabase
+import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.time.LocalDateTime
@@ -17,8 +21,14 @@ import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private val Context.iptvPrefsDataStore by preferencesDataStore(name = "iptv_prefs")
@@ -33,8 +43,12 @@ private val Context.iptvPrefsDataStore by preferencesDataStore(name = "iptv_pref
 class IptvRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val playlistDao: IptvPlaylistDao,
-    private val channelDao: IptvChannelDao
+    private val channelDao: IptvChannelDao,
+    private val database: VibePlayerDatabase
 ) {
+    private val metadataLock = Mutex()
+    private val importLock = Mutex()
+    private val metadataChecked = mutableSetOf<String>()
 
     private object Keys {
         fun favorites(serviceId: String) = stringPreferencesKey("favorite_channel_ids_$serviceId")
@@ -50,10 +64,11 @@ class IptvRepository @Inject constructor(
             prefs[Keys.favorites(serviceId)]?.split(",")?.filter { it.isNotBlank() }?.toSet().orEmpty()
         }
 
-    suspend fun toggleFavorite(serviceId: String, channelId: String) {
+    suspend fun toggleFavorite(serviceId: String, channelIds: Set<String>) {
+        if (channelIds.isEmpty()) return
         context.iptvPrefsDataStore.edit { prefs ->
             val current = prefs[Keys.favorites(serviceId)]?.split(",")?.filter { it.isNotBlank() }?.toSet().orEmpty()
-            val updated = if (channelId in current) current - channelId else current + channelId
+            val updated = if (channelIds.any { it in current }) current - channelIds else current + channelIds.first()
             prefs[Keys.favorites(serviceId)] = updated.joinToString(",")
         }
     }
@@ -68,53 +83,58 @@ class IptvRepository @Inject constructor(
         fileName: String,
         bytes: ByteArray
     ): Result<Int> = withContext(Dispatchers.IO) {
-        runCatching {
-            val dir = File(context.filesDir, "iptv").apply { mkdirs() }
-            val safeName = sanitizeFileName(fileName)
-            val managedFile = File(dir, safeName)
-            managedFile.writeBytes(bytes)
+        importLock.withLock {
+            runCatching {
+                val dir = File(context.filesDir, "iptv/${IptvParser.stableId(serviceId)}").apply { mkdirs() }
+                val safeName = sanitizeFileName(fileName)
+                val managedFile = File(dir, safeName)
+                managedFile.writeBytes(bytes)
 
-            val playlist = IptvPlaylistEntity(
-                id = serviceId,
-                serviceId = serviceId,
-                name = serviceName,
-                sourceType = "LocalFile",
-                sourcePath = managedFile.absolutePath,
-                importedPath = managedFile.absolutePath,
-                importedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-            )
-            playlistDao.upsert(playlist)
-            channelDao.deleteByPlaylist(serviceId)
-
-            val text = IptvParser.decodeText(bytes)
-            val fallbackName = fileName.substringBeforeLast('.').ifEmpty { "IPTV Channel" }
-            val channels = if (IptvParser.looksLikeHlsManifest(text)) {
-                listOf(
-                    IptvChannelEntity(
-                        id = IptvParser.stableId(managedFile.absolutePath),
-                        playlistId = serviceId,
-                        name = fallbackName,
-                        groupName = IptvParser.DEFAULT_GROUP,
-                        logoUrl = "",
-                        streamUrl = Uri.fromFile(managedFile).toString(),
-                        sortOrder = 0
-                    )
+                val playlist = IptvPlaylistEntity(
+                    id = serviceId,
+                    serviceId = serviceId,
+                    name = serviceName,
+                    sourceType = "LocalFile",
+                    sourcePath = managedFile.absolutePath,
+                    importedPath = managedFile.absolutePath,
+                    importedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
                 )
-            } else {
-                IptvParser.parseChannels(text, fallbackName).map {
-                    IptvChannelEntity(
-                        id = it.id,
-                        playlistId = serviceId,
-                        name = it.name,
-                        groupName = it.groupName,
-                        logoUrl = it.logoUrl,
-                        streamUrl = it.streamUrl,
-                        sortOrder = it.sortOrder
+
+                val text = IptvParser.decodeText(bytes)
+                val fallbackName = fileName.substringBeforeLast('.').ifEmpty { "IPTV Channel" }
+                val channels = if (IptvParser.looksLikeHlsManifest(text)) {
+                    listOf(
+                        IptvChannelEntity(
+                            id = IptvParser.stableId(managedFile.absolutePath),
+                            playlistId = serviceId,
+                            name = fallbackName,
+                            groupName = IptvParser.DEFAULT_GROUP,
+                            logoUrl = "",
+                            streamUrl = Uri.fromFile(managedFile).toString(),
+                            sortOrder = 0
+                        )
                     )
+                } else {
+                    IptvParser.parseChannels(text, fallbackName).map {
+                        IptvChannelEntity(
+                            id = it.id,
+                            playlistId = serviceId,
+                            name = it.name,
+                            groupName = it.groupName,
+                            logoUrl = it.logoUrl,
+                            streamUrl = it.streamUrl,
+                            sortOrder = it.sortOrder,
+                            tvgId = it.tvgId
+                        )
+                    }
                 }
-            }
-            channelDao.upsertAll(channels)
-            channels.size
+                database.withTransaction {
+                    playlistDao.upsert(playlist)
+                    channelDao.deleteByPlaylist(serviceId)
+                    channelDao.upsertAll(channels)
+                }
+                mergeIptvChannels(channels).size
+            }.onFailure { if (it is CancellationException) throw it }
         }
     }
 
@@ -132,13 +152,46 @@ class IptvRepository @Inject constructor(
                 val uri = Uri.parse(uriString)
                 context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: throw IllegalStateException("Unable to read selected file")
-            }
+            }.onFailure { if (it is CancellationException) throw it }
         }.getOrElse { return Result.failure(it) }
         return importPlaylist(serviceId, serviceName, displayName, bytes)
     }
 
-    fun observeChannels(serviceId: String): Flow<List<IptvChannelEntity>> =
-        channelDao.observeByPlaylist(serviceId)
+    fun observeChannels(serviceId: String): Flow<List<IptvChannel>> =
+        flow {
+            restoreImportedMetadata(serviceId)
+            emitAll(channelDao.observeByPlaylist(serviceId))
+        }.map(::mergeIptvChannels).flowOn(Dispatchers.Default)
+
+    suspend fun findChannel(serviceId: String, url: String, name: String): IptvChannel? =
+        withContext(Dispatchers.IO) {
+            restoreImportedMetadata(serviceId)
+            val channels = mergeIptvChannels(channelDao.getByPlaylist(serviceId))
+            channels.firstOrNull { url in it.streamUrls }
+                ?: channels.singleOrNull { it.name.equals(name, ignoreCase = true) }
+        }
+
+    /** Version 2 did not persist tvg-id. Recover it from the managed copy without reimporting or changing IDs. */
+    private suspend fun restoreImportedMetadata(serviceId: String) = withContext(Dispatchers.IO) {
+        metadataLock.withLock {
+            if (serviceId in metadataChecked) return@withLock
+            val playlist = playlistDao.findByServiceId(serviceId) ?: return@withLock
+            try {
+                val file = File(playlist.importedPath)
+                if (file.isFile) {
+                    val parsed = IptvParser.parseChannels(IptvParser.decodeText(file.readBytes()), playlist.name)
+                        .filter { it.tvgId.isNotBlank() }
+                    if (parsed.isNotEmpty()) database.withTransaction {
+                        parsed.forEach { channelDao.restoreTvgId(serviceId, it.id, it.tvgId) }
+                    }
+                }
+                metadataChecked += serviceId
+            } catch (_: java.io.IOException) {
+                // If an old managed file is missing/unreadable, name/group merging still works.
+                metadataChecked += serviceId
+            }
+        }
+    }
 
     suspend fun hasPlaylist(serviceId: String): Boolean =
         playlistDao.findByServiceId(serviceId) != null

@@ -263,4 +263,25 @@
     <string name="player_performance_scope">CPU measures this app as a share of all CPU cores. GPU measures device usage when the driver exposes it to apps; otherwise it shows unavailable. GPU usage does not measure dedicated video-decoder usage. Updates every 2 seconds while this player is visible.</string>
     <string name="player_metric_unavailable">N/A</string>
     <string name="player_settings_save_failed">Could not save the setting. Please try again.</string>
+    <string name="iptv_quality_title">Automatic route preference</string>
+    <string name="iptv_quality_highest">Highest picture quality first</string>
+    <string name="iptv_quality_lowest">Lowest picture quality first</string>
+    <string name="iptv_quality_help">Compare known resolutions first, then bitrates. Unknown quality keeps the original order.</string>
+    <string name="iptv_quality_apply_help">Applies when opening a channel or tapping Automatic. Current playback continues.</string>
+    <plurals name="iptv_sources_count">
+        <item quantity="one">%1$d route</item>
+        <item quantity="other">%1$d routes</item>
+    </plurals>
+    <string name="iptv_source_selection">Select route</string>
+    <string name="iptv_sources_tab">Routes</string>
+    <string name="iptv_quality_tab">Quality</string>
+    <string name="iptv_source_automatic">Automatic</string>
+    <string name="iptv_source_auto_summary">Auto · %1$s</string>
+    <string name="iptv_source_line">Route %1$d</string>
+    <string name="iptv_source_quality_unknown">Unknown quality</string>
+    <string name="iptv_source_unavailable">Currently unreachable in probe</string>
+    <string name="iptv_source_checking">Checking routes…</string>
+    <string name="iptv_source_refresh">Check routes again</string>
+    <string name="iptv_source_active">In use</string>
+    <string name="iptv_source_switch_help">Switching reconnects the live stream and preserves the paused state.</string>
 </resources>

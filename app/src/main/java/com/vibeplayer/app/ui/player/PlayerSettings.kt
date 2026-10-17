@@ -60,15 +60,18 @@ fun BoxScope.PlayerSettings(
     controlsVisible: Boolean,
     locked: Boolean,
     preferences: PlayerPreferences,
-    viewModel: PlayerSettingsViewModel
+    viewModel: PlayerSettingsViewModel,
+    sourceSummary: String? = null,
+    sourceSettings: (@Composable () -> Unit)? = null
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var speedPage by rememberSaveable { mutableStateOf(false) }
+    var sourcePage by rememberSaveable { mutableStateOf(false) }
 
     if (controlsVisible && !locked) {
         IconButton(
-            onClick = { expanded = true; speedPage = false },
+            onClick = { expanded = true; speedPage = false; sourcePage = false },
             modifier = Modifier.align(Alignment.BottomEnd).bottomEdgeInsets().padding(end = 8.dp, bottom = 8.dp)
                 .background(Color.Black.copy(alpha = .65f), CircleShape).zIndex(3f)
         ) {
@@ -85,27 +88,33 @@ fun BoxScope.PlayerSettings(
         val decoder by viewModel.decoder.collectAsStateWithLifecycle()
         val saveFailed by viewModel.saveFailed.collectAsStateWithLifecycle()
         ModalBottomSheet(
-            onDismissRequest = { expanded = false; speedPage = false },
+            onDismissRequest = { expanded = false; speedPage = false; sourcePage = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (speedPage) IconButton(onClick = { speedPage = false }) {
+                if (speedPage || sourcePage) IconButton(onClick = { speedPage = false; sourcePage = false }) {
                     Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.back))
                 }
-                Text(stringResource(if (speedPage) R.string.player_hold_speed else R.string.player_settings),
+                Text(stringResource(when {
+                    speedPage -> R.string.player_hold_speed
+                    sourcePage -> R.string.iptv_source_selection
+                    else -> R.string.player_settings
+                }),
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
             }
-            if (!speedPage) TabRow(selectedTabIndex = tab) {
+            if (!speedPage && !sourcePage) TabRow(selectedTabIndex = tab) {
                 listOf(R.string.player_settings_playback, R.string.player_settings_decode, R.string.player_settings_performance)
                     .forEachIndexed { index, title ->
                         Tab(selected = tab == index, onClick = { tab = index }, text = { Text(stringResource(title)) })
                     }
             }
-            Column(Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())
+            Column(Modifier.fillMaxWidth().heightIn(max = 440.dp)
+                .then(if (sourcePage) Modifier else Modifier.verticalScroll(rememberScrollState()))
                 .padding(bottom = 24.dp)) {
                 if (saveFailed) Text(stringResource(R.string.player_settings_save_failed),
                     color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                 when {
+                    sourcePage && sourceSettings != null -> sourceSettings()
                     speedPage -> {
                         Text(stringResource(R.string.player_hold_speed_help), modifier = Modifier.padding(16.dp))
                         LONG_PRESS_SPEEDS.forEach { speed ->
@@ -117,15 +126,23 @@ fun BoxScope.PlayerSettings(
                             }
                         }
                     }
-                    tab == 0 -> ListItem(
-                        headlineContent = { Text(stringResource(R.string.player_hold_speed)) },
-                        supportingContent = { Text(stringResource(R.string.player_hold_speed_help)) },
-                        trailingContent = { Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${preferences.longPressSpeed}x")
-                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null)
-                        } },
-                        modifier = Modifier.clickable { speedPage = true }
-                    )
+                    tab == 0 -> {
+                        if (sourceSettings != null) ListItem(
+                            headlineContent = { Text(stringResource(R.string.iptv_source_selection)) },
+                            supportingContent = { Text(sourceSummary.orEmpty()) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { sourcePage = true }
+                        )
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.player_hold_speed)) },
+                            supportingContent = { Text(stringResource(R.string.player_hold_speed_help)) },
+                            trailingContent = { Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${preferences.longPressSpeed}x")
+                                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null)
+                            } },
+                            modifier = Modifier.clickable { speedPage = true }
+                        )
+                    }
                     tab == 1 -> {
                         Text(stringResource(R.string.player_decode_help), modifier = Modifier.padding(16.dp))
                         VideoDecodeMode.entries.forEach { mode ->

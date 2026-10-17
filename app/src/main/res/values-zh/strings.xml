@@ -260,4 +260,24 @@
     <string name="player_performance_scope">CPU 显示本应用占全部 CPU 核心的利用率。GPU 显示设备整体利用率，驱动未向应用开放时显示“不可用”；它不代表专用视频解码器的负载。仅在播放器可见时每 2 秒更新。</string>
     <string name="player_metric_unavailable">不可用</string>
     <string name="player_settings_save_failed">设置保存失败，请重试。</string>
+    <string name="iptv_quality_title">自动选线偏好</string>
+    <string name="iptv_quality_highest">画质最高优先</string>
+    <string name="iptv_quality_lowest">画质最低优先</string>
+    <string name="iptv_quality_help">优先比较已知分辨率，再比较码率；画质未知时保留原顺序。</string>
+    <string name="iptv_quality_apply_help">下次打开频道或点击“自动选择”时应用，当前播放会继续。</string>
+    <plurals name="iptv_sources_count">
+        <item quantity="other">%1$d 条线路</item>
+    </plurals>
+    <string name="iptv_source_selection">选择线路</string>
+    <string name="iptv_sources_tab">线路</string>
+    <string name="iptv_quality_tab">画质偏好</string>
+    <string name="iptv_source_automatic">自动选择</string>
+    <string name="iptv_source_auto_summary">自动 · %1$s</string>
+    <string name="iptv_source_line">线路 %1$d</string>
+    <string name="iptv_source_quality_unknown">画质未知</string>
+    <string name="iptv_source_unavailable">检测暂不可用</string>
+    <string name="iptv_source_checking">正在检测线路…</string>
+    <string name="iptv_source_refresh">重新检测线路</string>
+    <string name="iptv_source_active">正在使用</string>
+    <string name="iptv_source_switch_help">手动切换会重新连接直播，暂停状态会保留。</string>
 </resources>

@@ -4,6 +4,8 @@ All five source screens (Emby/Jellyfin, WebDAV, IPTV, links and local media) use
 gesture handling and settings panel. The settings button sits independently at the lower right.
 The panel uses three Material 3 tabs; long-press speed has a separate
 selection page with a back action.
+IPTV adds a [route selection page](iptv-multi-source.md) under Playback, with separate
+Routes and Quality tabs for manual source selection and the persisted automatic quality preference.
 The button and bottom playback controls share navigation/cutout safe-area padding. The seek
 area uses the larger of the left/right safe insets on both sides, so a one-sided landscape
 cutout cannot move the primary action away from the physical screen centre. Insets are read

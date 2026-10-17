@@ -19,6 +19,9 @@ interface IptvChannelDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(channels: List<IptvChannelEntity>)
 
+    @Query("UPDATE iptv_channels SET tvg_id = :tvgId WHERE playlist_id = :playlistId AND id = :id AND tvg_id = ''")
+    suspend fun restoreTvgId(playlistId: String, id: String, tvgId: String)
+
     @Query("DELETE FROM iptv_channels WHERE playlist_id = :playlistId")
     suspend fun deleteByPlaylist(playlistId: String)
 }
