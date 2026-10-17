@@ -41,7 +41,7 @@ identifier 优先按严格规则解析（4096 字符 Base64URL），失败时再
 
 ## 打包
 
-Android 打包器不执行 FFmpeg 转码，因此输入仍须是现成 HLS 文件夹；移动端打包器默认将加密后的 manifest/TS 写为 Qt 兼容的 `.m3u8sp` POSIX/PAX TAR，并生成绑定 index digest 与 container length 的 TSSL v4。生成的根 manifest 按分段时长写入 `#EXT-X-TARGETDURATION`（RFC 8216 必需项）。Packager API 仍提供 `DIRECTORY_V3` 显式兼容模式，以便需要旧目录格式的调用方使用。TSSL 备份按原始字节传输，完整保留 v4 字段。
+Android 打包器不执行 FFmpeg 转码，因此输入仍须是现成 HLS 文件夹；移动端打包器默认将加密后的 manifest/TS 写为 Qt 兼容的 `.m3u8sp` POSIX/PAX TAR，并生成绑定 index digest 与 container length 的 TSSL v4。生成的根 manifest 按分段时长写入 `#EXT-X-TARGETDURATION`（RFC 8216 必需项）。Packager API 仍提供 `DIRECTORY_V3` 显式兼容模式，以便需要旧目录格式的调用方使用。TSSL 备份默认使用 Qt 兼容 ZIP 快照，也可选择旧散装文件；容器中的 TSSL 始终保留原始字节和完整 v4 字段，详见 [压缩备份与恢复](tssl-backup-zip.md)。
 
 ## 验证
 

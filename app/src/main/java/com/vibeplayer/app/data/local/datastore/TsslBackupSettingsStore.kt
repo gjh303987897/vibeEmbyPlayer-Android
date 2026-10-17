@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.vibeplayer.app.security.KeystoreSecretStore
+import com.vibeplayer.app.domain.tssl.TsslBackupFormat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -19,6 +20,9 @@ import kotlinx.coroutines.flow.map
 /** Non-sensitive TSSL remote-backup settings persisted across app launches. */
 data class TsslBackupSettings(
     val target: String = "none",
+    val format: TsslBackupFormat = TsslBackupFormat.ZIP,
+    val localTreeUri: String = "",
+    val localFolderName: String = "",
     val webDavServiceId: String = "",
     val webDavPath: String = "vibePlayerQT/tssl",
     val s3Endpoint: String = "",
@@ -48,6 +52,9 @@ class TsslBackupSettingsStore @Inject constructor(
 
     private object Keys {
         val TARGET = stringPreferencesKey("target")
+        val FORMAT = stringPreferencesKey("format")
+        val LOCAL_TREE = stringPreferencesKey("local_tree")
+        val LOCAL_NAME = stringPreferencesKey("local_folder_name")
         val WEBDAV_SERVICE_ID = stringPreferencesKey("webdav_service_id")
         val WEBDAV_PATH = stringPreferencesKey("webdav_path")
         val S3_ENDPOINT = stringPreferencesKey("s3_endpoint")
@@ -61,6 +68,9 @@ class TsslBackupSettingsStore @Inject constructor(
     val settings: Flow<TsslBackupSettings> = dataStore.data.map { p ->
         TsslBackupSettings(
             target = p[Keys.TARGET] ?: "none",
+            format = TsslBackupFormat.entries.firstOrNull { it.name.equals(p[Keys.FORMAT], true) } ?: TsslBackupFormat.ZIP,
+            localTreeUri = p[Keys.LOCAL_TREE].orEmpty(),
+            localFolderName = p[Keys.LOCAL_NAME].orEmpty(),
             webDavServiceId = p[Keys.WEBDAV_SERVICE_ID].orEmpty(),
             webDavPath = p[Keys.WEBDAV_PATH] ?: "vibePlayerQT/tssl",
             s3Endpoint = p[Keys.S3_ENDPOINT].orEmpty(),
@@ -76,6 +86,9 @@ class TsslBackupSettingsStore @Inject constructor(
         dataStore.edit { p ->
             val current = TsslBackupSettings(
                 target = p[Keys.TARGET] ?: "none",
+                format = TsslBackupFormat.entries.firstOrNull { it.name.equals(p[Keys.FORMAT], true) } ?: TsslBackupFormat.ZIP,
+                localTreeUri = p[Keys.LOCAL_TREE].orEmpty(),
+                localFolderName = p[Keys.LOCAL_NAME].orEmpty(),
                 webDavServiceId = p[Keys.WEBDAV_SERVICE_ID].orEmpty(),
                 webDavPath = p[Keys.WEBDAV_PATH] ?: "vibePlayerQT/tssl",
                 s3Endpoint = p[Keys.S3_ENDPOINT].orEmpty(),
@@ -87,6 +100,9 @@ class TsslBackupSettingsStore @Inject constructor(
             )
             val next = transform(current)
             p[Keys.TARGET] = next.target
+            p[Keys.FORMAT] = next.format.name.lowercase()
+            p[Keys.LOCAL_TREE] = next.localTreeUri
+            p[Keys.LOCAL_NAME] = next.localFolderName
             p[Keys.WEBDAV_SERVICE_ID] = next.webDavServiceId
             p[Keys.WEBDAV_PATH] = next.webDavPath
             p[Keys.S3_ENDPOINT] = next.s3Endpoint

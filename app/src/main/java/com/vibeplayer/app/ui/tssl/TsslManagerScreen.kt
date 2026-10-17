@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
@@ -33,6 +35,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -60,7 +64,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -72,6 +75,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vibeplayer.app.R
 import com.vibeplayer.app.data.local.datastore.TsslBackupSettings
+import com.vibeplayer.app.domain.tssl.TsslBackupFormat
+import com.vibeplayer.app.domain.tssl.TsslBackupStage
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.TsslPackage
 import com.vibeplayer.app.ui.components.AppMessageCard
@@ -83,7 +88,6 @@ fun TsslManagerScreen(
     viewModel: TsslManagerViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
 
     var exportTarget by remember { mutableStateOf<TsslPackage?>(null) }
     var backupTarget by remember { mutableStateOf<TsslPackage?>(null) }
@@ -92,12 +96,11 @@ fun TsslManagerScreen(
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            val bytes = runCatching {
-                context.contentResolver.openInputStream(it)?.use { stream -> stream.readBytes() }
-            }.getOrNull()
-            bytes?.let(viewModel::import)
-        }
+        uri?.let(viewModel::importUri)
+    }
+
+    val backupFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(viewModel::setLocalFolder)
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -105,11 +108,7 @@ fun TsslManagerScreen(
     ) { uri: Uri? ->
         val target = exportTarget
         if (uri != null && target != null) {
-            viewModel.exportBytes(target) { bytes ->
-                runCatching {
-                    context.contentResolver.openOutputStream(uri)?.use { stream -> stream.write(bytes) }
-                }
-            }
+            viewModel.exportToUri(target, uri)
         }
         exportTarget = null
     }
@@ -163,13 +162,14 @@ fun TsslManagerScreen(
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
-                                onClick = { importLauncher.launch(arrayOf("application/octet-stream", "*/*")) }
+                                onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                                enabled = !state.backupBusy && !state.restoring && !state.packagingBusy
                             ) {
                                 Icon(Icons.Outlined.FileUpload, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.tssl_import_restore))
                             }
                             OutlinedButton(
                                 onClick = { sourcePicker.launch(null) },
-                                enabled = !state.packagingBusy
+                                enabled = !state.packagingBusy && !state.backupBusy && !state.restoring
                             ) {
                                 Icon(Icons.Outlined.Movie, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.tssl_package_hls_folder))
                             }
@@ -186,6 +186,10 @@ fun TsslManagerScreen(
                     backupBusy = state.backupBusy,
                     restoring = state.restoring,
                     restoreProgress = state.restoreProgress,
+                    stage = state.backupStage,
+                    onCancel = viewModel::cancelBackup,
+                    onChooseFolder = { backupFolderPicker.launch(null) },
+                    onFormatChange = viewModel::setBackupFormat,
                     s3SecretDraft = s3SecretDraft,
                     onSecretDraftChange = { s3SecretDraft = it },
                     onTargetChange = viewModel::setBackupTarget,
@@ -219,7 +223,7 @@ fun TsslManagerScreen(
                 items(state.packages, key = { it.fileName }) { pkg ->
                     TsslRow(
                         pkg = pkg,
-                        busy = state.backupBusy,
+                        busy = state.backupBusy || state.restoring || state.packagingBusy,
                         onExport = {
                             exportTarget = pkg
                             exportLauncher.launch(pkg.fileName)
@@ -257,6 +261,10 @@ private fun TsslBackupSettingsCard(
     backupBusy: Boolean,
     restoring: Boolean,
     restoreProgress: Float?,
+    stage: TsslBackupStage?,
+    onCancel: () -> Unit,
+    onChooseFolder: () -> Unit,
+    onFormatChange: (TsslBackupFormat) -> Unit,
     s3SecretDraft: String,
     onSecretDraftChange: (String) -> Unit,
     onTargetChange: (String) -> Unit,
@@ -273,6 +281,7 @@ private fun TsslBackupSettingsCard(
     onRestore: () -> Unit
 ) {
     var showServicePicker by remember { mutableStateOf(false) }
+    var showTargetMenu by remember { mutableStateOf(false) }
     var webDavPathFocused by remember { mutableStateOf(false) }
     var webDavPathDraft by rememberSaveable { mutableStateOf(settings.webDavPath) }
     androidx.compose.runtime.LaunchedEffect(settings.webDavPath) {
@@ -281,9 +290,10 @@ private fun TsslBackupSettingsCard(
         }
     }
     val busy = backupBusy || restoring
-    val targetOptions = listOf("none", "webdav", "s3")
+    val targetOptions = listOf("none", "local", "webdav", "s3")
     val targetLabels = listOf(
         stringResource(R.string.tssl_backup_target_none),
+        stringResource(R.string.tssl_backup_target_local),
         stringResource(R.string.tssl_backup_target_webdav),
         stringResource(R.string.tssl_backup_target_s3)
     )
@@ -304,18 +314,28 @@ private fun TsslBackupSettingsCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                targetOptions.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = settings.target == option,
-                        onClick = { onTargetChange(option) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = targetOptions.size),
-                        label = { Text(targetLabels[index], maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    )
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { showTargetMenu = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.tssl_backup_destination))
+                    Spacer(Modifier.weight(1f))
+                    Text(targetLabels[targetOptions.indexOf(settings.target).coerceAtLeast(0)])
+                    Icon(Icons.Outlined.ArrowDropDown, null)
+                }
+                DropdownMenu(expanded = showTargetMenu && !busy, onDismissRequest = { showTargetMenu = false }) {
+                    targetOptions.forEachIndexed { index, option ->
+                        DropdownMenuItem(
+                            text = { Text(targetLabels[index]) },
+                            leadingIcon = { RadioButton(selected = settings.target == option, onClick = null) },
+                            onClick = { showTargetMenu = false; onTargetChange(option) }
+                        )
+                    }
                 }
             }
 
             when (settings.target) {
+                "local" -> OutlinedButton(onClick = onChooseFolder, enabled = !busy) {
+                    Text(settings.localFolderName.ifBlank { stringResource(R.string.tssl_choose_folder) })
+                }
                 "webdav" -> {
                     OutlinedButton(
                         onClick = { showServicePicker = true },
@@ -374,6 +394,18 @@ private fun TsslBackupSettingsCard(
                 }
             }
 
+            Text(stringResource(R.string.tssl_backup_format), style = MaterialTheme.typography.titleSmall)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                TsslBackupFormat.entries.forEachIndexed { index, format ->
+                    SegmentedButton(selected = settings.format == format, enabled = !busy,
+                        onClick = { onFormatChange(format) }, shape = SegmentedButtonDefaults.itemShape(index, 2)) {
+                        Text(stringResource(if (format == TsslBackupFormat.ZIP) R.string.tssl_backup_format_zip else R.string.tssl_backup_format_files))
+                    }
+                }
+            }
+            Text(stringResource(R.string.tssl_backup_format_help), style = MaterialTheme.typography.bodySmall)
+            stage?.let { Text(stringResource(stageLabel(it)), style = MaterialTheme.typography.bodyMedium) }
+            if (busy) TextButton(onClick = onCancel) { Text(stringResource(R.string.cancel)) }
             if (backupBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             restoreProgress?.let { progress ->
                 LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
@@ -417,6 +449,16 @@ private fun TsslSwitchRow(
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
+}
+
+private fun stageLabel(stage: TsslBackupStage): Int = when (stage) {
+    TsslBackupStage.SCANNING -> R.string.tssl_stage_scanning
+    TsslBackupStage.COMPRESSING -> R.string.tssl_stage_compressing
+    TsslBackupStage.UPLOADING -> R.string.tssl_stage_uploading
+    TsslBackupStage.LISTING -> R.string.tssl_stage_listing
+    TsslBackupStage.DOWNLOADING -> R.string.tssl_stage_downloading
+    TsslBackupStage.EXTRACTING -> R.string.tssl_stage_extracting
+    TsslBackupStage.IMPORTING -> R.string.tssl_stage_importing
 }
 
 @Composable

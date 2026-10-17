@@ -145,7 +145,7 @@
     <string name="services_global_history">全局历史</string>
     <string name="services_global_history_sub">所有来源的统一播放历史</string>
     <string name="services_tssl">M3U8S视频管理</string>
-    <string name="services_tssl_sub">管理 TSSL / M3U8S 包并备份到 WebDAV</string>
+    <string name="services_tssl_sub">管理加密媒体密钥及本地、WebDAV、S3 备份</string>
 
     <!-- TSSL 管理器 -->
     <string name="tssl_packages_hint">TSSL 包包含加密媒体密钥，属于机密信息，请谨慎处理。</string>
@@ -192,8 +192,8 @@
     <string name="player_error_format">本机不支持该视频格式或编码。</string>
     <string name="player_error_timeout">加载超时，请重试。</string>
     <string name="save_password_failed">无法安全保存密码，下次进入仍需输入。</string>
-    <string name="tssl_backup_settings">TSSL 远程备份</string>
-    <string name="tssl_backup_settings_hint">将已验证的 TSSL 包备份到 WebDAV 文件夹或 S3 兼容存储，也可从远程位置恢复。</string>
+    <string name="tssl_backup_settings">TSSL 备份与恢复</string>
+    <string name="tssl_backup_settings_hint">将 TSSL 包备份到本地文件夹、WebDAV 或 S3。恢复时自动识别 ZIP 和旧版散装文件，也可通过“导入/恢复”选择单个备份。</string>
     <string name="tssl_backup_target_none">无</string>
     <string name="tssl_backup_target_webdav">WebDAV</string>
     <string name="tssl_backup_target_s3">S3</string>
@@ -208,7 +208,7 @@
     <string name="tssl_s3_secret_saved">S3 密钥已安全保存。</string>
     <string name="tssl_save_secret">保存密钥</string>
     <string name="tssl_backup_all">备份全部</string>
-    <string name="tssl_restore_backup">恢复远端备份</string>
+    <string name="tssl_restore_backup">从备份恢复</string>
     <!-- 统一的用户消息 -->
     <string name="message_error_title">操作失败</string>
     <string name="message_warning_title">请检查</string>
@@ -231,14 +231,12 @@
     <string name="webdav_folder_created">文件夹已创建。</string>
     <string name="webdav_upload_complete">上传已完成。</string>
     <string name="iptv_imported_channels">已导入频道数：%1$d。</string>
-    <string name="tssl_message_imported">已导入 %1$s。</string>
     <string name="tssl_message_secret_save_failed">无法安全保存 S3 密钥。</string>
     <string name="tssl_message_no_valid_packages">没有可备份的有效 TSSL 包。</string>
     <string name="tssl_message_backup_count">已备份 %1$d 个 TSSL 包。</string>
     <string name="tssl_message_restore_summary">恢复结果——成功：%1$d，已存在：%2$d，失败：%3$d。</string>
     <string name="tssl_message_deleted">已删除 %1$s。</string>
     <string name="tssl_message_unreadable">无法读取 TSSL 包。</string>
-    <string name="tssl_message_backup_to">已将 %1$d 个 TSSL 包备份到 %2$s。</string>
     <string name="tssl_message_no_playlist">所选文件夹中没有找到 HLS 播放列表（.m3u8）。</string>
     <string name="tssl_message_packaged">已创建 M3U8SP v4 包：%1$s</string>
     <string name="tssl_message_select_webdav">请先选择可用的 WebDAV 服务。</string>
@@ -280,4 +278,19 @@
     <string name="iptv_source_refresh">重新检测线路</string>
     <string name="iptv_source_active">正在使用</string>
     <string name="iptv_source_switch_help">手动切换会重新连接直播，暂停状态会保留。</string>
+    <string name="tssl_backup_target_local">本地</string>
+    <string name="tssl_backup_destination">备份位置</string>
+    <string name="tssl_choose_folder">选择备份文件夹</string>
+    <string name="tssl_backup_format">备份格式</string>
+    <string name="tssl_backup_format_zip">ZIP（推荐）</string>
+    <string name="tssl_backup_format_files">独立文件</string>
+    <string name="tssl_backup_format_help">ZIP 将密钥包压缩为一个完整快照；恢复时同时兼容 ZIP 快照和旧版独立 TSSL 文件。</string>
+    <string name="tssl_operation_canceled">已取消 TSSL 操作</string>
+    <string name="tssl_stage_scanning">正在检查密钥包…</string>
+    <string name="tssl_stage_compressing">正在压缩备份…</string>
+    <string name="tssl_stage_uploading">正在保存备份…</string>
+    <string name="tssl_stage_listing">正在查找备份…</string>
+    <string name="tssl_stage_downloading">正在读取备份…</string>
+    <string name="tssl_stage_extracting">正在校验备份…</string>
+    <string name="tssl_stage_importing">正在恢复密钥包…</string>
 </resources>

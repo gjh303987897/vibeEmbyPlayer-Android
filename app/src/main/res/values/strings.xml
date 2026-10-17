@@ -149,7 +149,7 @@
     <string name="services_global_history">Global History</string>
     <string name="services_global_history_sub">Unified playback history across all sources</string>
     <string name="services_tssl">M3U8S Manager</string>
-    <string name="services_tssl_sub">Manage TSSL / M3U8S packages and back up to WebDAV</string>
+    <string name="services_tssl_sub">Manage encrypted-media keys and local, WebDAV, or S3 backups</string>
 
     <!-- TSSL manager -->
     <string name="tssl_packages_hint">TSSL packages hold encrypted-media keys. They are secrets — handle with care.</string>
@@ -162,8 +162,8 @@
     <string name="tssl_webdav_target_help">Add a WebDAV service first to use it as a backup target.</string>
     <string name="tssl_backup_to_webdav">Back up to WebDAV</string>
     <string name="tssl_backup">Backup</string>
-    <string name="tssl_backup_settings">Remote TSSL backup</string>
-    <string name="tssl_backup_settings_hint">Back up validated TSSL packages or restore them from a WebDAV folder or S3-compatible bucket.</string>
+    <string name="tssl_backup_settings">TSSL backup and restore</string>
+    <string name="tssl_backup_settings_hint">Back up to a local folder, WebDAV, or S3. Restore automatically reads ZIP and legacy files. Use Import/Restore to select an individual backup.</string>
     <string name="tssl_backup_target_none">None</string>
     <string name="tssl_backup_target_webdav">WebDAV</string>
     <string name="tssl_backup_target_s3">S3</string>
@@ -178,19 +178,17 @@
     <string name="tssl_s3_secret_saved">S3 secret key is securely stored.</string>
     <string name="tssl_save_secret">Save secret</string>
     <string name="tssl_backup_all">Back up all</string>
-    <string name="tssl_restore_backup">Restore remote</string>
+    <string name="tssl_restore_backup">Restore backup</string>
     <string name="tssl_encrypting">Encrypting media segments and building the TSSL package. This can take a while for large sources.</string>
     <string name="tssl_file_name">File name: %1$s</string>
     <string name="tssl_identifier">Identifier: %1$s</string>
     <string name="tssl_invalid_package">Invalid TSSL package</string>
-    <string name="tssl_message_imported">Imported %1$s.</string>
     <string name="tssl_message_secret_save_failed">The S3 secret key could not be saved securely.</string>
     <string name="tssl_message_no_valid_packages">There are no valid TSSL packages to back up.</string>
     <string name="tssl_message_backup_count">Backed up %1$d TSSL packages.</string>
     <string name="tssl_message_restore_summary">Restore summary — restored: %1$d, already existed: %2$d, failed: %3$d.</string>
     <string name="tssl_message_deleted">Deleted %1$s.</string>
     <string name="tssl_message_unreadable">The TSSL package cannot be read.</string>
-    <string name="tssl_message_backup_to">Backed up %1$d TSSL packages to %2$s.</string>
     <string name="tssl_message_no_playlist">No HLS playlist (.m3u8) was found in the selected folder.</string>
     <string name="tssl_message_packaged">Created M3U8SP v4 package: %1$s</string>
     <string name="tssl_message_select_webdav">Select an available WebDAV service first.</string>
@@ -284,4 +282,19 @@
     <string name="iptv_source_refresh">Check routes again</string>
     <string name="iptv_source_active">In use</string>
     <string name="iptv_source_switch_help">Switching reconnects the live stream and preserves the paused state.</string>
+    <string name="tssl_backup_target_local">Local</string>
+    <string name="tssl_backup_destination">Backup destination</string>
+    <string name="tssl_choose_folder">Choose backup folder</string>
+    <string name="tssl_backup_format">Backup format</string>
+    <string name="tssl_backup_format_zip">ZIP (recommended)</string>
+    <string name="tssl_backup_format_files">Individual files</string>
+    <string name="tssl_backup_format_help">ZIP saves a compressed snapshot. Restore accepts both ZIP snapshots and older individual TSSL files.</string>
+    <string name="tssl_operation_canceled">TSSL operation canceled</string>
+    <string name="tssl_stage_scanning">Checking key packages…</string>
+    <string name="tssl_stage_compressing">Compressing backup…</string>
+    <string name="tssl_stage_uploading">Saving backup…</string>
+    <string name="tssl_stage_listing">Finding backups…</string>
+    <string name="tssl_stage_downloading">Reading backup…</string>
+    <string name="tssl_stage_extracting">Validating backup…</string>
+    <string name="tssl_stage_importing">Restoring key packages…</string>
 </resources>

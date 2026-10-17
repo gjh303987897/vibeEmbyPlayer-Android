@@ -2,6 +2,15 @@ package com.vibeplayer.app.data.remote.webdav
 
 import android.util.Xml
 import com.vibeplayer.app.di.OkHttpClientFactory
+import com.vibeplayer.app.data.remote.backupResponse
+import com.vibeplayer.app.data.remote.backupRequestBody
+import com.vibeplayer.app.data.remote.backupToFile
+import com.vibeplayer.app.domain.tssl.TsslBackupArchive
+import java.io.File
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.WebDavItem
 import java.io.IOException
@@ -340,6 +349,45 @@ class WebDavClient @Inject constructor(
                 header("Authorization", basicAuth(server.username, password))
             }
         }
+
+    /** File-based TSSL transport: no complete ZIP is buffered in memory. */
+    suspend fun listBackups(server: ServerConfig, password: String, path: String): Result<List<WebDavItem>> = withContext(Dispatchers.IO) {
+        val context = coroutineContext
+        runCatching {
+            val url = resolveDirectoryUrl(server, path)
+            val request = auth(server, password).url(url)
+                .method("PROPFIND", PROPFIND_XML.toRequestBody(PROPFIND_MEDIA_TYPE)).header("Depth", "1").build()
+            backupClient(server, password).newCall(request).backupResponse { response ->
+                if (!response.isSuccessful) throw IOException("Backup PROPFIND HTTP ${response.code}")
+                val body = response.body ?: throw IOException("Empty WebDAV backup listing")
+                require(body.contentLength() <= 4L * 1024 * 1024) { "WebDAV listing too large" }
+                val bytes = body.byteStream().use { TsslBackupArchive.readBounded(it, 4L * 1024 * 1024) { context.ensureActive() } }
+                parseMultistatus(bytes, server, url)
+            }
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    suspend fun uploadBackup(server: ServerConfig, password: String, path: String, file: File): Result<Unit> = withContext(Dispatchers.IO) {
+        val context = coroutineContext
+        runCatching {
+            val request = auth(server, password).url(resolveUrl(server, path))
+                .put(file.backupRequestBody(null, context)).build()
+            backupClient(server, password).newCall(request).backupResponse { response ->
+                if (!response.isSuccessful) throw IOException("Backup PUT HTTP ${response.code}")
+            }
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    suspend fun downloadBackup(server: ServerConfig, password: String, path: String, file: File, maximum: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        val context = coroutineContext
+        runCatching {
+            val request = auth(server, password).url(resolveUrl(server, path)).get().build()
+            backupClient(server, password).newCall(request).backupResponse { it.backupToFile(file, maximum, context) }
+        }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    private fun backupClient(server: ServerConfig, password: String) = clientFor(server, password).newBuilder()
+        .readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).callTimeout(15, TimeUnit.MINUTES).build()
 
     private fun basicAuth(user: String, password: String): String {
         val credentials = Base64.getEncoder().encodeToString("$user:$password".toByteArray(Charsets.UTF_8))

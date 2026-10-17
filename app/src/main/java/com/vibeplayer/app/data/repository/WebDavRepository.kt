@@ -7,6 +7,7 @@ import com.vibeplayer.app.data.remote.webdav.WebDavPrefix
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.WebDavItem
 import java.io.InputStream
+import java.io.File
 import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -86,6 +87,21 @@ class WebDavRepository @Inject constructor(
         val password = secureSessionStore.password(server.id)
             ?: return Result.failure(IllegalStateException("WebDAV password not set"))
         return client.upload(server, password, path, bytes)
+    }
+
+    suspend fun listBackups(server: ServerConfig, path: String): Result<List<WebDavItem>> {
+        val password = requirePassword(server) ?: return Result.failure(IllegalStateException("WebDAV password not set"))
+        return client.listBackups(server, password, path)
+    }
+
+    suspend fun uploadBackup(server: ServerConfig, path: String, file: File): Result<Unit> {
+        val password = requirePassword(server) ?: return Result.failure(IllegalStateException("WebDAV password not set"))
+        return client.uploadBackup(server, password, path, file)
+    }
+
+    suspend fun downloadBackup(server: ServerConfig, path: String, file: File, maximum: Long): Result<Unit> {
+        val password = requirePassword(server) ?: return Result.failure(IllegalStateException("WebDAV password not set"))
+        return client.downloadBackup(server, password, path, file, maximum)
     }
 
     /** Password gate kept internal; relies on [requirePassword] below. */
