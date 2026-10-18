@@ -58,6 +58,110 @@ class PlayerManagerPlaybackTest {
     private var surfaceObserver: Job? = null
 
     @Test
+    fun webDavTsslSeekInterruptsSlowOldSegmentAndKeepsLatestPausedTarget() {
+        val context = instrumentation.targetContext
+        val shared = (context.applicationContext as VibePlayerApp).playerManager
+        WebDavTsslSeekFixture(context, instrumentation.context).use { fixture ->
+            try {
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    val surface = attachSurface(scenario, shared)
+                    callOnMain {
+                        shared.beginLoading("TSSL startup")
+                        assertTrue("loading must start before WebDAV/container preparation", shared.state.value.buffering)
+                    }
+                    val playback = fixture.prepare()
+                    callOnMain {
+                        assertTrue(shared.state.value.buffering)
+                        shared.play(playback.playUrl, "TSSL seek", null,
+                            networkByteCounter = playback.networkByteCounter,
+                            interruptPendingReads = playback::interruptPendingReads)
+                    }
+                    awaitCondition("encrypted video must start") {
+                        assertNull(shared.state.value.error)
+                        shared.state.value.isPlaying && shared.state.value.positionMs > 200
+                    }
+                    assertTrue("old segment must be blocked in WebDAV", fixture.slowRead.await(5, TimeUnit.SECONDS))
+                    val started = SystemClock.elapsedRealtime()
+                    callOnMain {
+                        shared.seekTo(24_000)
+                        assertEquals(24_000, shared.state.value.positionMs)
+                        assertTrue(shared.state.value.buffering)
+                        assertFalse(shared.state.value.isPlaying)
+                    }
+                    awaitCondition("seek must reach the target and resume") {
+                        assertNull(shared.state.value.error)
+                        shared.state.value.isPlaying && shared.player.currentPosition in 23_000..26_500
+                    }
+                    var lastFrameError: AssertionError? = null
+                    do {
+                        try {
+                            assertBlueFrameVisible(surface)
+                            lastFrameError = null
+                            break
+                        } catch (failure: AssertionError) { lastFrameError = failure }
+                        SystemClock.sleep(32)
+                    } while (SystemClock.elapsedRealtime() - started < 4_000)
+                    lastFrameError?.let { throw it }
+                    val elapsed = SystemClock.elapsedRealtime() - started
+                    println("TSSL seek rendered blue target in ${elapsed}ms, native=${shared.player.currentPosition}")
+                    assertTrue("seek must not wait for the old eight-second response", elapsed < 4_000)
+                    callOnMain {
+                        shared.pause()
+                        shared.seekTo(4_000)
+                        shared.seekTo(22_000)
+                        assertEquals(22_000, shared.state.value.positionMs)
+                    }
+                    awaitCondition("rapid seeks must keep the last target paused") {
+                        assertNull(shared.state.value.error)
+                        !shared.state.value.buffering && !shared.state.value.isPlaying &&
+                            shared.state.value.positionMs == 22_000L
+                    }
+                    SystemClock.sleep(300)
+                    callOnMain {
+                        assertFalse(shared.playWhenReady)
+                        assertFalse(shared.player.isPlaying)
+                        assertEquals(22_000, shared.state.value.positionMs)
+                        shared.stop()
+                        shared.beginLoading()
+                        shared.failLoading("Synthetic prepare error")
+                        assertFalse(shared.state.value.buffering)
+                        assertEquals("Synthetic prepare error", shared.state.value.error)
+                    }
+                }
+            } finally {
+                callOnMain {
+                    surfaceObserver?.cancel()
+                    shared.stop()
+                    context.stopService(Intent(context, PlaybackService::class.java))
+                }
+            }
+        }
+    }
+
+    private fun assertBlueFrameVisible(view: IjkPlayerView) {
+        val bitmap = Bitmap.createBitmap(32, 18, Bitmap.Config.ARGB_8888)
+        val copied = CountDownLatch(1)
+        var result = PixelCopy.ERROR_UNKNOWN
+        callOnMain {
+            PixelCopy.request((view.getChildAt(0) as SurfaceView).holder.surface, bitmap, { status ->
+                result = status
+                copied.countDown()
+            }, Handler(Looper.getMainLooper()))
+        }
+        assertTrue(copied.await(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+        try {
+            assertEquals(PixelCopy.SUCCESS, result)
+            var blue = 0
+            for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                if (Color.blue(pixel) > Color.red(pixel) + 80 && Color.blue(pixel) > Color.green(pixel) + 80) blue++
+            }
+            assertTrue("seek must display the blue 20–30s segment, rather than old red/green frames",
+                blue > 30)
+        } finally { bitmap.recycle() }
+    }
+
+    @Test
     fun pausedSurfaceReplacementRedrawsFrameAndRetainsSubtitleSessionInBothDecoders() {
         val context = instrumentation.targetContext
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

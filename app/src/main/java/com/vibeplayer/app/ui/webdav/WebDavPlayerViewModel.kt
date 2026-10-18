@@ -101,24 +101,24 @@ class WebDavPlayerViewModel @Inject constructor(
             title = path?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
         )
         if (path.isNullOrBlank()) {
-            _uiState.update { it.copy(error = "Invalid server path") }
+            playerManager.failLoading("Invalid server path")
             return
         }
         this.path = path
         this.historyTitle = path.substringAfterLast('/')
         viewModelScope.launch {
             val server = repository.getServer(serverId) ?: run {
-                _uiState.update { it.copy(error = "Server not found") }
+                playerManager.failLoading("Server not found")
                 return@launch
             }
             if (server.privateMode && !privacyManager.privacyMode.value) {
-                _uiState.update { it.copy(error = "Service is locked") }
+                playerManager.failLoading("Service is locked")
                 return@launch
             }
             this@WebDavPlayerViewModel.server = server
             val password = secureSessionStore.password(serverId)
             if (password.isNullOrEmpty()) {
-                _uiState.update { it.copy(error = "Password not set") }
+                playerManager.failLoading("Password not set")
                 return@launch
             }
             if (isEncryptedHls(path)) {
@@ -166,7 +166,8 @@ class WebDavPlayerViewModel @Inject constructor(
                         subtitle = server.name,
                         startPositionMs = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, webdavPath) * 1000,
                         privatePlayback = server.privateMode,
-                        networkByteCounter = playback.networkByteCounter
+                        networkByteCounter = playback.networkByteCounter,
+                        interruptPendingReads = playback::interruptPendingReads
                     )
                     historyRepository.recordPlayback(
                         source = PlaybackSource.WEBDAV,
@@ -181,7 +182,7 @@ class WebDavPlayerViewModel @Inject constructor(
                     startReporter(server)
                 },
                 onFailure = { e ->
-                    _uiState.update { it.copy(error = e.message ?: "Encrypted playback failed") }
+                    playerManager.failLoading(e.message ?: "Encrypted playback failed")
                 }
             )
         }

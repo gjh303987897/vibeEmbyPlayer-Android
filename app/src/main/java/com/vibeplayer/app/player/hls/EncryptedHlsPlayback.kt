@@ -14,6 +14,8 @@ class EncryptedHlsPlayback(
     val playUrl: String
         get() = server.baseUrl + rootManifestName
 
+    fun interruptPendingReads() = server.interruptPendingReads()
+
     /** Stops the loopback HTTP server. Safe to call more than once. */
     fun close() = server.close()
 }

@@ -23,6 +23,10 @@ Qt 使用 `QByteArray::toHex()` 写入每个成员的 `sha256`，因此该字段
 5. 同时匹配 index digest、container length 和 container format。
 6. 后续 TS/playlist/resource 按 index 随机读取并校验；TS 继续在 AES-256-GCM tag 验证后才交给 IJK。
 
+播放器进入页面就显示加载状态，覆盖 WebDAV 身份读取、容器索引、manifest 和本机 TSSL 匹配阶段；准备失败时结束加载并显示错误。
+
+WebDAV 加密播放的 seek 会立即暂停并静音旧输出，保留目标进度，先向 IJK 提交 seek，再关闭旧环回响应并取消对应的 OkHttp 请求（包括正在读取的响应体），使 demuxer 无需等旧分片下载完成。连续拖动合并到最后一个目标；只有当前目标完成后才按用户最新的播放/暂停意图恢复。取消请求不会跳过 SHA-256、ETag、Content-Range 或 AES-GCM 校验。停止代理也会关闭已接收的连接并取消其远程读取。
+
 环回解密代理（`EncryptedHlsServer`）使用弹性线程池 + 连接槽上限，读完请求行后把读超时提高到 120 秒，避免播放器的空闲 keep-alive 连接占死固定线程池而让真实分片请求超时（表现为「进去没有画面，随后报错」）。
 
 代理绑定 `127.0.0.1`，并向 IJK 提供该地址的 HTTP 播放 URL。`network_security_config.xml` 必须明确允许 `127.0.0.1` 的明文流量；只放行 `localhost` 不会覆盖这个数字地址，否则 WebDAV 的范围读取和 TSSL 校验成功后仍会在播放器连接本机代理时失败。其他远程地址仍遵循原有网络安全配置。
@@ -50,3 +54,7 @@ Android 打包器不执行 FFmpeg 转码，因此输入仍须是现成 HLS 文�
 ```
 
 手工测试需要从 Qt 创建真实 `.m3u8sp` + TSSL v4，分别通过 SAF 和支持 HTTP Range 的 WebDAV 播放，并验证篡改 index、manifest、segment、TSSL index digest 或 container length 均会失败。
+
+`EncryptedHlsCancellationTest` 和 `WebDavRangeCancellationTest` 覆盖取消旧读取、关闭连接、取消响应体与后续请求可用性。`PlayerManagerPlaybackTest.webDavTsslSeekInterruptsSlowOldSegmentAndKeepsLatestPausedTarget` 使用合成 TSSL v4 容器和严格 Range 服务，将旧分片延迟 8 秒，检查 seek 耗时、目标画面和连续拖动后的暂停状态。测试素材 `video_sample_seek.zip` 为 FFmpeg 生成的 30 秒 H.264 + AC-3 HLS，0–10 秒红色、10–20 秒绿色、20–30 秒蓝色，每 2 秒一个分片，不包含用户媒体或凭据。
+
+2026-10-18：95 项 JVM 测试、debug APK/AndroidTest 构建与 lint 通过（0 error，3 项既有 warning）；华为 TAS-AL00 / Android 12 上，上述 WebDAV TSSL seek 测试通过，实际目标画面在 4 秒上限内出现，并通过软解/硬解的暂停 Surface 恢复与字幕会话回归，共 2 项实机测试。

@@ -5,6 +5,7 @@ import com.vibeplayer.app.di.OkHttpClientFactory
 import com.vibeplayer.app.data.remote.backupResponse
 import com.vibeplayer.app.data.remote.backupRequestBody
 import com.vibeplayer.app.data.remote.backupToFile
+import com.vibeplayer.app.data.remote.readCancellable
 import com.vibeplayer.app.domain.tssl.TsslBackupArchive
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -91,7 +92,7 @@ class WebDavClient @Inject constructor(
             runCatching {
                 val url = resolveUrl(server, path)
                 val request = auth(server, password).url(url).get().build()
-                clientFor(server, password).newCall(request).execute().use { response ->
+                clientFor(server, password).newCall(request).readCancellable { response ->
                     if (!response.isSuccessful) throw IOException("GET HTTP ${response.code}")
                     response.body?.bytes() ?: throw IOException("Empty body")
                 }
@@ -113,7 +114,7 @@ class WebDavClient @Inject constructor(
                 .header("Accept-Encoding", "identity")
                 .get()
                 .build()
-            clientFor(server, password).newCall(request).execute().use { response ->
+            clientFor(server, password).newCall(request).readCancellable { response ->
                 if (response.code != 206) throw IOException("Server did not honor byte range (HTTP ${response.code})")
                 val match = response.header("Content-Range")
                     ?.let { Regex("^bytes (\\d+)-(\\d+)/(\\d+)$").matchEntire(it) }
@@ -214,7 +215,7 @@ class WebDavClient @Inject constructor(
                 .header("Accept-Encoding", "identity")
                 .get()
                 .build()
-            clientFor(server, password).newCall(request).execute().use { response ->
+            clientFor(server, password).newCall(request).readCancellable { response ->
                 if (response.code != 206) throw IOException("Server did not honor byte range (HTTP ${response.code})")
                 val contentRange = response.header("Content-Range")
                     ?: throw IOException("Missing Content-Range")

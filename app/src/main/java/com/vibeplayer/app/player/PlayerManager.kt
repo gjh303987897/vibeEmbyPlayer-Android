@@ -74,7 +74,8 @@ private data class PlaybackRequest(
     val privatePlayback: Boolean,
     val subtitles: List<SubtitleConfiguration>,
     val hlsVariant: HlsVariant?,
-    val networkByteCounter: (() -> Long)?
+    val networkByteCounter: (() -> Long)?,
+    val interruptPendingReads: (() -> Unit)?
 )
 
 private data class DecoderRestore(
@@ -113,6 +114,8 @@ class PlayerManager @Inject constructor(
     private var restoringPausedSurface = false
     private var pausedSurfaceFramePosition: Long? = null
     private var pausedSeekPosition: Long? = null
+    private var encryptedSeekTarget: Long? = null
+    private var encryptedSeekInFlight: Long? = null
     private var nativeFrameRendered = false
     private var pausedSurfaceFrameJob: Job? = null
 
@@ -188,6 +191,8 @@ class PlayerManager @Inject constructor(
     }
 
     private fun resetPlayer() {
+        encryptedSeekTarget = null
+        encryptedSeekInFlight = null
         nativeFrameRendered = false
         audioFocus.abandon()
         acceptNativeSubtitles = false
@@ -254,7 +259,7 @@ class PlayerManager @Inject constructor(
         onPauseForLoss = { pauseForFocusLoss() },
         onResumeAfterGain = { play() },
         onDuckingChanged = { multiplier ->
-            val output = if (pausedSurfaceFramePosition == null) multiplier else 0f
+            val output = if (pausedSurfaceFramePosition == null && encryptedSeekInFlight == null) multiplier else 0f
             runCatching { player.setVolume(output, output) }
         }
     )
@@ -317,7 +322,8 @@ class PlayerManager @Inject constructor(
             _state.update { it.copy(buffering = false, isPrepared = true, subtitleText = null) }
         }
         player.setOnBufferingUpdateListener { _, percent ->
-            _state.update { it.copy(buffering = percent < 100 && !it.isPlaying && (playWhenPrepared || subtitleSeekPending)) }
+            _state.update { it.copy(buffering = encryptedSeekInFlight != null ||
+                (percent < 100 && !it.isPlaying && (playWhenPrepared || subtitleSeekPending))) }
         }
         player.setOnInfoListener { _, what, _ ->
             if (pausedSurfaceFramePosition != null &&
@@ -331,7 +337,7 @@ class PlayerManager @Inject constructor(
                 }
                 IMediaPlayer.MEDIA_INFO_BUFFERING_END,
                 IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START,
-                IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update { it.copy(buffering = false) }
+                IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update { it.copy(buffering = encryptedSeekInFlight != null) }
             }
             if (what == IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START || what == IMediaPlayer.MEDIA_INFO_METADATA_UPDATE) {
                 updateTracks()
@@ -355,6 +361,19 @@ class PlayerManager @Inject constructor(
             true
         }
         player.setOnSeekCompleteListener {
+            if (encryptedSeekInFlight != null) {
+                val target = encryptedSeekTarget
+                if (target != null && target != encryptedSeekInFlight) {
+                    seekEncryptedStream(target)
+                    return@setOnSeekCompleteListener
+                }
+                encryptedSeekInFlight = null
+                if (playWhenPrepared) play() else {
+                    pausedSeekPosition = target
+                    encryptedSeekTarget = null
+                    _state.update { it.copy(buffering = false) }
+                }
+            }
             subtitleSeekPending = false
             updateDerived()
             if (acceptNativeSubtitles && _state.value.selectedSubtitleKey.orEmpty().startsWith("timedtext:")) {
@@ -412,6 +431,8 @@ class PlayerManager @Inject constructor(
 
     fun clearError() = _state.update { it.copy(error = null) }
 
+    fun failLoading(message: String) = _state.update { it.copy(error = message, buffering = false) }
+
     fun beginLoading(title: String? = null, subtitle: String? = null) {
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
@@ -433,6 +454,7 @@ class PlayerManager @Inject constructor(
         _state.value = PlayerState(
             title = title,
             subtitle = subtitle,
+            buffering = true,
             playbackSpeed = lastSpeed,
             volume = _state.value.volume,
             surfaceGeneration = surfaceGeneration
@@ -452,7 +474,8 @@ class PlayerManager @Inject constructor(
         playWhenReady: Boolean = true,
         recreateSurface: Boolean = false,
         preserveManualSubtitles: Boolean = false,
-        networkByteCounter: (() -> Long)? = null
+        networkByteCounter: (() -> Long)? = null,
+        interruptPendingReads: (() -> Unit)? = null
     ) {
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
@@ -471,7 +494,7 @@ class PlayerManager @Inject constructor(
         decoderRestore = null
         playWhenPrepared = playWhenReady
         currentRequest = PlaybackRequest(url, title, subtitle, headers.toMap(), trustSelfSignedCertificate,
-            privatePlayback, subtitleConfigurations, hlsVariant, networkByteCounter)
+            privatePlayback, subtitleConfigurations, hlsVariant, networkByteCounter, interruptPendingReads)
         stopPositionTicker()
         subtitleJob?.cancel()
         subtitleCues = emptyList()
@@ -551,7 +574,7 @@ class PlayerManager @Inject constructor(
         play(request.url, request.title, request.subtitle, resumeMs, request.headers,
             request.trustSelfSignedCertificate, request.privatePlayback, request.subtitles,
             request.hlsVariant, restore.playWhenReady, preserveManualSubtitles = true,
-            networkByteCounter = request.networkByteCounter)
+            networkByteCounter = request.networkByteCounter, interruptPendingReads = request.interruptPendingReads)
         downloadedBytes.addAndGet(carriedBytes)
         decoderRestore = restore
         restoringPausedSurface = restoreSurface && !restore.playWhenReady
@@ -560,13 +583,14 @@ class PlayerManager @Inject constructor(
     private var externalSubtitleCandidates: List<SubtitleConfiguration> = emptyList()
 
     fun togglePlayPause() {
-        if (_state.value.isPlaying) pause() else play()
+        if (_state.value.isPlaying || (encryptedSeekTarget != null && playWhenPrepared)) pause() else play()
     }
 
     fun play() {
         cancelPausedSurfaceFrame(pause = true)
         pausedSeekPosition = null
         playWhenPrepared = true
+        if (encryptedSeekInFlight != null) return
         if (!_state.value.isPrepared) {
             decoderRestore = decoderRestore?.copy(playWhenReady = true)
             return
@@ -605,6 +629,8 @@ class PlayerManager @Inject constructor(
     }
 
     fun stop() {
+        encryptedSeekTarget = null
+        encryptedSeekInFlight = null
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
         videoSurfaceLost = false
@@ -637,14 +663,36 @@ class PlayerManager @Inject constructor(
             // Keep the requested position until playback or a reprepare consumes it.
             pausedSeekPosition = position.takeUnless { playWhenPrepared }
             if (pausedSurfaceFramePosition != null) pausedSurfaceFramePosition = position
+            if (currentRequest?.interruptPendingReads != null && pausedSurfaceFramePosition == null) {
+                encryptedSeekTarget = position
+                // Old queues cannot be flushed until the demuxer's remote read returns.
+                player.setVolume(0f, 0f)
+                player.pause()
+                _state.update { it.copy(positionMs = position, buffering = true, isPlaying = false) }
+                if (encryptedSeekInFlight == null) seekEncryptedStream(position)
+                else currentRequest?.interruptPendingReads?.invoke()
+                return
+            }
             player.seekTo(position)
             discardBitmapSubtitleSnapshot()
         } catch (error: Exception) {
+            encryptedSeekInFlight = null
+            encryptedSeekTarget = null
             pausedSeekPosition = null
             subtitleSeekPending = false
+            _state.update { it.copy(buffering = false) }
         }
         updateDerived()
         updateSubtitleText(positionMs)
+    }
+
+    private fun seekEncryptedStream(position: Long) {
+        encryptedSeekInFlight = position
+        subtitleSeekPending = true
+        player.seekTo(position)
+        discardBitmapSubtitleSnapshot()
+        // Queue the seek BEFORE closing the old loopback response, unblocking av_read_frame.
+        currentRequest?.interruptPendingReads?.invoke()
     }
 
     fun beginTemporarySpeed(speed: Float) {
@@ -878,8 +926,13 @@ class PlayerManager @Inject constructor(
     }
 
     private fun updateDerived(isPlaying: Boolean = runCatching { player.isPlaying }.getOrDefault(false)) {
+        val seekTarget = encryptedSeekTarget
+        if (seekTarget != null && encryptedSeekInFlight == null &&
+            kotlin.math.abs(runCatching { player.currentPosition }.getOrDefault(-1) - seekTarget) < 1_000) {
+            encryptedSeekTarget = null
+        }
         val refreshingPosition = pausedSurfaceFramePosition
-        val position = refreshingPosition
+        val position = encryptedSeekTarget ?: refreshingPosition
             ?: pausedSeekPosition
             ?: runCatching { player.currentPosition }.getOrDefault(_state.value.positionMs).coerceAtLeast(0L)
         val duration = runCatching { player.duration }.getOrDefault(_state.value.durationMs).coerceAtLeast(0L)
@@ -927,6 +980,8 @@ class PlayerManager @Inject constructor(
     }
 
     fun release() {
+        encryptedSeekTarget = null
+        encryptedSeekInFlight = null
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
         videoSurfaceLost = false

@@ -16,6 +16,9 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 /**
  * Minimal loopback-only HTTP server that exposes a verified encrypted-HLS package to
@@ -47,6 +50,7 @@ class EncryptedHlsServer(
     private var serverSocket: ServerSocket? = null
     private var executor: ExecutorService? = null
     private val openConnections = Semaphore(MAX_CONCURRENT_CONNECTIONS)
+    private val requests = mutableMapOf<Socket, Job>()
 
     val baseUrl: String
         get() = serverSocket?.let { "http://127.0.0.1:${it.localPort}/" } ?: ""
@@ -66,10 +70,21 @@ class EncryptedHlsServer(
                         runCatching { client.close() }
                         continue
                     }
+                    val job = Job()
+                    synchronized(this) {
+                        if (socket.isClosed) {
+                            client.close()
+                            openConnections.release()
+                            return@Thread
+                        }
+                        requests[client] = job
+                    }
                     pool.execute {
                         try {
-                            handle(client)
+                            handle(client, job)
                         } finally {
+                            synchronized(this) { requests.remove(client) }
+                            job.complete()
                             openConnections.release()
                         }
                     }
@@ -80,7 +95,7 @@ class EncryptedHlsServer(
         }.start()
     }
 
-    private fun handle(socket: Socket) {
+    private fun handle(socket: Socket, job: Job) {
         socket.use { s ->
             // Applies to the request line/headers only. A pooled but idle
             // connection must not hold a worker for the whole playback session.
@@ -111,14 +126,14 @@ class EncryptedHlsServer(
                 // The request has been read; now allow the (potentially slow)
                 // remote package fetch to finish without dropping the player.
                 s.soTimeout = RESPONSE_TIMEOUT_MS
-                serve(s.getOutputStream(), rel, parts[0] == "HEAD", rangeHeader)
+                runBlocking(job) { serve(s.getOutputStream(), rel, parts[0] == "HEAD", rangeHeader) }
             } catch (_: Exception) {
                 try { respond(s.getOutputStream(), 500, "text/plain", "Internal Error".toByteArray()) } catch (_: Exception) {}
             }
         }
     }
 
-    private fun serve(out: OutputStream, rel: String, headOnly: Boolean, rangeHeader: String?) {
+    private suspend fun serve(out: OutputStream, rel: String, headOnly: Boolean, rangeHeader: String?) {
         // Root manifest (pre-verified by the manager) served at its virtual name.
         if (rel == rootManifestName) {
             respondVerified(out, "application/vnd.apple.mpegurl", rootManifestBytes, headOnly, rangeHeader)
@@ -140,6 +155,7 @@ class EncryptedHlsServer(
         val segment = document.segments.firstOrNull { it.path == rel }
         if (segment != null) {
             val encrypted = loadOrNull(rel) ?: return respond404(out)
+            coroutineContext.ensureActive()
             val plain = try {
                 TsslCrypto.decrypt(segment.key, encrypted)
             } catch (_: Exception) {
@@ -161,8 +177,19 @@ class EncryptedHlsServer(
         respond404(out)
     }
 
-    private fun loadOrNull(rel: String): ByteArray? =
-        try { runBlocking { source.load(rel).getOrNull() } } catch (_: Exception) { null }
+    private suspend fun loadOrNull(rel: String): ByteArray? =
+        source.load(rel).getOrNull().also { coroutineContext.ensureActive() }
+
+    /** Unblock IJK's old av_read_frame before it can process its queued seek. */
+    @Synchronized
+    fun interruptPendingReads() {
+        val pending = requests.toMap()
+        requests.clear()
+        pending.forEach { (socket, job) ->
+            runCatching { socket.close() }
+            job.cancel()
+        }
+    }
 
     /**
      * Normalizes the request target into a package-relative path. The leading
@@ -223,10 +250,11 @@ class EncryptedHlsServer(
 
     @Synchronized
     fun close() {
-        executor?.shutdownNow()
-        executor = null
         runCatching { serverSocket?.close() }
         serverSocket = null
+        interruptPendingReads()
+        executor?.shutdownNow()
+        executor = null
     }
 
     private companion object {
