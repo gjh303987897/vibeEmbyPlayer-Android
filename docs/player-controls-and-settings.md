@@ -1,5 +1,10 @@
 # Player controls and settings
 
+Layout choices and FPS/network diagnostics are described in
+[Appearance and playback diagnostics](appearance-playback-diagnostics.md).
+All sources share the bottom controls and support
+[loading phone subtitles](manual-subtitles.md), even without embedded tracks.
+
 All five source screens (Emby/Jellyfin, WebDAV, IPTV, links and local media) use the same
 gesture handling and settings panel. The settings button sits independently at the lower right.
 The panel uses three Material 3 tabs; long-press speed has a separate
@@ -12,12 +17,13 @@ cutout cannot move the primary action away from the physical screen centre. Inse
 at layout time and remain responsive to system-bar visibility changes. The seek
 bar and timestamps span the full safe width. Only the bottom action/volume row reserves 56 dp
 symmetrically on both sides, keeping play/pause centred and leaving the settings button clear
-of the volume slider. In landscape, Emby/Jellyfin and WebDAV place play/pause between equal-width
-speed and volume areas instead of before the seek bar.
+of the volume slider. The shared control panel keeps transport centered; speed, volume and
+subtitle menus use the side areas on wide screens and a separate row on narrow screens.
 
 All sources use the same top bar. Performance readouts occupy a trailing slot beside the
-header actions (stacked in portrait); enabling them adds no top padding and does not change
-the header row's height. The title/subtitle remain at the top safe inset, and the audio decode
+header actions (stacked in portrait); enabling them adds no top padding. Title and actions align
+to the top so even a taller FPS/NET readout cannot move them down. The title/subtitle remain at
+the top safe inset, and the audio decode
 notice occupies its own row underneath. With controls hidden or locked, the readout remains
 an independent upper-right overlay. Long title/subtitle text is ellipsized rather than wrapping
 and shifting controls.

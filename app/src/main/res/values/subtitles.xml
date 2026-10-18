@@ -1,0 +1,13 @@
+<resources>
+    <string name="subtitle_title">Subtitles</string>
+    <string name="subtitle_off">Off</string>
+    <string name="subtitle_load_phone">Load from phone</string>
+    <string name="subtitle_import_help">SRT, VTT, ASS or SSA, up to 4 MB. UTF-8, UTF-16 and GB18030 supported. ASS/SSA displays plain text without styling. Imported subtitles last for this playback session.</string>
+    <string name="subtitle_error_large">Subtitle exceeds the 4 MB or cue limit.</string>
+    <string name="subtitle_error_format">Choose an SRT, VTT, ASS or SSA subtitle.</string>
+    <string name="subtitle_error_encoding">Cannot read this encoding. Save the subtitle as UTF-8 and try again.</string>
+    <string name="subtitle_error_content">No valid timed subtitles were found in this file.</string>
+    <string name="subtitle_error_no_playback">Wait for the video to finish loading before adding subtitles.</string>
+    <string name="subtitle_error_session">The video has changed. Choose the subtitle again.</string>
+    <string name="subtitle_error_read">Cannot read this subtitle. Choose the file again.</string>
+</resources>

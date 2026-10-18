@@ -25,11 +25,13 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PlayerSettingsViewModel @Inject constructor(
-    manager: PlayerManager,
+    private val manager: PlayerManager,
     private val settings: SettingsDataStore,
     monitor: PlaybackPerformanceMonitor
 ) : ViewModel() {
     val preferences = manager.preferences
+    val playerState = manager.state
+    val diagnostics = manager.diagnostics
     val decoder = manager.state.map { it.videoDecodeMode }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(0), null)
     val performance = preferences.map { it.showPerformance }.distinctUntilChanged()
@@ -40,8 +42,15 @@ class PlayerSettingsViewModel @Inject constructor(
 
     fun setLongPressSpeed(speed: Float) = save { settings.setLongPressSpeed(speed) }
     fun setShowPerformance(enabled: Boolean) = save { settings.setShowPerformance(enabled) }
+    fun setShowDiagnostics(enabled: Boolean) = save { settings.setShowDiagnostics(enabled) }
+    fun setPlayerLayout(layout: com.vibeplayer.app.model.PlayerLayout) = save { settings.setPlayerLayout(layout) }
     fun setVideoDecodeMode(mode: VideoDecodeMode) = save { settings.setVideoDecodeMode(mode) }
     fun setIptvQuality(preference: IptvQualityPreference) = save { settings.setIptvQuality(preference) }
+    fun togglePlayPause() = manager.togglePlayPause()
+    fun seekTo(positionMs: Long) = manager.seekTo(positionMs)
+    fun setPlaybackSpeed(speed: Float) = manager.setPlaybackSpeed(speed)
+    fun setVolume(volume: Float) = manager.setVolume(volume)
+    fun selectSubtitle(track: com.vibeplayer.app.player.SubtitleTrack?) = manager.selectSubtitle(track)
 
     private fun save(action: suspend () -> Unit) {
         viewModelScope.launch {

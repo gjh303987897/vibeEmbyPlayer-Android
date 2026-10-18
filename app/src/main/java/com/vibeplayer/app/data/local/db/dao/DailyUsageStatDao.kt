@@ -11,8 +11,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface DailyUsageStatDao {
 
-    @Query("SELECT * FROM daily_usage_stats WHERE (:showPrivate OR privacy_mode = 0) ORDER BY stat_date DESC")
-    fun observeAll(showPrivate: Boolean): Flow<List<DailyUsageStatEntity>>
+    @Query("SELECT * FROM daily_usage_stats WHERE stat_date >= :cutoffDate AND (:showPrivate OR privacy_mode = 0) ORDER BY stat_date DESC")
+    fun observeAll(showPrivate: Boolean, cutoffDate: String = ""): Flow<List<DailyUsageStatEntity>>
 
     @Query("SELECT * FROM daily_usage_stats WHERE stat_date = :date AND service_id = :serviceId AND privacy_mode = :privacyMode LIMIT 1")
     suspend fun findByKey(date: String, serviceId: String, privacyMode: Boolean): DailyUsageStatEntity?

@@ -10,17 +10,17 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PlaybackHistoryDao {
 
-    @Query("SELECT * FROM playback_history WHERE (:showPrivate OR privacy_mode = 0) ORDER BY played_at_ms DESC LIMIT :limit OFFSET :offset")
-    fun observePaged(showPrivate: Boolean, limit: Int, offset: Int): Flow<List<PlaybackHistoryEntity>>
+    @Query("SELECT * FROM playback_history WHERE played_date >= :cutoffDate AND (:showPrivate OR privacy_mode = 0) ORDER BY played_at_ms DESC LIMIT :limit OFFSET :offset")
+    fun observePaged(showPrivate: Boolean, limit: Int, offset: Int, cutoffDate: String = ""): Flow<List<PlaybackHistoryEntity>>
 
-    @Query("SELECT * FROM playback_history WHERE source = :source AND (:showPrivate OR privacy_mode = 0) ORDER BY played_at_ms DESC LIMIT :limit OFFSET :offset")
-    fun observeBySource(source: String, showPrivate: Boolean, limit: Int, offset: Int): Flow<List<PlaybackHistoryEntity>>
+    @Query("SELECT * FROM playback_history WHERE source = :source AND played_date >= :cutoffDate AND (:showPrivate OR privacy_mode = 0) ORDER BY played_at_ms DESC LIMIT :limit OFFSET :offset")
+    fun observeBySource(source: String, showPrivate: Boolean, limit: Int, offset: Int, cutoffDate: String = ""): Flow<List<PlaybackHistoryEntity>>
 
-    @Query("SELECT COUNT(*) FROM playback_history WHERE (:showPrivate OR privacy_mode = 0)")
-    fun observeCount(showPrivate: Boolean): Flow<Int>
+    @Query("SELECT COUNT(*) FROM playback_history WHERE played_date >= :cutoffDate AND (:showPrivate OR privacy_mode = 0)")
+    fun observeCount(showPrivate: Boolean, cutoffDate: String = ""): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM playback_history WHERE source = :source AND (:showPrivate OR privacy_mode = 0)")
-    fun observeCountBySource(source: String, showPrivate: Boolean): Flow<Int>
+    @Query("SELECT COUNT(*) FROM playback_history WHERE source = :source AND played_date >= :cutoffDate AND (:showPrivate OR privacy_mode = 0)")
+    fun observeCountBySource(source: String, showPrivate: Boolean, cutoffDate: String = ""): Flow<Int>
 
     @Query("SELECT * FROM playback_history WHERE source = :source AND service_id = :serviceId AND replay_target = :replayTarget LIMIT 1")
     suspend fun findByStableIdentity(source: String, serviceId: String, replayTarget: String): PlaybackHistoryEntity?

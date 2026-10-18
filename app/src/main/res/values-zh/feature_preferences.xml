@@ -1,0 +1,28 @@
+<resources>
+    <string name="customization_close">关闭</string>
+    <string name="customization_appearance">布局与卡片大小</string>
+    <string name="customization_appearance_summary">Emby、Jellyfin 首页、播放器控件与服务卡片</string>
+    <string name="customization_save_failed">设置未能应用，请重试。</string>
+    <string name="appearance_home">首页</string>
+    <string name="appearance_player">播放器</string>
+    <string name="appearance_cards">卡片</string>
+    <string name="appearance_trendy">潮流</string>
+    <string name="appearance_traditional">传统</string>
+    <string name="appearance_player_help">潮流布局使用留白圆角面板，传统布局使用紧凑控制条。适用于所有播放来源。</string>
+    <string name="appearance_cards_help" formatted="false">范围 50–150%，每次调整 5%。按钮保留最小触控尺寸。</string>
+    <string name="history_retention">历史保留时间</string>
+    <plurals name="history_retention_days">
+        <item quantity="other">%1$d 天</item>
+    </plurals>
+    <string name="history_retention_help">包含今天。到期的播放历史、链接历史和每日使用统计将一起删除。缩短时间后立即清理，延长时间无法找回已删除的记录。</string>
+    <string name="history_retention_custom">自定义</string>
+    <string name="history_retention_range">1–3650 天</string>
+    <string name="player_diagnostics">播放诊断</string>
+    <string name="player_diagnostics_help">在右上角显示实际输出帧率和播放网速。</string>
+    <string name="player_diagnostics_scope">FPS 为实际视频输出帧率，NET 为每秒接收的媒体数据量。本地文件的 NET 显示为 —。</string>
+    <string name="player_layout">控件布局</string>
+    <string name="player_speed">播放速度</string>
+    <string name="player_volume_control">音量</string>
+    <string name="player_seek_back">后退 15 秒</string>
+    <string name="player_seek_forward">前进 15 秒</string>
+</resources>

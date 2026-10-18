@@ -34,6 +34,7 @@ class PlaybackHttpProxyTest {
                     .execute().use { response ->
                         assertEquals(206, response.code)
                         assertArrayEquals(media.copyOfRange(1, 4), response.body!!.bytes())
+                        assertEquals("diagnostics counts upstream media bytes", 3L, proxy.receivedBytes)
                     }
             }
         }

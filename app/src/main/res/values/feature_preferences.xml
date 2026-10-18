@@ -1,0 +1,29 @@
+<resources>
+    <string name="customization_close">Close</string>
+    <string name="customization_appearance">Layouts and card size</string>
+    <string name="customization_appearance_summary">Emby, Jellyfin, player controls and service cards</string>
+    <string name="customization_save_failed">Could not apply this setting. Please try again.</string>
+    <string name="appearance_home">Home</string>
+    <string name="appearance_player">Player</string>
+    <string name="appearance_cards">Cards</string>
+    <string name="appearance_trendy">Trendy</string>
+    <string name="appearance_traditional">Traditional</string>
+    <string name="appearance_player_help">Trendy uses an inset rounded panel. Traditional uses a compact control strip. Applies to every playback source.</string>
+    <string name="appearance_cards_help" formatted="false">50–150% in 5% steps. Controls keep their minimum touch size.</string>
+    <string name="history_retention">History retention</string>
+    <plurals name="history_retention_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <string name="history_retention_help">Includes today. Expired playback history, link history and daily usage are deleted together. Reducing the period applies immediately; deleted records cannot be restored by increasing it.</string>
+    <string name="history_retention_custom">Custom</string>
+    <string name="history_retention_range">1–3650 days</string>
+    <string name="player_diagnostics">Playback diagnostics</string>
+    <string name="player_diagnostics_help">Show output FPS and playback network speed at the top right.</string>
+    <string name="player_diagnostics_scope">FPS measures actual video output. NET measures media data received per second. Local files show — for NET.</string>
+    <string name="player_layout">Control layout</string>
+    <string name="player_speed">Playback speed</string>
+    <string name="player_volume_control">Volume</string>
+    <string name="player_seek_back">Back 15 seconds</string>
+    <string name="player_seek_forward">Forward 15 seconds</string>
+</resources>

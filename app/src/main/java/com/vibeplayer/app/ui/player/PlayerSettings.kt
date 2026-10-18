@@ -41,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -78,7 +80,7 @@ fun BoxScope.PlayerSettings(
             Icon(Icons.Outlined.Settings, stringResource(R.string.player_settings), tint = Color.White)
         }
     }
-    if (preferences.showPerformance && (!controlsVisible || locked)) {
+    if ((preferences.showPerformance || preferences.showDiagnostics) && (!controlsVisible || locked)) {
         PlayerPerformanceReadout(viewModel,
             modifier = Modifier.align(Alignment.TopEnd).topEdgeInsets().padding(top = 4.dp, end = 8.dp)
                 .zIndex(3f)
@@ -127,6 +129,13 @@ fun BoxScope.PlayerSettings(
                         }
                     }
                     tab == 0 -> {
+                        Text(stringResource(R.string.player_layout), style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            com.vibeplayer.app.ui.settings.LayoutChoices(preferences.layout == com.vibeplayer.app.model.PlayerLayout.TRENDY) {
+                                viewModel.setPlayerLayout(if (it) com.vibeplayer.app.model.PlayerLayout.TRENDY else com.vibeplayer.app.model.PlayerLayout.TRADITIONAL)
+                            }
+                        }
                         if (sourceSettings != null) ListItem(
                             headlineContent = { Text(stringResource(R.string.iptv_source_selection)) },
                             supportingContent = { Text(sourceSummary.orEmpty()) },
@@ -158,12 +167,23 @@ fun BoxScope.PlayerSettings(
                             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
                     }
                     else -> {
+                        val performanceLabel = stringResource(R.string.player_performance_overlay)
+                        val diagnosticsLabel = stringResource(R.string.player_diagnostics)
                         ListItem(
-                            headlineContent = { Text(stringResource(R.string.player_performance_overlay)) },
+                            headlineContent = { Text(performanceLabel) },
                             supportingContent = { Text(stringResource(R.string.player_performance_overlay_help)) },
-                            trailingContent = { Switch(checked = preferences.showPerformance, onCheckedChange = viewModel::setShowPerformance) }
+                            trailingContent = { Switch(checked = preferences.showPerformance, onCheckedChange = viewModel::setShowPerformance,
+                                modifier = Modifier.semantics { contentDescription = performanceLabel }) }
                         )
                         Text(stringResource(R.string.player_performance_scope), style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(16.dp))
+                        ListItem(
+                            headlineContent = { Text(diagnosticsLabel) },
+                            supportingContent = { Text(stringResource(R.string.player_diagnostics_help)) },
+                            trailingContent = { Switch(checked = preferences.showDiagnostics, onCheckedChange = viewModel::setShowDiagnostics,
+                                modifier = Modifier.semantics { contentDescription = diagnosticsLabel }) }
+                        )
+                        Text(stringResource(R.string.player_diagnostics_scope), style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(16.dp))
                     }
                 }
@@ -180,11 +200,19 @@ internal fun PlayerPerformanceReadout(
     compact: Boolean = false
 ) {
     val performance by viewModel.performance.collectAsStateWithLifecycle()
+    val preferences by viewModel.preferences.collectAsStateWithLifecycle()
+    val diagnostics by viewModel.diagnostics.collectAsStateWithLifecycle()
     val unavailable = stringResource(R.string.player_metric_unavailable)
-    val labels = listOf(
-        "CPU ${performance.cpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}",
-        "GPU ${performance.gpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}"
-    )
+    val labels = buildList {
+        if (preferences.showPerformance) {
+            add("CPU ${performance.cpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}")
+            add("GPU ${performance.gpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}")
+        }
+        if (preferences.showDiagnostics) {
+            add("FPS ${diagnostics.outputFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"}")
+            add("NET ${diagnostics.networkBytesPerSecond?.let(::formatNetworkSpeed) ?: "—"}")
+        }
+    }
     val readout = modifier.background(Color.Black.copy(alpha = .75f), RoundedCornerShape(6.dp))
         .padding(horizontal = 8.dp, vertical = 4.dp)
     val content: @Composable () -> Unit = {
@@ -195,6 +223,12 @@ internal fun PlayerPerformanceReadout(
     }
     if (compact) Column(readout, content = { content() })
     else Row(readout, horizontalArrangement = Arrangement.spacedBy(12.dp), content = { content() })
+}
+
+private fun formatNetworkSpeed(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MiB/s", bytes / (1024.0 * 1024))
+    bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KiB/s", bytes / 1024.0)
+    else -> "$bytes B/s"
 }
 
 private fun decodeLabel(mode: VideoDecodeMode): Int = when (mode) {

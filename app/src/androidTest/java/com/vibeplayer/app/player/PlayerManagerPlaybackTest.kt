@@ -12,6 +12,7 @@ import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.WindowManager
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -56,6 +58,216 @@ class PlayerManagerPlaybackTest {
     private var surfaceObserver: Job? = null
 
     @Test
+    fun pausedSurfaceReplacementRedrawsFrameAndRetainsSubtitleSessionInBothDecoders() {
+        val context = instrumentation.targetContext
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val app = context.applicationContext as VibePlayerApp
+        val shared = app.playerManager
+        val original = runBlocking { app.settingsDataStore.playerPreferences.first().videoDecodeMode }
+        val sample = copyResource(R.raw.video_sample_controls, ".mp4")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                VideoDecodeMode.entries.forEach { mode ->
+                    runBlocking { app.settingsDataStore.setVideoDecodeMode(mode) }
+                    awaitCondition("$mode preference must be loaded") { shared.preferences.value.videoDecodeMode == mode }
+                    var surface = attachSurface(scenario, shared)
+                    callOnMain { shared.play(sample.absolutePath, "Paused surface $mode", null) }
+                    awaitCondition("$mode video must render before pausing") {
+                        assertNull(shared.state.value.error)
+                        shared.state.value.isPlaying && shared.state.value.positionMs >= MIN_POSITION_MS &&
+                            shared.player.videoOutputFramesPerSecond > 0f
+                    }
+                    assertColourBarsVisible(surface)
+                    callOnMain { shared.pause(); shared.seekTo(0) }
+                    awaitCondition("$mode paused seek must reach the beginning") {
+                        !shared.state.value.isPlaying && shared.state.value.positionMs < 300
+                    }
+                    val session = callOnMain { shared.subtitleSessionId }
+                    val audio = shared.state.value.selectedAudioTrackKey
+                    val generation = shared.state.value.surfaceGeneration
+                    callOnMain {
+                        val document = com.vibeplayer.app.domain.subtitle.TextSubtitles.parse(
+                            "1\n00:00:00,000 --> 00:00:29,000\nRetained subtitle".toByteArray(), "retained.srt")
+                        shared.addManualSubtitle(session, document)
+                    }
+                    val subtitle = shared.state.value.selectedSubtitleKey
+                    for (target in listOf(0L, 15_000L)) {
+                        callOnMain { shared.seekTo(target) }
+                        awaitCondition("$mode paused seek must reach $target") {
+                            kotlin.math.abs(shared.state.value.positionMs - target) < 300
+                        }
+                        // Replacing the view destroys its real Surface and attaches a new one,
+                        // reproducing a full-screen document picker without resuming playback.
+                        surface = attachSurface(scenario, shared)
+                        awaitColourBarsVisible(surface)
+                        awaitCondition("$mode surface refresh must finish paused") { !shared.player.isPlaying }
+                        callOnMain {
+                            assertNull(shared.state.value.error)
+                            assertTrue(shared.state.value.isPrepared)
+                            assertFalse("surface restoration must keep the UI paused", shared.state.value.isPlaying)
+                            assertTrue("surface restoration must not advance playback",
+                                kotlin.math.abs(shared.state.value.positionMs - target) < 300)
+                            assertEquals(session, shared.subtitleSessionId)
+                            assertEquals("restoration must not trigger another Surface rebuild", generation, shared.state.value.surfaceGeneration)
+                            assertEquals(audio, shared.state.value.selectedAudioTrackKey)
+                            assertEquals(subtitle, shared.state.value.selectedSubtitleKey)
+                            assertEquals("Retained subtitle", shared.state.value.subtitleText)
+                        }
+                    }
+                    // A system document picker stops/resumes the SAME Activity and
+                    // SurfaceView. This differs from replacing the entire view above:
+                    // Android reuses the Java Surface identity with a new native buffer.
+                    for (target in listOf(0L, 15_000L)) {
+                        callOnMain { shared.seekTo(target) }
+                        awaitCondition("$mode lifecycle seek must reach $target") {
+                            kotlin.math.abs(shared.state.value.positionMs - target) < 300
+                        }
+                        val beforeGeneration = shared.state.value.surfaceGeneration
+                        scenario.moveToState(Lifecycle.State.CREATED)
+                        scenario.moveToState(Lifecycle.State.RESUMED)
+                        awaitCondition("$mode reused Surface must become valid") {
+                            shared.state.value.isPrepared &&
+                                (surface.getChildAt(0) as SurfaceView).holder.surface.isValid
+                        }
+                        awaitColourBarsVisible(surface)
+                        awaitCondition("$mode picker lifecycle must stay paused") { !shared.player.isPlaying }
+                        callOnMain {
+                            assertFalse(shared.state.value.isPlaying)
+                            assertEquals("codec recovery must not rebuild the Surface again", beforeGeneration, shared.state.value.surfaceGeneration)
+                            assertTrue("$mode lifecycle position ${shared.state.value.positionMs} must retain $target",
+                                kotlin.math.abs(shared.state.value.positionMs - target) < 300)
+                            assertTrue("$mode native position must also retain $target (actual ${shared.player.currentPosition})",
+                                kotlin.math.abs(shared.player.currentPosition - target) < 300)
+                            assertEquals(session, shared.subtitleSessionId)
+                            assertEquals(audio, shared.state.value.selectedAudioTrackKey)
+                            assertEquals(subtitle, shared.state.value.selectedSubtitleKey)
+                            assertEquals("Retained subtitle", shared.state.value.subtitleText)
+                        }
+                    }
+                    // A file-picker result may arrive immediately after Surface creation.
+                    // It must remain importable in this same prepared session.
+                    surface = attachSurface(scenario, shared)
+                    callOnMain {
+                        shared.ensureSubtitleSession(session)
+                        val document = com.vibeplayer.app.domain.subtitle.TextSubtitles.parse(
+                            "1\n00:00:00,000 --> 00:00:29,000\nPicker result".toByteArray(), "picker.srt")
+                        shared.addManualSubtitle(session, document)
+                        assertEquals("Picker result", shared.state.value.subtitleText)
+                    }
+                    awaitColourBarsVisible(surface)
+                    awaitCondition("$mode picker return must remain paused") { !shared.player.isPlaying }
+                    callOnMain {
+                        assertFalse(shared.state.value.isPlaying)
+                        assertEquals(session, shared.subtitleSessionId)
+                        assertEquals("Picker result", shared.state.value.subtitleText)
+                        shared.stop()
+                        shared.beginLoading()
+                    }
+                }
+            }
+        } finally {
+            callOnMain {
+                shared.stop()
+                shared.beginLoading()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(original) }
+            sample.delete()
+        }
+    }
+
+    @Test
+    fun diagnosticsMeasureRenderedFramesAndThrottledNetworkAndResetAfterStop() {
+        val context = instrumentation.targetContext
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val app = context.applicationContext as VibePlayerApp
+        val shared = app.playerManager
+        val original = runBlocking { app.settingsDataStore.playerPreferences.first().showDiagnostics }
+        val sample = copyResource(R.raw.video_sample_controls, ".mp4")
+        val bytes = sample.readBytes()
+        val server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.requestUrl?.encodedPath != "/diagnostics.mp4") return MockResponse().setResponseCode(404)
+                    val range = request.getHeader("Range")?.removePrefix("bytes=")
+                    val start = range?.substringBefore('-')?.toIntOrNull() ?: 0
+                    val end = range?.substringAfter('-', "")?.toIntOrNull()?.coerceAtMost(bytes.lastIndex)
+                        ?: bytes.lastIndex
+                    if (start !in bytes.indices || end < start) return MockResponse().setResponseCode(416)
+                    val response = MockResponse().setHeader("Accept-Ranges", "bytes").setHeader("Content-Type", "video/mp4")
+                    if (range != null) response.setResponseCode(206)
+                        .setHeader("Content-Range", "bytes $start-$end/${bytes.size}")
+                    // This 30-second fixture has its moov atom at the end, so range requests
+                    // must work. Transfer its 423 KiB over about 13 seconds, above its bitrate
+                    // but across several diagnostic samples rather than one fast prefetch.
+                    return response.setBody(Buffer().write(bytes, start, end - start + 1))
+                        .throttleBody(8 * 1024L, 250, TimeUnit.MILLISECONDS)
+                }
+            }
+            start(InetAddress.getByName("0.0.0.0"), 0)
+        }
+        try {
+            runBlocking { app.settingsDataStore.setShowDiagnostics(true) }
+            awaitCondition("diagnostics preference must be loaded") { shared.preferences.value.showDiagnostics }
+            val remote = server.url("/diagnostics.mp4").newBuilder().host("127.0.0.2").build().toString()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val surface = attachSurface(scenario, shared)
+                callOnMain { shared.play(sample.absolutePath, "Local diagnostics", null) }
+                awaitCondition("local playback must report rendered FPS without network traffic") {
+                    assertNull(shared.state.value.error)
+                    assertNull("local playback must not invent network traffic", shared.diagnostics.value.networkBytesPerSecond)
+                    shared.state.value.isPlaying && (shared.diagnostics.value.outputFps ?: 0f) > 0f
+                }
+                assertColourBarsVisible(surface)
+                callOnMain { shared.pause() }
+                awaitCondition("pausing local playback must sample zero output FPS") {
+                    !shared.state.value.isPlaying && shared.diagnostics.value.outputFps == 0f
+                }
+                callOnMain {
+                    shared.stop()
+                    assertEquals(PlaybackDiagnostics(), shared.diagnostics.value)
+                    shared.play(remote, "Network diagnostics", null)
+                }
+                var positiveSince: Long? = null
+                awaitCondition("throttled playback must report FPS and positive network speed across sampling windows") {
+                    assertNull(shared.state.value.error)
+                    val diagnostics = shared.diagnostics.value
+                    val positive = shared.state.value.isPlaying && (diagnostics.outputFps ?: 0f) > 0f &&
+                        (diagnostics.networkBytesPerSecond ?: 0) > 0
+                    val now = SystemClock.elapsedRealtime()
+                    if (!positive) positiveSince = null
+                    else if (positiveSince == null) positiveSince = now
+                    positive && now - (positiveSince ?: now) >= 2_100L
+                }
+                assertColourBarsVisible(surface)
+                callOnMain { shared.pause() }
+                awaitCondition("pausing remote playback must sample zero output FPS") {
+                    !shared.state.value.isPlaying && shared.diagnostics.value.outputFps == 0f
+                }
+                // A paused player may continue to buffer; NET should reflect those real bytes.
+                callOnMain {
+                    shared.stop()
+                    assertEquals("stopping must discard both diagnostic values", PlaybackDiagnostics(), shared.diagnostics.value)
+                }
+                assertTrue("network diagnostics must come from an actual HTTP response", server.requestCount > 0)
+            }
+        } finally {
+            callOnMain {
+                shared.stop()
+                shared.beginLoading()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            runBlocking { app.settingsDataStore.setShowDiagnostics(original) }
+            server.shutdown()
+            sample.delete()
+        }
+    }
+
+    @Test
     fun decoderSwitchRetainsPositionPauseAndTracksAndRendersInSoftware() {
         val app = instrumentation.targetContext.applicationContext as VibePlayerApp
         val original = app.playerManager.preferences.value.videoDecodeMode
@@ -74,15 +286,28 @@ class PlayerManagerPlaybackTest {
                 callOnMain { shared.pause(); shared.seekTo(1_200) }
                 awaitCondition("paused seek position must be retained") { shared.state.value.positionMs >= 1_000 }
                 val position = shared.state.value.positionMs
+                val subtitleSession = callOnMain { shared.subtitleSessionId }
+                callOnMain {
+                    val document = com.vibeplayer.app.domain.subtitle.TextSubtitles.parse(
+                        "1\n00:00:00,000 --> 00:00:29,000\nPhone subtitle".toByteArray(), "phone.srt")
+                    shared.addManualSubtitle(subtitleSession, document)
+                    assertEquals("Phone subtitle", shared.state.value.subtitleText)
+                }
+                val subtitleKey = shared.state.value.selectedSubtitleKey
                 runBlocking { app.settingsDataStore.setVideoDecodeMode(VideoDecodeMode.SOFTWARE) }
                 awaitCondition("software reload must retain the paused position") {
                     assertNull(shared.state.value.error)
                     shared.state.value.isPrepared && shared.player.videoDecoder == IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC &&
-                        kotlin.math.abs(shared.state.value.positionMs - position) < 300
+                        kotlin.math.abs(shared.state.value.positionMs - position) < 300 &&
+                        shared.state.value.selectedSubtitleKey == subtitleKey
                 }
                 callOnMain {
                     assertFalse("switching must keep a paused video paused", shared.state.value.isPlaying)
                     assertEquals(audio, shared.state.value.selectedAudioTrackKey)
+                    assertEquals("Phone subtitle", shared.state.value.subtitleText)
+                    shared.selectSubtitle(null, persist = false)
+                    assertNull(shared.state.value.subtitleText)
+                    shared.selectSubtitle(shared.state.value.subtitleTracks.first { it.key == subtitleKey }, persist = false)
                     shared.play()
                 }
                 awaitCondition("software decoder must render and advance after the paused seek") {
@@ -107,6 +332,17 @@ class PlayerManagerPlaybackTest {
                         "position=${shared.state.value.positionMs}/${shared.state.value.durationMs}", error)
                 }
                 assertColourBarsVisible(surface)
+                callOnMain {
+                    assertEquals(subtitleKey, shared.state.value.selectedSubtitleKey)
+                    shared.stop()
+                    assertTrue(shared.state.value.subtitleTracks.none { it.key.startsWith("manual:") })
+                    try {
+                        shared.ensureSubtitleSession(subtitleSession)
+                        throw AssertionError("An import from an old session must be rejected")
+                    } catch (error: com.vibeplayer.app.domain.subtitle.SubtitleImportException) {
+                        assertEquals(com.vibeplayer.app.domain.subtitle.SubtitleImportError.SESSION_CHANGED, error.reason)
+                    }
+                }
             }
         } finally {
             callOnMain {
@@ -304,6 +540,22 @@ class PlayerManagerPlaybackTest {
         }
         assertTrue("video surface must be created", created.await(TIMEOUT_MS, TimeUnit.MILLISECONDS))
         return view
+    }
+
+    /** A newly attached, paused Surface may briefly have no buffer before its refresh finishes. */
+    private fun awaitColourBarsVisible(view: IjkPlayerView) {
+        val deadline = SystemClock.elapsedRealtime() + TIMEOUT_MS
+        var lastFailure: AssertionError? = null
+        do {
+            try {
+                assertColourBarsVisible(view)
+                return
+            } catch (failure: AssertionError) {
+                lastFailure = failure
+            }
+            SystemClock.sleep(50)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        throw AssertionError("a paused replacement Surface must receive a colour-bar frame", lastFailure)
     }
 
     /** Native output statistics alone cannot establish that pixels reached the Surface. */

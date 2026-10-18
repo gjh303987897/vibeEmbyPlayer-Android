@@ -94,6 +94,8 @@ fun SettingsScreen(
                 onCheckedChange = viewModel::setPageTransitions
             )
 
+            CustomizationSettings(state, viewModel)
+
             Spacer(Modifier.height(16.dp))
             SectionHeader(stringResource(R.string.settings_privacy))
 

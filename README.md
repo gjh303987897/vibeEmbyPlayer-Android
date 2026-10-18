@@ -163,6 +163,9 @@ Never commit a keystore or a password.
 
 ## Documentation
 
+- `docs/manual-subtitles.md` — load phone subtitles for every playback source
+- `docs/history-retention.md` — configurable history, link history and usage retention
+- `docs/appearance-playback-diagnostics.md` — layouts, service-card sizing, FPS and network speed
 - `docs/tssl-v4-m3u8sp.md` — TSSL v4 and `.m3u8sp` container layout, playback and verification flow
 - `docs/self-signed-certificates.md` — trusting self-signed media servers
 - `docs/player-fullscreen-audio-tracks.md` — fullscreen behaviour and audio track selection

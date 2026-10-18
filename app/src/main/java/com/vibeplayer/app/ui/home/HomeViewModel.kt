@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.MediaServerRepository
+import com.vibeplayer.app.data.local.datastore.SettingsDataStore
+import com.vibeplayer.app.model.HomeLayout
+import com.vibeplayer.app.model.ServiceType
 import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
@@ -17,6 +20,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 
 data class HomeUiState(
     val serverId: String = "",
@@ -32,11 +38,15 @@ data class HomeUiState(
 class HomeViewModel @Inject constructor(
     private val repository: MediaServerRepository,
     private val activeSessionManager: ActiveSessionManager,
-    private val privacyManager: PrivacyManager
+    private val privacyManager: PrivacyManager,
+    settings: SettingsDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    val homeLayout = combine(settings.appearancePreferences, activeSessionManager.activeSession) { prefs, session ->
+        if (session?.server?.serviceType == ServiceType.JELLYFIN) prefs.jellyfinHomeLayout else prefs.embyHomeLayout
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeLayout.TRENDY)
 
     init {
         viewModelScope.launch {

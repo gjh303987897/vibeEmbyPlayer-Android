@@ -65,10 +65,12 @@ class WebDavHlsSource(
     private val server: ServerConfig,
     private val basePath: String
 ) : HlsByteSource {
+    private val received = java.util.concurrent.atomic.AtomicLong(0L)
+    override val networkBytesReceived: Long get() = received.get()
 
     override suspend fun load(packageRelativePath: String): Result<ByteArray> {
         val remote = if (basePath.isEmpty()) packageRelativePath
         else "${basePath.trimEnd('/')}/$packageRelativePath"
-        return webDavRepository.download(server, remote)
+        return webDavRepository.download(server, remote).onSuccess { received.addAndGet(it.size.toLong()) }
     }
 }

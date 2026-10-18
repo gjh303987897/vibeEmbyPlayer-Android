@@ -7,6 +7,7 @@ import com.vibeplayer.app.data.repository.ActiveSessionManager
 import com.vibeplayer.app.data.repository.IptvRepository
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.WebDavRepository
+import com.vibeplayer.app.data.local.datastore.SettingsDataStore
 import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.ServiceType
@@ -20,6 +21,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -85,12 +89,15 @@ class ServicesViewModel @Inject constructor(
     private val activeSessionManager: ActiveSessionManager,
     private val webDavRepository: WebDavRepository,
     private val iptvRepository: IptvRepository,
-    private val privacyManager: PrivacyManager
+    private val privacyManager: PrivacyManager,
+    settings: SettingsDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServicesUiState())
     val uiState: StateFlow<ServicesUiState> = _uiState.asStateFlow()
     val privatePlaybackStopped = privacyManager.privatePlaybackStopped
+    val serviceCardScale = settings.appearancePreferences.map { it.serviceCardScalePercent }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 100)
 
     /** Mirrors the latest "could not save the password securely" result into the state. */
     private var passwordWarning: Boolean

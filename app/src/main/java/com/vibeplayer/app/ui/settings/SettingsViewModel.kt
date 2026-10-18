@@ -3,6 +3,10 @@ package com.vibeplayer.app.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.local.datastore.SettingsDataStore
+import com.vibeplayer.app.data.repository.HistoryRetentionManager
+import com.vibeplayer.app.model.AppearancePreferences
+import com.vibeplayer.app.model.HomeLayout
+import com.vibeplayer.app.model.PlayerLayout
 import com.vibeplayer.app.security.PrivacyManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -19,6 +23,10 @@ data class SettingsUiState(
     val dynamicColor: Boolean = true,
     val language: String = "system",
     val pageTransitions: Boolean = true,
+    val appearance: AppearancePreferences = AppearancePreferences(),
+    val historyRetentionDays: Int = 30,
+    val retentionSaving: Boolean = false,
+    val customizationSaveFailed: Boolean = false,
     val pinConfigured: Boolean = false,
     val privacyActive: Boolean = false
 )
@@ -26,30 +34,40 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
-    private val privacyManager: PrivacyManager
+    private val privacyManager: PrivacyManager,
+    private val retention: HistoryRetentionManager
 ) : ViewModel() {
 
     private val pinConfigured = MutableStateFlow(privacyManager.isPinConfigured())
+    private val retentionSaving = MutableStateFlow(false)
+    private val saveFailed = MutableStateFlow(false)
 
     private data class Prefs(val themeMode: String, val dynamicColor: Boolean, val language: String, val pageTransitions: Boolean)
 
     val uiState: StateFlow<SettingsUiState> = combine(
         combine(
-            settingsDataStore.themeMode,
-            settingsDataStore.dynamicColor,
-            settingsDataStore.language,
-            settingsDataStore.pageTransitions
-        ) { theme, dynamic, language, transitions ->
-            Prefs(theme ?: "system", dynamic, language ?: "system", transitions)
-        },
+            combine(settingsDataStore.themeMode, settingsDataStore.dynamicColor,
+                settingsDataStore.language, settingsDataStore.pageTransitions) { theme, dynamic, language, transitions ->
+                Prefs(theme ?: "system", dynamic, language ?: "system", transitions)
+            },
+            settingsDataStore.appearancePreferences,
+            settingsDataStore.historyRetentionDays
+        ) { prefs, appearance, days -> Triple(prefs, appearance, days) },
         privacyManager.privacyMode,
-        pinConfigured
-    ) { prefs, privacyActive, pinCfg ->
+        pinConfigured,
+        retentionSaving,
+        saveFailed
+    ) { customization, privacyActive, pinCfg, saving, failed ->
+        val (prefs, appearance, days) = customization
         SettingsUiState(
             themeMode = prefs.themeMode,
             dynamicColor = prefs.dynamicColor,
             language = prefs.language,
             pageTransitions = prefs.pageTransitions,
+            appearance = appearance,
+            historyRetentionDays = days,
+            retentionSaving = saving,
+            customizationSaveFailed = failed,
             pinConfigured = pinCfg,
             privacyActive = privacyActive
         )
@@ -64,6 +82,30 @@ class SettingsViewModel @Inject constructor(
 
     fun setPageTransitions(enabled: Boolean) =
         viewModelScope.launch { settingsDataStore.setPageTransitions(enabled) }
+
+    fun setHomeLayout(jellyfin: Boolean, layout: HomeLayout) = saveCustomization {
+        settingsDataStore.setHomeLayout(jellyfin, layout)
+    }
+    fun setPlayerLayout(layout: PlayerLayout) = saveCustomization { settingsDataStore.setPlayerLayout(layout) }
+    fun setServiceCardScale(percent: Int) = saveCustomization { settingsDataStore.setServiceCardScale(percent) }
+
+    fun setHistoryRetentionDays(days: Int) {
+        if (retentionSaving.value) return
+        retentionSaving.value = true
+        saveCustomization {
+            try { retention.setRetentionDays(days) } finally { retentionSaving.value = false }
+        }
+    }
+
+    private fun saveCustomization(action: suspend () -> Unit) = viewModelScope.launch {
+        saveFailed.value = false
+        try { action() } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            android.util.Log.w("Settings", "Unable to save customization (${error.javaClass.simpleName})")
+            saveFailed.value = true
+        }
+    }
 
     fun setPin(pin: String): Boolean {
         val ok = privacyManager.setPin(pin)

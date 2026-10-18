@@ -13,6 +13,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.player.PlayerManager
 import com.vibeplayer.app.data.repository.ActiveSessionManager
+import com.vibeplayer.app.data.repository.HistoryRetentionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,6 +36,8 @@ class VibePlayerApp : Application(), ImageLoaderFactory {
     @Inject lateinit var privacyManager: PrivacyManager
     @Inject lateinit var playerManager: PlayerManager
     @Inject lateinit var activeSessionManager: ActiveSessionManager
+    @Inject lateinit var historyRetentionManager: HistoryRetentionManager
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**
      * App-wide image loader with a gentle crossfade so artwork fades in
@@ -54,11 +57,18 @@ class VibePlayerApp : Application(), ImageLoaderFactory {
         // The settings store keeps a tiny non-sensitive bootstrap mirror for the
         // Activity locale hook; the canonical value remains in DataStore.
         LocaleHelper.currentLocaleTag = settingsDataStore.initialLanguage
+        historyRetentionManager.start(applicationScope)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStop(owner: LifecycleOwner) = privacyManager.scheduleBackgroundRelock()
-            override fun onStart(owner: LifecycleOwner) = privacyManager.cancelBackgroundRelock()
+            override fun onStop(owner: LifecycleOwner) {
+                privacyManager.scheduleBackgroundRelock()
+                historyRetentionManager.onBackground()
+            }
+            override fun onStart(owner: LifecycleOwner) {
+                privacyManager.cancelBackgroundRelock()
+                historyRetentionManager.onForeground(applicationScope)
+            }
         })
-        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
+        applicationScope.launch {
             var wasUnlocked = false
             privacyManager.privacyMode.collect { unlocked ->
                 if (wasUnlocked && !unlocked) {

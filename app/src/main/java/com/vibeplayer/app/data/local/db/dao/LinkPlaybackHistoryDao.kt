@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface LinkPlaybackHistoryDao {
 
-    @Query("SELECT * FROM link_playback_history WHERE (:showPrivate OR privacy_mode = 0) ORDER BY played_at_ms DESC LIMIT :limit OFFSET :offset")
-    fun observePaged(showPrivate: Boolean, limit: Int, offset: Int): Flow<List<LinkPlaybackHistoryEntity>>
+    @Query("SELECT * FROM link_playback_history WHERE played_date >= :cutoffDate AND (:showPrivate OR privacy_mode = 0) ORDER BY played_at_ms DESC LIMIT :limit OFFSET :offset")
+    fun observePaged(showPrivate: Boolean, limit: Int, offset: Int, cutoffDate: String = ""): Flow<List<LinkPlaybackHistoryEntity>>
 
     @Query("SELECT * FROM link_playback_history WHERE playback_url = :url LIMIT 1")
     suspend fun findByUrl(url: String): LinkPlaybackHistoryEntity?

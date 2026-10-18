@@ -165,7 +165,8 @@ class WebDavPlayerViewModel @Inject constructor(
                         title = title,
                         subtitle = server.name,
                         startPositionMs = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, webdavPath) * 1000,
-                        privatePlayback = server.privateMode
+                        privatePlayback = server.privateMode,
+                        networkByteCounter = playback.networkByteCounter
                     )
                     historyRepository.recordPlayback(
                         source = PlaybackSource.WEBDAV,

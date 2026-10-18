@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -72,6 +73,7 @@ import coil.request.ImageRequest
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.model.MediaLibrary
+import com.vibeplayer.app.model.HomeLayout
 import com.vibeplayer.app.ui.components.pressScale
 import com.vibeplayer.app.ui.components.AppMessageCard
 import com.vibeplayer.app.ui.navigation.Routes
@@ -86,6 +88,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val homeLayout by viewModel.homeLayout.collectAsState()
 
     Scaffold(
         topBar = {
@@ -118,7 +121,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 24.dp)
                     ) {
-                        if (state.suggestedSeries.isNotEmpty()) {
+                        if (homeLayout == HomeLayout.TRENDY && state.suggestedSeries.isNotEmpty()) {
                             item {
                                 SuggestedHero(
                                     items = state.suggestedSeries,
@@ -134,7 +137,11 @@ fun HomeScreen(
                         if (state.continueWatching.isNotEmpty()) {
                             item { RailHeader(stringResource(R.string.continue_watching)) }
                             item {
-                                ContinueWatchingHero(
+                                if (homeLayout == HomeLayout.TRADITIONAL) TraditionalContinueWatching(
+                                    items = state.continueWatching,
+                                    onOpen = { navController.navigate(Routes.details(state.serverId, it.id)) },
+                                    onResume = { navController.navigate(Routes.player(state.serverId, it.id)) }
+                                ) else ContinueWatchingHero(
                                     items = state.continueWatching,
                                     onOpen = { item ->
                                         navController.navigate(Routes.details(state.serverId, item.id))
@@ -147,7 +154,20 @@ fun HomeScreen(
                         }
                         if (state.libraries.isNotEmpty()) {
                             item { RailHeader(stringResource(R.string.libraries)) }
-                            items(state.libraries.chunked(2)) { row ->
+                            if (homeLayout == HomeLayout.TRENDY) item {
+                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(state.libraries, key = { it.id }) { library ->
+                                        androidx.compose.material3.Card(onClick = {
+                                            navController.navigate(Routes.library(state.serverId, library.id))
+                                        }, modifier = Modifier.width(208.dp).aspectRatio(1.6f)) {
+                                            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Bottom) {
+                                                Text(library.name, style = MaterialTheme.typography.titleMedium)
+                                                Text(library.collectionType, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            } else items(state.libraries.chunked(2)) { row ->
                                 LibraryRow(
                                     libraries = row,
                                     modifier = Modifier.animateItem(),
@@ -178,6 +198,32 @@ fun HomeScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TraditionalContinueWatching(items: List<MediaItem>, onOpen: (MediaItem) -> Unit, onResume: (MediaItem) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(items, key = { it.id }) { item ->
+            Column(Modifier.width(144.dp)) {
+                AsyncImage(model = ImageRequest.Builder(LocalContext.current)
+                    .data(item.imageUrl.ifBlank { item.seriesImageUrl })
+                    .apply { if (item.imageToken.isNotBlank()) addHeader("X-Emby-Token", item.imageToken) }.build(),
+                    contentDescription = item.name,
+                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+                        .clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .clickable { onOpen(item) })
+                Text(item.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { (item.playedPercentage / 100).toFloat().coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                androidx.compose.material3.TextButton(onClick = { onResume(item) }) {
+                    Icon(Icons.Outlined.PlayArrow, null)
+                    Text(stringResource(R.string.play))
                 }
             }
         }

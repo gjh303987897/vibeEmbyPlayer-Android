@@ -9,11 +9,17 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.vibeplayer.app.player.LONG_PRESS_SPEEDS
 import com.vibeplayer.app.player.PlayerPreferences
 import com.vibeplayer.app.player.VideoDecodeMode
 import com.vibeplayer.app.model.IptvQualityPreference
+import com.vibeplayer.app.model.AppearancePreferences
+import com.vibeplayer.app.model.HomeLayout
+import com.vibeplayer.app.model.PlayerLayout
+import com.vibeplayer.app.model.normalizeServiceCardScale
+import com.vibeplayer.app.domain.history.HistoryRetentionPolicy
 import java.io.File
 import com.vibeplayer.app.util.LocaleHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -51,6 +57,12 @@ class SettingsDataStore @Inject constructor(
         val SHOW_PERFORMANCE = booleanPreferencesKey("player_show_performance")
         val VIDEO_DECODE_MODE = stringPreferencesKey("player_video_decode_mode")
         val IPTV_QUALITY = stringPreferencesKey("iptv_quality_preference")
+        val HISTORY_RETENTION_DAYS = intPreferencesKey("history_retention_days")
+        val EMBY_HOME_LAYOUT = stringPreferencesKey("emby_home_layout")
+        val JELLYFIN_HOME_LAYOUT = stringPreferencesKey("jellyfin_home_layout")
+        val PLAYER_LAYOUT = stringPreferencesKey("player_layout")
+        val SERVICE_CARD_SCALE = intPreferencesKey("service_card_scale")
+        val SHOW_PLAYBACK_DIAGNOSTICS = booleanPreferencesKey("player_show_diagnostics")
     }
 
     val themeMode: Flow<String?> = dataStore.data
@@ -69,6 +81,14 @@ class SettingsDataStore @Inject constructor(
     val pageTransitions: Flow<Boolean> = dataStore.data
         .map { it[Keys.PAGE_TRANSITIONS] ?: true }
 
+    val historyRetentionDays: Flow<Int> = dataStore.data.map {
+        HistoryRetentionPolicy.normalizeDays(it[Keys.HISTORY_RETENTION_DAYS] ?: HistoryRetentionPolicy.DEFAULT_DAYS)
+    }
+
+    suspend fun setHistoryRetentionDays(days: Int) {
+        dataStore.edit { it[Keys.HISTORY_RETENTION_DAYS] = HistoryRetentionPolicy.normalizeDays(days) }
+    }
+
     /** Empty means that subtitle selection follows only forced/default flags. */
     val preferredTextLanguage: Flow<String> = dataStore.data
         .map { it[Keys.PREFERRED_TEXT_LANGUAGE].orEmpty() }
@@ -77,11 +97,39 @@ class SettingsDataStore @Inject constructor(
         PlayerPreferences(
             longPressSpeed = preferences[Keys.LONG_PRESS_SPEED]?.takeIf { it in LONG_PRESS_SPEEDS } ?: 2f,
             showPerformance = preferences[Keys.SHOW_PERFORMANCE] ?: false,
+            showDiagnostics = preferences[Keys.SHOW_PLAYBACK_DIAGNOSTICS] ?: false,
+            layout = PlayerLayout.entries.firstOrNull { it.name == preferences[Keys.PLAYER_LAYOUT] }
+                ?: PlayerLayout.TRENDY,
             videoDecodeMode = VideoDecodeMode.entries.firstOrNull { it.name == preferences[Keys.VIDEO_DECODE_MODE] }
                 ?: VideoDecodeMode.HARDWARE,
             iptvQuality = IptvQualityPreference.entries.firstOrNull { it.name == preferences[Keys.IPTV_QUALITY] }
                 ?: IptvQualityPreference.HIGHEST
         )
+    }
+
+    val appearancePreferences: Flow<AppearancePreferences> = dataStore.data.map { preferences ->
+        AppearancePreferences(
+            embyHomeLayout = HomeLayout.entries.firstOrNull { it.name == preferences[Keys.EMBY_HOME_LAYOUT] } ?: HomeLayout.TRENDY,
+            jellyfinHomeLayout = HomeLayout.entries.firstOrNull { it.name == preferences[Keys.JELLYFIN_HOME_LAYOUT] } ?: HomeLayout.TRENDY,
+            playerLayout = PlayerLayout.entries.firstOrNull { it.name == preferences[Keys.PLAYER_LAYOUT] } ?: PlayerLayout.TRENDY,
+            serviceCardScalePercent = normalizeServiceCardScale(preferences[Keys.SERVICE_CARD_SCALE] ?: 100)
+        )
+    }
+
+    suspend fun setHomeLayout(jellyfin: Boolean, layout: HomeLayout) {
+        dataStore.edit { it[if (jellyfin) Keys.JELLYFIN_HOME_LAYOUT else Keys.EMBY_HOME_LAYOUT] = layout.name }
+    }
+
+    suspend fun setPlayerLayout(layout: PlayerLayout) {
+        dataStore.edit { it[Keys.PLAYER_LAYOUT] = layout.name }
+    }
+
+    suspend fun setServiceCardScale(percent: Int) {
+        dataStore.edit { it[Keys.SERVICE_CARD_SCALE] = normalizeServiceCardScale(percent) }
+    }
+
+    suspend fun setShowDiagnostics(enabled: Boolean) {
+        dataStore.edit { it[Keys.SHOW_PLAYBACK_DIAGNOSTICS] = enabled }
     }
 
     suspend fun setLongPressSpeed(speed: Float) {

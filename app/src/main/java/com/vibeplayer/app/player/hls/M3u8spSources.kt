@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 
 interface SeekableHlsContainerSource {
     val length: Long
+    val networkBytesReceived: Long? get() = null
     suspend fun read(offset: Long, length: Long): Result<ByteArray>
 }
 
@@ -73,11 +74,14 @@ class WebDavContainerSource(
     private val initialBytes: ByteArray
 ) : SeekableHlsContainerSource {
     init { require(length > 0 && initialBytes.isNotEmpty()) }
+    private val received = java.util.concurrent.atomic.AtomicLong(initialBytes.size.toLong())
+    override val networkBytesReceived: Long get() = received.get()
     override suspend fun read(offset: Long, length: Long): Result<ByteArray> {
         if (offset == 0L && length <= initialBytes.size) {
             return Result.success(initialBytes.copyOfRange(0, length.toInt()))
         }
         return repository.downloadRange(server, path, offset, length, this.length, etag)
+            .onSuccess { received.addAndGet(it.size.toLong()) }
     }
 }
 
@@ -85,6 +89,7 @@ class IndexedTarHlsSource(
     private val source: SeekableHlsContainerSource,
     private val index: EncryptedHlsTarIndex
 ) : HlsByteSource {
+    override val networkBytesReceived: Long? get() = source.networkBytesReceived
     override suspend fun load(packageRelativePath: String): Result<ByteArray> = runCatching {
         val entry = index.entries[packageRelativePath]
             ?: throw IOException("M3U8SP entry is not registered: $packageRelativePath")

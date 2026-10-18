@@ -2,29 +2,14 @@ package com.vibeplayer.app.ui.link
 
 import android.view.ViewGroup
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,12 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.vibeplayer.app.R
 import com.vibeplayer.app.ui.player.IjkPlayerView
 import com.vibeplayer.app.ui.components.PlayerSubtitleOverlay
 import com.vibeplayer.app.ui.components.KeepScreenOnDuringPlayback
@@ -55,8 +38,6 @@ import com.vibeplayer.app.ui.components.PlaybackStatusOverlay
 import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.player.PlayerExtraActions
 import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
-import java.util.concurrent.TimeUnit
-import java.util.Locale
 
 @Composable
 fun LinkPlayerScreen(
@@ -66,6 +47,7 @@ fun LinkPlayerScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
+    var controlsHeight by remember { mutableStateOf(0.dp) }
     var locked by rememberSaveable { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
     val gestures = rememberPlayerGestureState()
@@ -108,7 +90,7 @@ fun LinkPlayerScreen(
         )
 
         state.subtitleText?.let { text ->
-            PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+            PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp))
         }
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.
@@ -151,7 +133,7 @@ fun LinkPlayerScreen(
         if (controlsVisible && !locked) {
             PlayerTopBar(
                 performance = {
-                    if (playerPreferences.showPerformance) PlayerPerformanceReadout(
+                    if (playerPreferences.showPerformance || playerPreferences.showDiagnostics) PlayerPerformanceReadout(
                         playerSettings, compact = LocalConfiguration.current.screenWidthDp < 600
                     )
                 },
@@ -160,9 +142,6 @@ fun LinkPlayerScreen(
                 audioDecode = state.audioDecode,
                 onBack = { navController.popBackStack() },
                 actions = {
-                    com.vibeplayer.app.ui.player.SubtitleSelector(
-                        state.subtitleTracks, state.selectedSubtitleKey, viewModel::selectSubtitle, compact = true
-                    )
                     PlayerExtraActions(
                         fullscreen = fullscreen,
                         onToggleFullscreen = { fullscreen = !fullscreen },
@@ -172,14 +151,8 @@ fun LinkPlayerScreen(
                     )
                 }
             )
-            LinkControls(
-                isPlaying = state.isPlaying,
-                positionMs = state.positionMs,
-                durationMs = state.durationMs,
-                onTogglePlay = viewModel::togglePlayPause,
-                onSeek = viewModel::seekTo,
-                modifier = Modifier.align(Alignment.BottomCenter).bottomEdgeInsets()
-            )
+            com.vibeplayer.app.ui.player.PlayerControls(playerSettings,
+                Modifier.align(Alignment.BottomCenter).bottomEdgeInsets(), onHeightChanged = { controlsHeight = it })
         }
 
         PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings)
@@ -193,50 +166,4 @@ fun LinkPlayerScreen(
             }
         )
     }
-}
-
-@Composable
-private fun LinkControls(
-    isPlaying: Boolean,
-    positionMs: Long,
-    durationMs: Long,
-    onTogglePlay: () -> Unit,
-    onSeek: (Long) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var sliderPosition by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(positionMs, durationMs) {
-        if (durationMs > 0) sliderPosition = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-    }
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 8.dp)) {
-        Slider(
-            value = sliderPosition,
-            onValueChange = { sliderPosition = it },
-            onValueChangeFinished = { onSeek((sliderPosition * durationMs).toLong()) }
-        )
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(text = fmt(state = positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
-            Text(text = fmt(state = durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 56.dp)) {
-            IconButton(onClick = onTogglePlay, modifier = Modifier.padding(8.dp)) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                    contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
-                    tint = Color.White
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
-private fun fmt(state: Long): String {
-    val totalSeconds = TimeUnit.MILLISECONDS.toSeconds(state)
-    val h = TimeUnit.SECONDS.toHours(totalSeconds)
-    val m = TimeUnit.SECONDS.toMinutes(totalSeconds) % 60
-    val s = totalSeconds % 60
-    return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s) else String.format(Locale.US, "%02d:%02d", m, s)
 }

@@ -16,6 +16,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
+import androidx.room.withTransaction
 
 /**
  * Repository for the unified global playback history and daily usage
@@ -24,10 +28,13 @@ import kotlinx.coroutines.flow.map
  * left to the caller, and completion is marked at EOF or >=97% of duration.
  */
 @Singleton
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackHistoryRepository @Inject constructor(
     private val playbackHistoryDao: PlaybackHistoryDao,
     private val linkPlaybackHistoryDao: LinkPlaybackHistoryDao,
-    private val dailyUsageStatDao: DailyUsageStatDao
+    private val dailyUsageStatDao: DailyUsageStatDao,
+    private val retention: HistoryRetentionManager,
+    private val database: com.vibeplayer.app.data.local.db.VibePlayerDatabase
 ) {
 
     /** Number of history rows loaded per page. */
@@ -36,6 +43,7 @@ class PlaybackHistoryRepository @Inject constructor(
     suspend fun resumePositionSeconds(source: PlaybackSource, service: ServerConfig?, replayTarget: String): Long {
         val row = playbackHistoryDao.findByStableIdentity(source.label, service?.id ?: "", replayTarget)
             ?: return 0L
+        if (row.playedDate < retention.cutoffDate.first()) return 0L
         return if (row.completed) 0L else row.positionSeconds.coerceAtLeast(0L)
     }
 
@@ -45,21 +53,26 @@ class PlaybackHistoryRepository @Inject constructor(
         limit: Int = DEFAULT_PAGE_SIZE,
         offset: Int = 0
     ): Flow<List<PlaybackHistoryEntry>> {
-        val flow = if (source == null || source == PlaybackSource.UNKNOWN) {
-            playbackHistoryDao.observePaged(showPrivate = showPrivate, limit = limit, offset = offset)
-        } else {
-            playbackHistoryDao.observeBySource(source.label, showPrivate = showPrivate, limit = limit, offset = offset)
+        val flow = retention.cutoffDate.flatMapLatest { cutoff ->
+            if (source == null || source == PlaybackSource.UNKNOWN) {
+                playbackHistoryDao.observePaged(showPrivate, limit, offset, cutoff)
+            } else {
+                playbackHistoryDao.observeBySource(source.label, showPrivate, limit, offset, cutoff)
+            }
         }
         return flow.map { rows -> rows.map { it.toDomain() } }
     }
 
     /** Reactive total count of history rows matching [source] (null = all). */
     fun observeCount(source: PlaybackSource? = null, showPrivate: Boolean = false): Flow<Int> =
-        if (source == null || source == PlaybackSource.UNKNOWN) playbackHistoryDao.observeCount(showPrivate)
-        else playbackHistoryDao.observeCountBySource(source.label, showPrivate)
+        retention.cutoffDate.flatMapLatest { cutoff ->
+            if (source == null || source == PlaybackSource.UNKNOWN) playbackHistoryDao.observeCount(showPrivate, cutoff)
+            else playbackHistoryDao.observeCountBySource(source.label, showPrivate, cutoff)
+        }
 
 
-    fun observeUsage(showPrivate: Boolean = false): Flow<List<DailyUsageStatEntity>> = dailyUsageStatDao.observeAll(showPrivate)
+    fun observeUsage(showPrivate: Boolean = false): Flow<List<DailyUsageStatEntity>> =
+        retention.cutoffDate.flatMapLatest { dailyUsageStatDao.observeAll(showPrivate, it) }
 
     /**
      * Records a playback occurrence for a stable media identity. If a row for
@@ -76,7 +89,7 @@ class PlaybackHistoryRepository @Inject constructor(
         positionSeconds: Long = 0L,
         durationSeconds: Long = 0L,
         completed: Boolean = false
-    ) {
+    ) = database.withTransaction {
         val identity = source.label to (service?.id ?: "") to replayTarget
         val existing = playbackHistoryDao.findByStableIdentity(
             source = identity.first.first,
@@ -102,7 +115,7 @@ class PlaybackHistoryRepository @Inject constructor(
                 existing.completed,
                 now
             )
-            return
+            return@withTransaction
         }
         val playedAtMs = now
         val playedDate = todayUtc()
@@ -158,12 +171,11 @@ class PlaybackHistoryRepository @Inject constructor(
     }
 
     suspend fun deleteHistory(id: String) {
-        playbackHistoryDao.deleteById(id)
-        linkPlaybackHistoryDao.deleteById(id)
+        database.historyRetentionDao().deleteHistory(id)
     }
 
     fun observeLinkHistory(showPrivate: Boolean = false): Flow<List<LinkPlaybackHistoryEntity>> =
-        linkPlaybackHistoryDao.observePaged(showPrivate = showPrivate, limit = 100, offset = 0)
+        retention.cutoffDate.flatMapLatest { linkPlaybackHistoryDao.observePaged(showPrivate, 100, 0, it) }
 
     /**
      * Records a Link-source playback occurrence. Mirrors the same uuid into the
@@ -177,7 +189,7 @@ class PlaybackHistoryRepository @Inject constructor(
         positionSeconds: Long = 0L,
         durationSeconds: Long = 0L,
         completed: Boolean = false
-    ) {
+    ) = database.withTransaction {
         val now = System.currentTimeMillis()
         val displayAddress = displayUrl(url)
         val previous = linkPlaybackHistoryDao.findByUrl(url)
@@ -209,7 +221,7 @@ class PlaybackHistoryRepository @Inject constructor(
                 previousHistory?.let {
                     playbackHistoryDao.updateProgress(id, it.positionSeconds, it.durationSeconds, it.completed, now)
                 }
-                return
+                return@withTransaction
             }
             playbackHistoryDao.updateProgress(
                 id,
@@ -218,7 +230,7 @@ class PlaybackHistoryRepository @Inject constructor(
                 completed || (durationSeconds > 0 && positionSeconds >= durationSeconds * 97 / 100),
                 now
             )
-            return
+            return@withTransaction
         }
 
         val link = LinkPlaybackHistoryEntity(

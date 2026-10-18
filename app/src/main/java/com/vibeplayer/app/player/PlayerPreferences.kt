@@ -1,12 +1,15 @@
 package com.vibeplayer.app.player
 
 import com.vibeplayer.app.model.IptvQualityPreference
+import com.vibeplayer.app.model.PlayerLayout
 
 enum class VideoDecodeMode { HARDWARE, SOFTWARE }
 
 data class PlayerPreferences(
     val longPressSpeed: Float = 2f,
     val showPerformance: Boolean = false,
+    val showDiagnostics: Boolean = false,
+    val layout: PlayerLayout = PlayerLayout.TRENDY,
     val videoDecodeMode: VideoDecodeMode = VideoDecodeMode.HARDWARE,
     val iptvQuality: IptvQualityPreference = IptvQualityPreference.HIGHEST
 )

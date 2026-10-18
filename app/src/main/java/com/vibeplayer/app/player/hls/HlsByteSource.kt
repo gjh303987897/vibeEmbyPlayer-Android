@@ -7,4 +7,5 @@ package com.vibeplayer.app.player.hls
  */
 fun interface HlsByteSource {
     suspend fun load(packageRelativePath: String): Result<ByteArray>
+    val networkBytesReceived: Long? get() = null
 }

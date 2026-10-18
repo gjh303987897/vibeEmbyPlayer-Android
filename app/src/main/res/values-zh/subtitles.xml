@@ -1,0 +1,13 @@
+<resources>
+    <string name="subtitle_title">字幕</string>
+    <string name="subtitle_off">关闭字幕</string>
+    <string name="subtitle_load_phone">从手机加载字幕</string>
+    <string name="subtitle_import_help">支持 SRT、VTT、ASS、SSA，最大 4 MB；支持 UTF-8、UTF-16、GB18030 编码。ASS/SSA 以纯文本显示，不保留样式。导入字幕仅用于本次播放。</string>
+    <string name="subtitle_error_large">字幕超过 4 MB 或字幕条数上限。</string>
+    <string name="subtitle_error_format">请选择 SRT、VTT、ASS 或 SSA 字幕。</string>
+    <string name="subtitle_error_encoding">无法识别编码，请将字幕另存为 UTF-8 后重试。</string>
+    <string name="subtitle_error_content">文件中没有有效的带时间字幕。</string>
+    <string name="subtitle_error_no_playback">请等待视频加载完成后再添加字幕。</string>
+    <string name="subtitle_error_session">视频已切换，请重新选择字幕。</string>
+    <string name="subtitle_error_read">无法读取字幕，请重新选择文件。</string>
+</resources>

@@ -254,7 +254,10 @@ class EncryptedHlsManager @Inject constructor(
         }
         val server = EncryptedHlsServer(doc, source, VIRTUAL_ROOT_NAME, manifest)
         server.start()
-        return EncryptedHlsPlayback(server, VIRTUAL_ROOT_NAME, recoverSourceName(doc))
+        val counter: (() -> Long)? = if (source.networkBytesReceived != null) {
+            { source.networkBytesReceived ?: 0L }
+        } else null
+        return EncryptedHlsPlayback(server, VIRTUAL_ROOT_NAME, recoverSourceName(doc), counter)
     }
 
     private fun recoverSourceName(doc: TsslDocument): String? {

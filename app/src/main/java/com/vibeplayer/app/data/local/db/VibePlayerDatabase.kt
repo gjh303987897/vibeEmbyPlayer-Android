@@ -3,6 +3,7 @@ package com.vibeplayer.app.data.local.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.vibeplayer.app.data.local.db.dao.DailyUsageStatDao
+import com.vibeplayer.app.data.local.db.dao.HistoryRetentionDao
 import com.vibeplayer.app.data.local.db.dao.IptvChannelDao
 import com.vibeplayer.app.data.local.db.dao.IptvPlaylistDao
 import com.vibeplayer.app.data.local.db.dao.LinkPlaybackHistoryDao
@@ -40,6 +41,7 @@ abstract class VibePlayerDatabase : RoomDatabase() {
     abstract fun playbackHistoryDao(): PlaybackHistoryDao
     abstract fun linkPlaybackHistoryDao(): LinkPlaybackHistoryDao
     abstract fun dailyUsageStatDao(): DailyUsageStatDao
+    abstract fun historyRetentionDao(): HistoryRetentionDao
     abstract fun iptvPlaylistDao(): IptvPlaylistDao
     abstract fun iptvChannelDao(): IptvChannelDao
     abstract fun localMediaRootDao(): LocalMediaRootDao

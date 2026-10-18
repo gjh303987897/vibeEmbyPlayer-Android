@@ -35,11 +35,11 @@ internal fun PlayerTopBar(
 ) {
     Column(Modifier.fillMaxWidth().topEdgeInsets().background(Color.Black.copy(alpha = .5f))
         .padding(vertical = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.back), tint = Color.White)
             }
-            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Column(Modifier.weight(1f).padding(end = 8.dp, top = if (subtitle.isBlank()) 12.dp else 4.dp)) {
                 Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (subtitle.isNotBlank()) Text(subtitle, color = Color.White.copy(alpha = .7f),

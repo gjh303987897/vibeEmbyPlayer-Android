@@ -7,6 +7,7 @@ import androidx.annotation.MainThread
 import android.view.SurfaceHolder
 import com.vibeplayer.app.data.local.datastore.SettingsDataStore
 import com.vibeplayer.app.data.remote.SubtitleConfiguration
+import com.vibeplayer.app.domain.subtitle.*
 import com.vibeplayer.app.di.OkHttpClientFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.nio.charset.Charset
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
@@ -71,7 +73,8 @@ private data class PlaybackRequest(
     val trustSelfSignedCertificate: Boolean,
     val privatePlayback: Boolean,
     val subtitles: List<SubtitleConfiguration>,
-    val hlsVariant: HlsVariant?
+    val hlsVariant: HlsVariant?,
+    val networkByteCounter: (() -> Long)?
 )
 
 private data class DecoderRestore(
@@ -93,6 +96,9 @@ class PlayerManager @Inject constructor(
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private val _preferences = MutableStateFlow(PlayerPreferences())
     val preferences: StateFlow<PlayerPreferences> = _preferences.asStateFlow()
+    private val _diagnostics = MutableStateFlow(PlaybackDiagnostics())
+    val diagnostics: StateFlow<PlaybackDiagnostics> = _diagnostics.asStateFlow()
+    private var diagnosticsJob: Job? = null
     private val preferencesReady = CompletableDeferred<Unit>()
     private var preparationJob: Job? = null
     private var currentRequest: PlaybackRequest? = null
@@ -103,21 +109,86 @@ class PlayerManager @Inject constructor(
     private var surfaceReady: CompletableDeferred<Unit>? = null
     val player = IjkMediaPlayer()
     private var boundHolder: SurfaceHolder? = null
+    private var videoSurfaceLost = false
+    private var restoringPausedSurface = false
+    private var pausedSurfaceFramePosition: Long? = null
+    private var pausedSeekPosition: Long? = null
+    private var nativeFrameRendered = false
+    private var pausedSurfaceFrameJob: Job? = null
 
     fun setVideoSurface(holder: SurfaceHolder, attached: Boolean) {
         if (attached) {
+            val restoreOutput = videoSurfaceLost && _state.value.isPrepared
+            videoSurfaceLost = false
             boundHolder = holder
             player.setDisplay(holder)
             val ready = surfaceReady
             surfaceReady = null
             ready?.complete(Unit)
+            // Some MediaCodec implementations cannot reconnect a stopped Surface,
+            // even after a seek. Reprepare against the current Surface, preserving
+            // the playback session and tracks, rather than reusing that codec.
+            if (restoreOutput) restartForDecoderChange(recreateSurface = false, restoreSurface = true)
         } else if (boundHolder === holder) {
+            finishPausedSurfaceFrame()
+            videoSurfaceLost = _state.value.isPrepared && player.videoWidth > 0
             boundHolder = null
             player.setDisplay(null)
         }
     }
 
+    private fun refreshPausedSurfaceFrame() {
+        val holder = boundHolder ?: return
+        val position = _state.value.positionMs
+        pausedSurfaceFramePosition = position
+        nativeFrameRendered = false
+        try {
+            // IJK does not redraw a paused Surface. Seek/preroll silently until the
+            // new Surface has a buffer; queued seek events may belong to an old one.
+            player.setVolume(0f, 0f)
+            if (player.duration > 0) player.seekTo(position)
+            player.start()
+            pausedSurfaceFrameJob = scope.launch {
+                val rendered = withTimeoutOrNull(3_000) {
+                    // IJK can report its first output for a codec initialization
+                    // overlay. Its FPS sampler becomes positive only after at least
+                    // two outputs; require that as well as the seek frame and buffer.
+                    while (!nativeFrameRendered || !player.videoOutputFramesPerSecond.let { it.isFinite() && it > 0f } ||
+                        !hasSurfaceFrame(holder.surface)) delay(32)
+                } != null
+                if (!rendered) Log.w("PlayerManager", "Paused surface refresh timed out")
+                finishPausedSurfaceFrame()
+            }
+        } catch (error: Exception) {
+            Log.w("PlayerManager", "Unable to refresh paused surface (${error.javaClass.simpleName})")
+            finishPausedSurfaceFrame()
+        }
+    }
+
+    private fun finishPausedSurfaceFrame() {
+        val position = pausedSurfaceFramePosition ?: return
+        cancelPausedSurfaceFrame(pause = true)
+        // Bound position drift even if a decoder cannot produce a frame before timeout.
+        if (kotlin.math.abs(runCatching { player.currentPosition }.getOrDefault(position) - position) > 250) {
+            runCatching { player.seekTo(position) }
+        }
+        updateDerived(isPlaying = false)
+        _state.update { it.copy(buffering = false) }
+        updateSubtitleText(_state.value.positionMs)
+    }
+
+    private fun cancelPausedSurfaceFrame(pause: Boolean = false) {
+        pausedSurfaceFrameJob?.cancel()
+        pausedSurfaceFrameJob = null
+        if (pausedSurfaceFramePosition == null) return
+        pausedSurfaceFramePosition = null
+        if (pause) runCatching { player.pause() }
+        // pause() is asynchronous in IJK. Keep the output muted until normal play()
+        // so a queued pause cannot briefly expose the internal preroll's audio.
+    }
+
     private fun resetPlayer() {
+        nativeFrameRendered = false
         audioFocus.abandon()
         acceptNativeSubtitles = false
         subtitleSeekPending = false
@@ -133,6 +204,38 @@ class PlayerManager @Inject constructor(
     private var subtitleJob: Job? = null
     private var httpProxy: PlaybackHttpProxy? = null
     private var subtitleCues: List<SubtitleCue> = emptyList()
+    private var manualSubtitleTimeline: TextSubtitleTimeline? = null
+    private val manualSubtitles = linkedMapOf<String, TextSubtitleDocument>()
+    var subtitleSessionId: Long = 0L
+        private set
+
+    fun ensureSubtitleSession(session: Long) {
+        if (session != subtitleSessionId) throw SubtitleImportException(SubtitleImportError.SESSION_CHANGED)
+        if (currentRequest == null || (!_state.value.isPrepared && !restoringPausedSurface))
+            throw SubtitleImportException(SubtitleImportError.NO_PLAYBACK)
+    }
+
+    fun addManualSubtitle(session: Long, document: TextSubtitleDocument) {
+        ensureSubtitleSession(session)
+        val key = "manual:${java.util.UUID.randomUUID()}"
+        // Bound the in-memory session even when users repeatedly import large files.
+        if (manualSubtitles.size >= 4) manualSubtitles.remove(manualSubtitles.keys.first())
+        manualSubtitles[key] = document
+        updateTracks()
+        selectSubtitle(_state.value.subtitleTracks.first { it.key == key }, persist = false)
+        if (restoringPausedSurface) decoderRestore = decoderRestore?.copy(subtitleKey = key, restoreSubtitle = true)
+        Log.i("PlayerManager", "Local subtitle loaded (format=${document.format}, cues=${document.cues.size})")
+    }
+
+    private fun clearManualSubtitles() {
+        subtitleSessionId++
+        manualSubtitles.clear()
+        manualSubtitleTimeline = null
+        _state.update { it.copy(
+            subtitleTracks = it.subtitleTracks.filterNot { track -> track.key.startsWith("manual:") },
+            selectedSubtitleKey = it.selectedSubtitleKey?.takeUnless { key -> key.startsWith("manual:") }
+        ) }
+    }
     private var currentHeaders: Map<String, String> = emptyMap()
     private var currentTrustSelfSigned = false
     private var preferredTextLanguage = ""
@@ -151,7 +254,8 @@ class PlayerManager @Inject constructor(
         onPauseForLoss = { pauseForFocusLoss() },
         onResumeAfterGain = { play() },
         onDuckingChanged = { multiplier ->
-            runCatching { player.setVolume(multiplier, multiplier) }
+            val output = if (pausedSurfaceFramePosition == null) multiplier else 0f
+            runCatching { player.setVolume(output, output) }
         }
     )
 
@@ -164,6 +268,7 @@ class PlayerManager @Inject constructor(
                 val loaded = preferencesReady.isCompleted
                 _preferences.value = preferences
                 preferencesReady.complete(Unit)
+                if (previous.showDiagnostics != preferences.showDiagnostics) updateDiagnosticsMonitoring()
                 if (loaded && previous.videoDecodeMode != preferences.videoDecodeMode) restartForDecoderChange()
             }
         }
@@ -184,18 +289,24 @@ class PlayerManager @Inject constructor(
         player.setOnPreparedListener {
             val restore = decoderRestore
             decoderRestore = null
+            val redrawPausedFrame = restoringPausedSurface && !(restore?.playWhenReady ?: playWhenPrepared)
+            restoringPausedSurface = false
             Log.i("PlayerManager", "Video prepared (decoder=${player.videoDecoder}, restoring=${restore != null})")
             acceptNativeSubtitles = true
             _state.update { it.copy(isPrepared = true, buffering = false, error = null) }
             updateTracks()
             if (lastSpeed != 1f) player.setSpeed(lastSpeed)
             val start = _state.value.positionMs
-            if (start > 0L) seekTo(start)
+            if (start > 0L && !redrawPausedFrame) seekTo(start)
             restore?.audioKey?.let { key -> _state.value.audioTracks.firstOrNull { it.key == key }?.let(::selectAudioTrack) }
             if (restore?.restoreSubtitle == true) {
                 selectSubtitle(_state.value.subtitleTracks.firstOrNull { it.key == restore.subtitleKey }, persist = false)
             } else if (preferredTextLanguageLoaded) selectInitialSubtitle()
-            if (restore?.playWhenReady ?: playWhenPrepared) play() else updateDerived(isPlaying = false)
+            when {
+                redrawPausedFrame -> refreshPausedSurfaceFrame()
+                restore?.playWhenReady ?: playWhenPrepared -> play()
+                else -> updateDerived(isPlaying = false)
+            }
         }
         player.setOnCompletionListener {
             audioFocus.abandon()
@@ -206,11 +317,18 @@ class PlayerManager @Inject constructor(
             _state.update { it.copy(buffering = false, isPrepared = true, subtitleText = null) }
         }
         player.setOnBufferingUpdateListener { _, percent ->
-            _state.update { it.copy(buffering = percent < 100 && !it.isPlaying) }
+            _state.update { it.copy(buffering = percent < 100 && !it.isPlaying && (playWhenPrepared || subtitleSeekPending)) }
         }
         player.setOnInfoListener { _, what, _ ->
+            if (pausedSurfaceFramePosition != null &&
+                (what == IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START ||
+                    (what == IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START && player.duration <= 0))) {
+                nativeFrameRendered = true
+            }
             when (what) {
-                IMediaPlayer.MEDIA_INFO_BUFFERING_START -> _state.update { it.copy(buffering = true) }
+                IMediaPlayer.MEDIA_INFO_BUFFERING_START -> _state.update {
+                    it.copy(buffering = playWhenPrepared || subtitleSeekPending)
+                }
                 IMediaPlayer.MEDIA_INFO_BUFFERING_END,
                 IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START,
                 IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update { it.copy(buffering = false) }
@@ -295,6 +413,12 @@ class PlayerManager @Inject constructor(
     fun clearError() = _state.update { it.copy(error = null) }
 
     fun beginLoading(title: String? = null, subtitle: String? = null) {
+        cancelPausedSurfaceFrame()
+        pausedSeekPosition = null
+        videoSurfaceLost = false
+        restoringPausedSurface = false
+        stopDiagnostics()
+        clearManualSubtitles()
         preparationJob?.cancel()
         surfaceReady?.cancel()
         surfaceReady = null
@@ -326,8 +450,17 @@ class PlayerManager @Inject constructor(
         subtitleConfigurations: List<SubtitleConfiguration> = emptyList(),
         hlsVariant: HlsVariant? = null,
         playWhenReady: Boolean = true,
-        recreateSurface: Boolean = false
+        recreateSurface: Boolean = false,
+        preserveManualSubtitles: Boolean = false,
+        networkByteCounter: (() -> Long)? = null
     ) {
+        cancelPausedSurfaceFrame()
+        pausedSeekPosition = null
+        videoSurfaceLost = false
+        restoringPausedSurface = false
+        stopDiagnostics()
+        if (!preserveManualSubtitles) clearManualSubtitles()
+        manualSubtitleTimeline = null
         preparationJob?.cancel()
         if (recreateSurface && boundHolder != null) {
             surfaceReady = CompletableDeferred()
@@ -338,7 +471,7 @@ class PlayerManager @Inject constructor(
         decoderRestore = null
         playWhenPrepared = playWhenReady
         currentRequest = PlaybackRequest(url, title, subtitle, headers.toMap(), trustSelfSignedCertificate,
-            privatePlayback, subtitleConfigurations, hlsVariant)
+            privatePlayback, subtitleConfigurations, hlsVariant, networkByteCounter)
         stopPositionTicker()
         subtitleJob?.cancel()
         subtitleCues = emptyList()
@@ -360,6 +493,7 @@ class PlayerManager @Inject constructor(
             surfaceGeneration = surfaceGeneration,
             privatePlayback = privatePlayback
         )
+        updateDiagnosticsMonitoring()
         preparationJob = scope.launch {
             preferencesReady.await()
             // CPU rendering connects the old BufferQueue until its Surface is destroyed.
@@ -398,7 +532,7 @@ class PlayerManager @Inject constructor(
         }
     }
 
-    private fun restartForDecoderChange() {
+    private fun restartForDecoderChange(recreateSurface: Boolean = true, restoreSurface: Boolean = false) {
         val request = currentRequest ?: return
         if (_state.value.isPrepared) updateDerived()
         val state = _state.value
@@ -406,9 +540,9 @@ class PlayerManager @Inject constructor(
         val restore = decoderRestore ?: DecoderRestore(playWhenPrepared, state.selectedAudioTrackKey,
             state.selectedSubtitleKey, state.isPrepared)
         val resumeMs = if (!state.isPrepared || state.durationMs > 0L) state.positionMs else 0L
-        Log.i("PlayerManager", "Video decode mode change (mode=${_preferences.value.videoDecodeMode}, positionMs=$resumeMs, playWhenReady=${restore.playWhenReady})")
+        Log.i("PlayerManager", "Video output reload (surface=$restoreSurface, mode=${_preferences.value.videoDecodeMode}, positionMs=$resumeMs, playWhenReady=${restore.playWhenReady})")
         val carriedBytes = downloadedBytes.get()
-        if (boundHolder != null) {
+        if (recreateSurface && boundHolder != null) {
             surfaceReady = CompletableDeferred()
             surfaceGeneration++
             boundHolder = null
@@ -416,9 +550,11 @@ class PlayerManager @Inject constructor(
         }
         play(request.url, request.title, request.subtitle, resumeMs, request.headers,
             request.trustSelfSignedCertificate, request.privatePlayback, request.subtitles,
-            request.hlsVariant, restore.playWhenReady)
+            request.hlsVariant, restore.playWhenReady, preserveManualSubtitles = true,
+            networkByteCounter = request.networkByteCounter)
         downloadedBytes.addAndGet(carriedBytes)
         decoderRestore = restore
+        restoringPausedSurface = restoreSurface && !restore.playWhenReady
     }
 
     private var externalSubtitleCandidates: List<SubtitleConfiguration> = emptyList()
@@ -428,6 +564,8 @@ class PlayerManager @Inject constructor(
     }
 
     fun play() {
+        cancelPausedSurfaceFrame(pause = true)
+        pausedSeekPosition = null
         playWhenPrepared = true
         if (!_state.value.isPrepared) {
             decoderRestore = decoderRestore?.copy(playWhenReady = true)
@@ -437,6 +575,7 @@ class PlayerManager @Inject constructor(
         if (!audioFocus.request()) return
         try {
             acceptNativeSubtitles = true
+            player.setVolume(audioFocus.volumeMultiplier, audioFocus.volumeMultiplier)
             player.start()
             startPositionTicker()
             updateDerived()
@@ -452,6 +591,7 @@ class PlayerManager @Inject constructor(
     }
 
     private fun pauseForFocusLoss() {
+        cancelPausedSurfaceFrame(pause = true)
         playWhenPrepared = false
         decoderRestore = decoderRestore?.copy(playWhenReady = false)
         if (!_state.value.isPrepared) {
@@ -465,6 +605,12 @@ class PlayerManager @Inject constructor(
     }
 
     fun stop() {
+        cancelPausedSurfaceFrame()
+        pausedSeekPosition = null
+        videoSurfaceLost = false
+        restoringPausedSurface = false
+        stopDiagnostics()
+        clearManualSubtitles()
         preparationJob?.cancel()
         surfaceReady?.cancel()
         surfaceReady = null
@@ -486,9 +632,15 @@ class PlayerManager @Inject constructor(
         if (!_state.value.isPrepared) return
         subtitleSeekPending = true
         try {
-            player.seekTo(positionMs.coerceAtLeast(0L))
+            val position = positionMs.coerceAtLeast(0L)
+            // A paused IJK seek can report the old clock again after SEEK_COMPLETE.
+            // Keep the requested position until playback or a reprepare consumes it.
+            pausedSeekPosition = position.takeUnless { playWhenPrepared }
+            if (pausedSurfaceFramePosition != null) pausedSurfaceFramePosition = position
+            player.seekTo(position)
             discardBitmapSubtitleSnapshot()
         } catch (error: Exception) {
+            pausedSeekPosition = null
             subtitleSeekPending = false
         }
         updateDerived()
@@ -538,6 +690,7 @@ class PlayerManager @Inject constructor(
         if (!persist && subtitleSelectionInitialized && key == _state.value.selectedSubtitleKey) return
         subtitleJob?.cancel()
         subtitleCues = emptyList()
+        manualSubtitleTimeline = null
         clearVisibleSubtitles()
         subtitleSelectionInitialized = true
         currentSubtitleTrackIndex()?.let { runCatching { player.deselectTrack(it) } }
@@ -548,6 +701,10 @@ class PlayerManager @Inject constructor(
             )
         }
         when {
+            key?.startsWith("manual:") == true -> {
+                manualSubtitles[key]?.let { manualSubtitleTimeline = TextSubtitleTimeline(it.cues) }
+                updateSubtitleText(_state.value.positionMs)
+            }
             key?.startsWith("timedtext:") == true -> {
                 val index = key.removePrefix("timedtext:").toIntOrNull()
                 if (index != null) runCatching { player.selectTrack(index) }
@@ -608,7 +765,10 @@ class PlayerManager @Inject constructor(
         val external = externalSubtitleCandidates.mapIndexed { index, config ->
             SubtitleTrack("external:$index", config.label ?: config.language ?: "Subtitle ${index + 1}", config.language, selectedSubtitleKey == "external:$index", config.selectionFlags)
         }
-        val allSubtitles = timedText + external
+        val manual = manualSubtitles.map { (key, document) ->
+            SubtitleTrack(key, document.label, null, selectedSubtitleKey == key, 0)
+        }
+        val allSubtitles = timedText + external + manual
         val audioInfo = (audio.firstOrNull { it.selected } ?: audio.firstOrNull())?.let { track ->
             val info = infos.getOrNull(track.key.removePrefix("audio:").toIntOrNull() ?: -1)
             val codec = info?.format?.getString("codec_name") ?: return@let null
@@ -664,6 +824,10 @@ class PlayerManager @Inject constructor(
     }
 
     private fun updateSubtitleText(positionMs: Long) {
+        if (_state.value.selectedSubtitleKey.orEmpty().startsWith("manual:")) {
+            _state.update { it.copy(subtitleText = manualSubtitleTimeline?.textAt(positionMs)) }
+            return
+        }
         if (!_state.value.selectedSubtitleKey.orEmpty().startsWith("external:")) return
         val cue = subtitleCues.firstOrNull { positionMs in it.startMs..it.endMs }
         _state.update { it.copy(subtitleText = cue?.text) }
@@ -680,6 +844,33 @@ class PlayerManager @Inject constructor(
         }
     }
 
+    private fun stopDiagnostics() {
+        diagnosticsJob?.cancel()
+        diagnosticsJob = null
+        _diagnostics.value = PlaybackDiagnostics()
+    }
+
+    private fun updateDiagnosticsMonitoring() {
+        if (!_preferences.value.showDiagnostics || currentRequest == null) {
+            stopDiagnostics()
+            return
+        }
+        if (diagnosticsJob?.isActive == true) return
+        diagnosticsJob = scope.launch {
+            val sampler = PlaybackDiagnosticSampler()
+            while (currentRequest != null) {
+                val prepared = _state.value.isPrepared
+                val fps = if (prepared && player.videoWidth > 0) {
+                    if (_state.value.isPlaying && !_state.value.buffering)
+                        runCatching { player.videoOutputFramesPerSecond }.getOrNull() else 0f
+                } else null
+                val bytes = currentRequest?.networkByteCounter?.invoke() ?: httpProxy?.receivedBytes
+                _diagnostics.value = sampler.sample(android.os.SystemClock.elapsedRealtime(), bytes, fps)
+                delay(1_000)
+            }
+        }
+    }
+
     private fun stopPositionTicker() {
         updateDerived(isPlaying = false)
         positionTicker?.cancel()
@@ -687,7 +878,10 @@ class PlayerManager @Inject constructor(
     }
 
     private fun updateDerived(isPlaying: Boolean = runCatching { player.isPlaying }.getOrDefault(false)) {
-        val position = runCatching { player.currentPosition }.getOrDefault(_state.value.positionMs).coerceAtLeast(0L)
+        val refreshingPosition = pausedSurfaceFramePosition
+        val position = refreshingPosition
+            ?: pausedSeekPosition
+            ?: runCatching { player.currentPosition }.getOrDefault(_state.value.positionMs).coerceAtLeast(0L)
         val duration = runCatching { player.duration }.getOrDefault(_state.value.durationMs).coerceAtLeast(0L)
         val totalBytes = runCatching { player.getTrafficStatisticByteCount() }.getOrDefault(0L).coerceAtLeast(0L)
         if (totalBytes >= lastNativeDownloadedBytes) {
@@ -699,7 +893,7 @@ class PlayerManager @Inject constructor(
             IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC -> VideoDecodeMode.SOFTWARE
             else -> null
         } else null
-        _state.update { it.copy(isPlaying = isPlaying, positionMs = position, durationMs = duration,
+        _state.update { it.copy(isPlaying = isPlaying && playWhenPrepared && refreshingPosition == null, positionMs = position, durationMs = duration,
             volume = volumeController.volume, videoDecodeMode = decoder) }
     }
 
@@ -733,6 +927,12 @@ class PlayerManager @Inject constructor(
     }
 
     fun release() {
+        cancelPausedSurfaceFrame()
+        pausedSeekPosition = null
+        videoSurfaceLost = false
+        restoringPausedSurface = false
+        stopDiagnostics()
+        clearManualSubtitles()
         currentRequest = null
         surfaceReady?.cancel()
         surfaceReady = null

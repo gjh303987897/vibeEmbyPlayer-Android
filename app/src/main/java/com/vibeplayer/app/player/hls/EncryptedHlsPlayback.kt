@@ -7,7 +7,8 @@ package com.vibeplayer.app.player.hls
 class EncryptedHlsPlayback(
     private val server: EncryptedHlsServer,
     val rootManifestName: String,
-    val resolvedSourceName: String?
+    val resolvedSourceName: String?,
+    val networkByteCounter: (() -> Long)? = null
 ) {
     /** Loopback URL to feed to the player, e.g. `http://127.0.0.1:PORT/index.m3u8s`. */
     val playUrl: String

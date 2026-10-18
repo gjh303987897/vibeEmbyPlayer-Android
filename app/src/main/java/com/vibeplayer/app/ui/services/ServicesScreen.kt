@@ -1,9 +1,6 @@
 package com.vibeplayer.app.ui.services
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -73,6 +71,7 @@ fun ServicesScreen(
     viewModel: ServicesViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val cardScale by viewModel.serviceCardScale.collectAsState()
     val showAddDialog by viewModel.showAddDialog.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val addSnackbarHostState = remember { SnackbarHostState() }
@@ -196,9 +195,9 @@ fun ServicesScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             header = {
                 Column {
-                    LocalPlaybackCard(onOpen = { navController.navigate(Routes.localHome()) })
+                    LocalPlaybackCard(percent = cardScale, onOpen = { navController.navigate(Routes.localHome()) })
                     Spacer(Modifier.height(12.dp))
-                    LinkPlaybackCard(onOpen = {
+                    LinkPlaybackCard(percent = cardScale, onOpen = {
                         // Link Playback is a built-in source entry, so it always
                         // works even without a saved Link server. Prefer an existing
                         // configured Link service, otherwise use its stable built-in id.
@@ -208,9 +207,9 @@ fun ServicesScreen(
                         navController.navigate(Routes.linkHome(linkId))
                     })
                     Spacer(Modifier.height(12.dp))
-                    GlobalHistoryCard(onOpen = { navController.navigate("history") })
+                    GlobalHistoryCard(percent = cardScale, onOpen = { navController.navigate("history") })
                     Spacer(Modifier.height(12.dp))
-                    M3u8sManagerCard(onOpen = { navController.navigate(Routes.tsslHome()) })
+                    M3u8sManagerCard(percent = cardScale, onOpen = { navController.navigate(Routes.tsslHome()) })
                     if (uiState.items.isEmpty()) {
                         Spacer(Modifier.height(24.dp))
                         EmptyServicesHint(onAdd = viewModel::openAddDialog)
@@ -221,6 +220,7 @@ fun ServicesScreen(
         ) { item ->
             ServiceCard(
                 item = item,
+                percent = cardScale,
                 showPrivateLabel = true,
                 onOpenClick = { viewModel.enterServer(item.server) },
                 onLoginClick = { loginTarget = item.server },
@@ -281,152 +281,38 @@ fun ServicesScreen(
 }
 
 @Composable
-private fun LocalPlaybackCard(onOpen: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.VideoLibrary,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(40.dp)
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.services_local_playback),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = stringResource(R.string.services_local_playback_sub),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
+private fun LocalPlaybackCard(percent: Int, onOpen: () -> Unit) = ServiceShortcut(percent,
+    Icons.Outlined.VideoLibrary, R.string.services_local_playback, R.string.services_local_playback_sub, onOpen)
 
 @Composable
-private fun LinkPlaybackCard(onOpen: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Link,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(40.dp)
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.services_link_playback),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = stringResource(R.string.services_link_playback_sub),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
+private fun LinkPlaybackCard(percent: Int, onOpen: () -> Unit) = ServiceShortcut(percent,
+    Icons.Outlined.Link, R.string.services_link_playback, R.string.services_link_playback_sub, onOpen)
 
 @Composable
-private fun GlobalHistoryCard(onOpen: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.History,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(40.dp)
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.services_global_history),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = stringResource(R.string.services_global_history_sub),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
+private fun GlobalHistoryCard(percent: Int, onOpen: () -> Unit) = ServiceShortcut(percent,
+    Icons.Outlined.History, R.string.services_global_history, R.string.services_global_history_sub, onOpen)
 
 @Composable
-private fun M3u8sManagerCard(onOpen: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Shield,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(40.dp)
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.services_tssl),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = stringResource(R.string.services_tssl_sub),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+private fun M3u8sManagerCard(percent: Int, onOpen: () -> Unit) = ServiceShortcut(percent,
+    Icons.Outlined.Shield, R.string.services_tssl, R.string.services_tssl_sub, onOpen)
+
+@Composable
+private fun ServiceShortcut(percent: Int, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: Int, subtitle: Int, onOpen: () -> Unit) {
+    ServiceCardSize(percent) {
+        val factor = LocalServiceCardScale.current
+        Card(Modifier.fillMaxWidth().clickable(onClick = onOpen), colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Row(Modifier.fillMaxWidth().padding((16 * factor).dp)
+                .heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size((40 * factor).dp))
+                Spacer(Modifier.width((16 * factor).dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(subtitle), style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
@@ -456,6 +342,7 @@ private fun EmptyServicesHint(onAdd: () -> Unit) {
 @Composable
 private fun ServiceCard(
     item: ServiceItemUi,
+    percent: Int,
     showPrivateLabel: Boolean,
     onOpenClick: () -> Unit,
     onLoginClick: () -> Unit,
@@ -464,78 +351,37 @@ private fun ServiceCard(
     isEntering: Boolean
 ) {
     val canEnter = (item.hasSession || item.hasSavedPassword) && !isEntering
-    val cardScale by animateFloatAsState(
-        targetValue = if (isEntering) 0.98f else 1f,
-        label = "serviceEnterScale"
-    )
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .scale(cardScale)
-            .clickable(enabled = canEnter, onClick = onOpenClick),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = item.server.serviceType.pickerIcon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(40.dp)
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.server.name,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                if (showPrivateLabel && item.server.privateMode) {
-                    Text(stringResource(R.string.service_private_card), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+    val cardScale by animateFloatAsState(if (isEntering) .98f else 1f, label = "serviceEnterScale")
+    ServiceCardSize(percent) {
+        val factor = LocalServiceCardScale.current
+        Card(Modifier.fillMaxWidth().scale(cardScale).clickable(enabled = canEnter, onClick = onOpenClick),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+            Column(Modifier.fillMaxWidth().padding((16 * factor).dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(item.server.serviceType.pickerIcon, null, tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size((40 * factor).dp))
+                    Spacer(Modifier.width((16 * factor).dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.server.name, style = MaterialTheme.typography.titleMedium)
+                        if (showPrivateLabel && item.server.privateMode) Text(stringResource(R.string.service_private_card),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text("${item.server.username} · ${item.server.serviceType.displayName}", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(item.server.baseUrl, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (isEntering) CircularProgressIndicator(Modifier.padding(start = 12.dp).size(24.dp), strokeWidth = 2.5.dp)
                 }
-                Text(
-                    text = "${item.server.username} · ${item.server.serviceType.displayName}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = item.server.baseUrl,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            AnimatedVisibility(
-                visible = isEntering,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .size(24.dp),
-                    strokeWidth = 2.5.dp
-                )
-            }
-            if (!isEntering && (item.hasSession || item.hasSavedPassword)) {
-                TextButton(onClick = onOpenClick) {
-                    Text(stringResource(R.string.open))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    if (!isEntering && (item.hasSession || item.hasSavedPassword)) TextButton(onClick = onOpenClick) {
+                        Text(stringResource(R.string.open))
+                    } else if (!isEntering) IconButton(onClick = onLoginClick) {
+                        Icon(Icons.AutoMirrored.Outlined.Login, stringResource(R.string.sign_in))
+                    }
+                    IconButton(onClick = onEditClick) { Icon(Icons.Outlined.Edit, stringResource(R.string.edit_server)) }
+                    IconButton(onClick = onRemoveClick) { Icon(Icons.Outlined.Delete, stringResource(R.string.remove)) }
                 }
-            } else if (!isEntering) {
-                IconButton(onClick = onLoginClick) {
-                    Icon(Icons.AutoMirrored.Outlined.Login, contentDescription = stringResource(R.string.sign_in))
-                }
-            }
-            IconButton(onClick = onEditClick) {
-                Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.edit_server))
-            }
-            IconButton(onClick = onRemoveClick) {
-                Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.remove))
             }
         }
     }

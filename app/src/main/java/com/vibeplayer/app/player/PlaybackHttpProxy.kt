@@ -35,6 +35,8 @@ internal class PlaybackHttpProxy(
     private val selectedHlsVariant: HlsVariant? = null
 ) : Closeable {
     private val headers = headers.toMap()
+    private val received = java.util.concurrent.atomic.AtomicLong(0L)
+    val receivedBytes: Long get() = received.get()
     private val transport = client.newBuilder().addNetworkInterceptor { chain ->
         val request = chain.request()
         if (request.url.host == origin.host && request.url.port == origin.port && request.url.scheme == origin.scheme) {
@@ -166,6 +168,7 @@ internal class PlaybackHttpProxy(
                         val source = body.source()
                         require(!source.request(MAX_PLAYLIST_BYTES + 1)) { "Playlist too large" }
                         val text = source.readUtf8()
+                        received.addAndGet(text.toByteArray(StandardCharsets.UTF_8).size.toLong())
                         (if (isDash) rewriteDash(text, response.request.url) else rewritePlaylist(
                             selectHlsVariant(text, response.request.url, selectedHlsVariant), response.request.url))
                             .toByteArray(StandardCharsets.UTF_8)
@@ -185,7 +188,15 @@ internal class PlaybackHttpProxy(
                     output.write(responseHeaders.toByteArray(StandardCharsets.ISO_8859_1))
                     if (requestLine[0] != "HEAD") {
                         if (rewritten != null) output.write(rewritten)
-                        else body?.byteStream()?.copyTo(output)
+                        else body?.byteStream()?.let { input ->
+                            val buffer = ByteArray(32 * 1024)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                received.addAndGet(count.toLong())
+                                output.write(buffer, 0, count)
+                            }
+                        }
                     }
                     output.flush()
                 }
