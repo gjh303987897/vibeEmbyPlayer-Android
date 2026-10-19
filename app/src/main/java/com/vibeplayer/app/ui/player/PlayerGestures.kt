@@ -11,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.FastForward
 import androidx.compose.material.icons.outlined.FastRewind
+import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import com.vibeplayer.app.player.normalizeVideoZoom
 
 /** Playback speed used while the video surface is held down. */
 const val PLAYER_GESTURE_SPEED = 2f
@@ -60,7 +63,7 @@ const val PLAYER_GESTURE_SPEED = 2f
 private const val SPEED_INDICATOR_DOCK_DELAY_MS = 2_000L
 
 /** What the video-surface gesture layer recognised. */
-enum class PlayerGestureKind { Brightness, Volume, Speed, Seek }
+enum class PlayerGestureKind { Brightness, Volume, Speed, Seek, Zoom }
 
 /**
  * Current gesture feedback: null while idle. Rendered by [PlayerGestureOverlay];
@@ -106,6 +109,7 @@ data class PlayerGestureIndicator(
             PlayerGestureKind.Brightness -> Icons.Outlined.Brightness6
             PlayerGestureKind.Volume -> Icons.AutoMirrored.Outlined.VolumeUp
             PlayerGestureKind.Speed -> Icons.Outlined.FastForward
+            PlayerGestureKind.Zoom -> Icons.Outlined.ZoomIn
             PlayerGestureKind.Seek -> if ((seekDeltaMs ?: 0L) < 0L) {
                 Icons.Outlined.FastRewind
             } else {
@@ -115,7 +119,7 @@ data class PlayerGestureIndicator(
 
     /** Brightness, volume and seeking get a bar; speed shows its multiplier. */
     val progress: Float?
-        get() = if (kind == PlayerGestureKind.Speed) null else value
+        get() = if (kind == PlayerGestureKind.Speed || kind == PlayerGestureKind.Zoom) null else value
 
     val valueLabel: String
         get() = when (kind) {
@@ -180,7 +184,9 @@ fun Modifier.playerGestureSurface(
     volume: Float,
     onVolumeChange: (Float) -> Unit,
     speedWhilePressed: Float = PLAYER_GESTURE_SPEED,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    zoomScale: Float = 1f,
+    onZoomChange: (Float) -> Unit = {}
 ): Modifier {
     val context = LocalContext.current
     val view = LocalView.current
@@ -196,6 +202,8 @@ fun Modifier.playerGestureSurface(
     val currentPositionMs by rememberUpdatedState(positionMs)
     val currentDurationMs by rememberUpdatedState(durationMs)
     val currentSeek by rememberUpdatedState(onSeek)
+    val currentZoom by rememberUpdatedState(zoomScale)
+    val currentZoomChange by rememberUpdatedState(onZoomChange)
     DisposableEffect(brightness) {
         // Leaving the player mid-gesture must not leave the window dimmed, and a
         // long press that was still held when the screen went away must not leave
@@ -232,12 +240,15 @@ fun Modifier.playerGestureSurface(
                 var seekDurationMs = 0L
                 var seekTargetMs = 0L
                 var done = false
+                var zooming = false
+                var gestureZoom = currentZoom
                 while (!done) {
                     // Both deadlines are measured from the original press. A still
                     // finger sends no events, so each timeout must wake this loop.
                     // The floor also keeps either deadline alive after a slow frame.
                     val elapsedMs = SystemClock.uptimeMillis() - down.uptimeMillis
                     val timeoutMs = when {
+                        zooming -> null
                         axis == null && !speedBoosted -> viewConfiguration.longPressTimeoutMillis - elapsedMs
                         speedBoosted && !speedIndicatorDocked -> SPEED_INDICATOR_DOCK_DELAY_MS - elapsedMs
                         else -> null
@@ -259,6 +270,21 @@ fun Modifier.playerGestureSurface(
                             speedIndicatorDocked = true
                             gesture.showSpeed(currentSpeedWhilePressed, docked = true)
                         }
+                        continue
+                    }
+                    if (zooming || event.changes.count { it.pressed } >= 2) {
+                        // Once two fingers arrive, never turn their release into a tap or seek.
+                        if (event.changes.any { it.isConsumed }) break
+                        if (speedBoosted) { currentSpeedEnd(); speedBoosted = false }
+                        zooming = true
+                        axis = null
+                        if (event.changes.count { it.pressed && it.previousPressed } >= 2) {
+                            gestureZoom = normalizeVideoZoom(gestureZoom * event.calculateZoom())
+                            currentZoomChange(gestureZoom)
+                            gesture.show(PlayerGestureKind.Zoom, gestureZoom)
+                        }
+                        event.changes.forEach { it.consume() }
+                        done = event.changes.none { it.pressed }
                         continue
                     }
                     val change = event.changes.firstOrNull { it.id == pointerId }
@@ -403,6 +429,7 @@ private fun applyGestureDrag(
         }
         PlayerGestureKind.Speed -> Unit
         PlayerGestureKind.Seek -> Unit
+        PlayerGestureKind.Zoom -> Unit
     }
 }
 

@@ -18,9 +18,9 @@ import androidx.compose.ui.platform.LocalView
  * session, and going dark while the next segment loads is not what the user wants.
  */
 @Composable
-fun KeepScreenOnDuringPlayback(isPlaying: Boolean, buffering: Boolean) {
+fun KeepScreenOnDuringPlayback(isPlaying: Boolean, buffering: Boolean, enabled: Boolean = true) {
     val view = LocalView.current
-    val keepScreenOn = isPlaying || buffering
+    val keepScreenOn = enabled && (isPlaying || buffering)
     DisposableEffect(keepScreenOn) {
         // View.setKeepScreenOn is the platform API for this (SurfaceView uses it
         // internally for video): it holds FLAG_KEEP_SCREEN_ON on the window while

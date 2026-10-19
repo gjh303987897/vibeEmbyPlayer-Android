@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.viewinterop.AndroidView
@@ -52,6 +53,7 @@ class PlayerSettingsSelectionTest {
         val manager = app.playerManager
         val originalTextLanguage = runBlocking { app.settingsDataStore.preferredTextLanguage.first() }
         val originalHoldSpeed = runBlocking { app.settingsDataStore.playerPreferences.first().longPressSpeed }
+        val originalScaleMode = runBlocking { app.settingsDataStore.playerPreferences.first().videoScaleMode }
         val originalOrientation = compose.activity.requestedOrientation
         val sample = File.createTempFile("settings-selection-", ".mp4", app.cacheDir)
         instrumentation.context.resources.openRawResource(com.vibeplayer.app.test.R.raw.video_sample_av1)
@@ -66,6 +68,7 @@ class PlayerSettingsSelectionTest {
                 compose.activity.setContent {
                     val state by manager.state.collectAsState()
                     val preferences by manager.preferences.collectAsState()
+                    val zoom by manager.videoZoom.collectAsState()
                     MaterialTheme {
                         Box(Modifier.fillMaxSize()) {
                             AndroidView(factory = { context ->
@@ -73,6 +76,7 @@ class PlayerSettingsSelectionTest {
                             }, update = {
                                 it.updateSurfaceGeneration(state.surfaceGeneration)
                                 it.updateVideoSize()
+                                it.updatePresentation(preferences.videoScaleMode, zoom)
                             }, modifier = Modifier.fillMaxSize())
                             PlayerSubtitleOverlay(state.subtitleText,
                                 Modifier.align(Alignment.Center).testTag("visible-settings-subtitle"), preferences.subtitleAppearance)
@@ -102,7 +106,38 @@ class PlayerSettingsSelectionTest {
                 compose.runOnUiThread { compose.activity.requestedOrientation = requested }
                 compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == orientation }
                 compose.onNodeWithContentDescription(text(R.string.player_settings)).performClick()
-                compose.onNodeWithText(text(R.string.player_speed)).performClick()
+                compose.onNodeWithText(text(R.string.video_scale)).performScrollTo().performClick()
+                choice(text(R.string.video_scale_crop)).performClick()
+                compose.waitUntil(10_000) { manager.preferences.value.videoScaleMode == VideoScaleMode.CROP }
+                compose.onNodeWithContentDescription(text(R.string.video_zoom)).performScrollTo()
+                    .performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
+                compose.runOnIdle {
+                    assertEquals(2f, manager.videoZoom.value, .01f)
+                    assertFalse("video transforms must not resume paused playback", manager.state.value.isPlaying)
+                }
+                compose.onNodeWithText(text(R.string.video_zoom_reset)).performScrollTo().performClick()
+                choice(text(R.string.video_scale_original)).performClick()
+                compose.waitUntil(10_000) { manager.preferences.value.videoScaleMode == VideoScaleMode.ORIGINAL }
+                choice(text(R.string.video_scale_fit)).performClick()
+                compose.waitUntil(10_000) { manager.preferences.value.videoScaleMode == VideoScaleMode.FIT }
+                compose.onNodeWithContentDescription(text(R.string.back)).performClick()
+                compose.onNodeWithText(text(R.string.sleep_timer)).performScrollTo().performClick()
+                choice(compose.activity.resources.getQuantityString(R.plurals.sleep_timer_minutes, 15, 15)).performClick()
+                compose.runOnIdle {
+                    assertEquals(SleepTimerMode.COUNTDOWN, manager.sleepTimerState.value.mode)
+                    assertEquals(15, manager.sleepTimerState.value.minutes)
+                    assertFalse(manager.state.value.isPlaying)
+                }
+                compose.onNodeWithText(text(R.string.sleep_timer_custom)).performScrollTo().performClick()
+                compose.onNode(hasSetTextAction()).performTextReplacement("2")
+                compose.onNodeWithText(text(R.string.sleep_timer_start)).performScrollTo().performClick()
+                compose.runOnIdle { assertEquals(2, manager.sleepTimerState.value.minutes) }
+                choice(text(R.string.sleep_timer_after_video)).performClick()
+                compose.runOnIdle { assertEquals(SleepTimerMode.AFTER_VIDEO, manager.sleepTimerState.value.mode) }
+                choice(text(R.string.sleep_timer_off)).performClick()
+                compose.runOnIdle { assertEquals(SleepTimerState(), manager.sleepTimerState.value) }
+                compose.onNodeWithContentDescription(text(R.string.back)).performClick()
+                compose.onNodeWithText(text(R.string.player_speed)).performScrollTo().performClick()
                 choice("1.5x").performClick().assertIsSelected()
                 compose.runOnIdle {
                     assertEquals(1.5f, manager.state.value.playbackSpeed, .001f)
@@ -113,7 +148,7 @@ class PlayerSettingsSelectionTest {
                 capture("settings-speed-$orientation.png")
                 compose.onNodeWithContentDescription(text(R.string.back)).performClick()
                 compose.onNode(hasText(text(R.string.player_speed)) and hasText("1.5x")).assertExists()
-                compose.onNodeWithText(text(R.string.subtitle_title)).performClick()
+                compose.onNodeWithText(text(R.string.subtitle_title)).performScrollTo().performClick()
                 choice(text(R.string.subtitle_off)).performClick().assertIsSelected()
                 compose.runOnIdle { assertNull(manager.state.value.subtitleText) }
                 choice(embedded.label).performClick().assertIsSelected()
@@ -156,6 +191,7 @@ class PlayerSettingsSelectionTest {
                 app.stopService(Intent(app, PlaybackService::class.java))
             }
             runBlocking { app.settingsDataStore.setPreferredTextLanguage(originalTextLanguage) }
+            runBlocking { app.settingsDataStore.setVideoScaleMode(originalScaleMode) }
             sample.delete()
         }
     }

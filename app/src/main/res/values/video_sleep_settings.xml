@@ -1,0 +1,25 @@
+<resources>
+    <string name="video_scale">Video size and zoom</string>
+    <string name="video_scale_fit">Fit</string>
+    <string name="video_scale_crop">Crop to fill</string>
+    <string name="video_scale_original">Original size</string>
+    <string name="video_scale_help">Fit shows the complete picture. Crop fills the screen and trims its edges. Original size uses video pixels, including its pixel aspect ratio. This mode is saved for all videos.</string>
+    <string name="video_zoom">Video zoom</string>
+    <string name="video_zoom_value">Zoom %1$.2f×</string>
+    <string name="video_zoom_help">Pinch with two fingers to zoom from 0.5× to 4× relative to the selected mode. Zoom is centred and resets for a new video. Text subtitles and controls keep their size.</string>
+    <string name="video_zoom_reset">Reset zoom</string>
+    <string name="sleep_timer">Sleep timer</string>
+    <string name="sleep_timer_off">Off</string>
+    <string name="sleep_timer_expired">Timer finished · playback paused</string>
+    <plurals name="sleep_timer_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <string name="sleep_timer_remaining">Remaining %1$02d:%2$02d:%3$02d</string>
+    <string name="sleep_timer_after_video">Stop after this video</string>
+    <string name="sleep_timer_custom">Custom duration</string>
+    <string name="sleep_timer_custom_help">Enter 1–1440 minutes</string>
+    <string name="sleep_timer_start">Start timer</string>
+    <string name="sleep_timer_help">The countdown continues while paused and when the screen is off. At the deadline, playback pauses and keeps its position. Leaving playback or opening another video cancels the timer.</string>
+    <string name="sleep_timer_live_help">Stopping after the video requires a known duration. For live streams, use a countdown.</string>
+</resources>

@@ -15,6 +15,9 @@ the source has no tracks. Selecting a track or speed applies immediately through
 `PlayerSettingsViewModel` and `PlayerManager`, and the bottom controls stay in sync.
 The Subtitles settings page also opens separate [appearance and timing pages](subtitle-enhancements.md)
 for saved text size/position/background and the current video's signed subtitle offset.
+Playback also opens separate [video sizing and sleep timer pages](video-sizing-and-sleep-timer.md).
+Sizing supports fit, crop, original pixels and session pinch zoom. Sleep offers
+15/30/60-minute presets, a custom-duration subpage and natural-end stopping.
 Playback speed uses the same 0.5x, 1x, 1.25x, 1.5x and 2x choices in both entries.
 Long-press speed remains a separate setting and selection page; changing normal
 playback speed does not change its saved value. Each subpage has its own scroll state,

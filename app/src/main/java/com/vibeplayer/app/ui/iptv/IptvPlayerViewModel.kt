@@ -234,7 +234,8 @@ class IptvPlayerViewModel @Inject constructor(
             trustSelfSignedCertificate = server?.trustSelfSignedCertificate == true,
             privatePlayback = server?.privateMode == true,
             hlsVariant = route.variantUrl?.let { HlsVariant(it, route.width, route.height, route.bitrate) },
-            playWhenReady = playWhenReady, recreateSurface = replacing
+            playWhenReady = playWhenReady, recreateSurface = replacing,
+            preserveSessionControls = replacing
         )
     }
 

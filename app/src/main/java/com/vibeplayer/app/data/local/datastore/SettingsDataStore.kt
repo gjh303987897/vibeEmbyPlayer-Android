@@ -15,6 +15,7 @@ import com.vibeplayer.app.player.LONG_PRESS_SPEEDS
 import com.vibeplayer.app.player.PlayerPreferences
 import com.vibeplayer.app.player.VideoDecodeMode
 import com.vibeplayer.app.player.SubtitleAppearance
+import com.vibeplayer.app.player.VideoScaleMode
 import com.vibeplayer.app.model.IptvQualityPreference
 import com.vibeplayer.app.model.AppearancePreferences
 import com.vibeplayer.app.model.HomeLayout
@@ -67,6 +68,7 @@ class SettingsDataStore @Inject constructor(
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size_sp")
         val SUBTITLE_BOTTOM_OFFSET = intPreferencesKey("subtitle_bottom_offset_dp")
         val SUBTITLE_BACKGROUND = intPreferencesKey("subtitle_background_opacity_percent")
+        val VIDEO_SCALE_MODE = stringPreferencesKey("player_video_scale_mode")
     }
 
     val themeMode: Flow<String?> = dataStore.data
@@ -112,7 +114,9 @@ class SettingsDataStore @Inject constructor(
                 preferences[Keys.SUBTITLE_FONT_SIZE] ?: 16,
                 preferences[Keys.SUBTITLE_BOTTOM_OFFSET] ?: 0,
                 preferences[Keys.SUBTITLE_BACKGROUND] ?: 65
-            ).normalized()
+            ).normalized(),
+            videoScaleMode = VideoScaleMode.entries.firstOrNull { it.name == preferences[Keys.VIDEO_SCALE_MODE] }
+                ?: VideoScaleMode.FIT
         )
     }
 
@@ -153,6 +157,10 @@ class SettingsDataStore @Inject constructor(
             it[Keys.SUBTITLE_BOTTOM_OFFSET] = safe.bottomOffsetDp
             it[Keys.SUBTITLE_BACKGROUND] = safe.backgroundOpacityPercent
         }
+    }
+
+    suspend fun setVideoScaleMode(mode: VideoScaleMode) {
+        dataStore.edit { it[Keys.VIDEO_SCALE_MODE] = mode.name }
     }
 
     suspend fun setShowPerformance(enabled: Boolean) {

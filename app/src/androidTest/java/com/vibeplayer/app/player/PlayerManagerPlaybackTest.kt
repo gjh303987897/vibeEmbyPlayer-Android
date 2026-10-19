@@ -59,6 +59,45 @@ class PlayerManagerPlaybackTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private var surfaceObserver: Job? = null
 
+    @Test fun sameVideoReloadKeepsSleepDeadlineAndZoomAndNewVideoClearsThem() {
+        val context = instrumentation.targetContext
+        val manager = (context.applicationContext as VibePlayerApp).playerManager
+        val sample = copyResource(R.raw.video_sample_subtitle_timing, ".mp4")
+        try {
+            callOnMain { manager.stop() }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                attachSurface(scenario, manager)
+                callOnMain { manager.play(sample.absolutePath, "Session controls", null) }
+                awaitCondition("initial video must prepare") { manager.state.value.isPrepared }
+                callOnMain {
+                    manager.pause()
+                    manager.setSleepTimer(15)
+                    manager.setVideoZoom(2f)
+                    manager.play(sample.absolutePath, "Same channel, another route", null,
+                        playWhenReady = false, preserveSessionControls = true)
+                    assertEquals(SleepTimerMode.COUNTDOWN, manager.sleepTimerState.value.mode)
+                    assertEquals(2f, manager.videoZoom.value, .001f)
+                }
+                awaitCondition("same-session reload must prepare paused") { manager.state.value.isPrepared }
+                callOnMain {
+                    assertFalse(manager.state.value.isPlaying)
+                    assertEquals(15, manager.sleepTimerState.value.minutes)
+                    assertTrue(manager.sleepTimerState.value.remainingMs in 1..900_000L)
+                    manager.play(sample.absolutePath, "Another video", null, playWhenReady = false)
+                    assertEquals(SleepTimerState(), manager.sleepTimerState.value)
+                    assertEquals(1f, manager.videoZoom.value, .001f)
+                }
+            }
+        } finally {
+            callOnMain {
+                surfaceObserver?.cancel()
+                manager.stop()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            sample.delete()
+        }
+    }
+
     @Test
     fun subtitleTimingShiftsEmbeddedAndImportedCuesAndResetsForTheNextVideo() {
         val context = instrumentation.targetContext

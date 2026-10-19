@@ -11,6 +11,10 @@ import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import com.vibeplayer.app.player.BitmapSubtitleFrame
+import com.vibeplayer.app.player.VideoScaleMode
+import com.vibeplayer.app.player.VideoPresentation
+import com.vibeplayer.app.player.normalizeVideoZoom
+import com.vibeplayer.app.player.videoPresentation
 import tv.danmaku.ijk.media.player.IjkMediaPlayer
 
 /** Native video surface for the application-scoped IJKPlayer instance. */
@@ -42,7 +46,21 @@ class IjkPlayerView(
     }
 
     var player: IjkMediaPlayer? = null
-    private var videoAspectRatio = 0.0
+    private var videoWidth = 0
+    private var videoHeight = 0
+    private var videoSarNum = 1
+    private var videoSarDen = 1
+    private var scaleMode = VideoScaleMode.FIT
+    private var zoom = 1f
+    private var presentation = VideoPresentation(1, 1, 1f)
+
+    fun updatePresentation(mode: VideoScaleMode, zoomScale: Float) {
+        val safeZoom = normalizeVideoZoom(zoomScale)
+        if (scaleMode == mode && zoom == safeZoom) return
+        scaleMode = mode
+        zoom = safeZoom
+        requestLayout()
+    }
 
     /** A Surface used by CPU rendering cannot later be connected to MediaCodec. */
     fun updateSurfaceGeneration(generation: Long) {
@@ -62,36 +80,36 @@ class IjkPlayerView(
         if (width <= 0 || height <= 0) return
         val sarNum = current.videoSarNum
         val sarDen = current.videoSarDen
-        val aspect = width.toDouble() / height * if (sarNum > 0 && sarDen > 0) sarNum.toDouble() / sarDen else 1.0
-        if (aspect != videoAspectRatio) {
-            videoAspectRatio = aspect
+        if (width != videoWidth || height != videoHeight || sarNum != videoSarNum || sarDen != videoSarDen) {
+            videoWidth = width
+            videoHeight = height
+            videoSarNum = sarNum
+            videoSarDen = sarDen
             requestLayout()
         }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        if (videoAspectRatio <= 0.0 || measuredWidth <= 0 || measuredHeight <= 0) return
-        val width: Int
-        val height: Int
-        if (measuredWidth.toDouble() / measuredHeight > videoAspectRatio) {
-            height = measuredHeight
-            width = (height * videoAspectRatio).toInt()
-        } else {
-            width = measuredWidth
-            height = (width / videoAspectRatio).toInt()
-        }
-        surfaceView.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY))
+        presentation = videoPresentation(measuredWidth, measuredHeight, videoWidth, videoHeight,
+            videoSarNum, videoSarDen, scaleMode, zoom)
+        surfaceView.measure(MeasureSpec.makeMeasureSpec(presentation.surfaceWidth, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(presentation.surfaceHeight, MeasureSpec.EXACTLY))
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
-        // Use the laid-out SurfaceView, including integer rounding, SAR and letterboxing.
+        surfaceView.pivotX = surfaceView.width / 2f
+        surfaceView.pivotY = surfaceView.height / 2f
+        surfaceView.scaleX = presentation.scale
+        surfaceView.scaleY = presentation.scale
+        // Match bitmap coordinates to the transformed video, including SAR and cropping.
+        val centerX = (surfaceView.left + surfaceView.right) / 2f - bitmapSubtitleView.left
+        val centerY = (surfaceView.top + surfaceView.bottom) / 2f - bitmapSubtitleView.top
+        val halfWidth = surfaceView.width * presentation.scale / 2f
+        val halfHeight = surfaceView.height * presentation.scale / 2f
         bitmapSubtitleView.setVideoBounds(
-            surfaceView.left - bitmapSubtitleView.left,
-            surfaceView.top - bitmapSubtitleView.top,
-            surfaceView.right - bitmapSubtitleView.left,
-            surfaceView.bottom - bitmapSubtitleView.top
+            centerX - halfWidth, centerY - halfHeight, centerX + halfWidth, centerY + halfHeight
         )
     }
 
@@ -124,10 +142,10 @@ private class BitmapSubtitleView(context: Context) : View(context) {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
-    fun setVideoBounds(left: Int, top: Int, right: Int, bottom: Int) {
-        if (videoBounds.left == left.toFloat() && videoBounds.top == top.toFloat() &&
-            videoBounds.right == right.toFloat() && videoBounds.bottom == bottom.toFloat()) return
-        videoBounds.set(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
+    fun setVideoBounds(left: Float, top: Float, right: Float, bottom: Float) {
+        if (videoBounds.left == left && videoBounds.top == top &&
+            videoBounds.right == right && videoBounds.bottom == bottom) return
+        videoBounds.set(left, top, right, bottom)
         invalidate()
     }
 

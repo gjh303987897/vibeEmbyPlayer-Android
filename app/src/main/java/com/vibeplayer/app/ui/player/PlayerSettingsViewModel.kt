@@ -32,6 +32,8 @@ class PlayerSettingsViewModel @Inject constructor(
     val preferences = manager.preferences
     val playerState = manager.state
     val diagnostics = manager.diagnostics
+    val videoZoom = manager.videoZoom
+    val sleepTimer = manager.sleepTimerState
     val decoder = manager.state.map { it.videoDecodeMode }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(0), null)
     val performance = preferences.map { it.showPerformance }.distinctUntilChanged()
@@ -54,6 +56,14 @@ class PlayerSettingsViewModel @Inject constructor(
     fun setSubtitleAppearance(appearance: com.vibeplayer.app.player.SubtitleAppearance) =
         save { settings.setSubtitleAppearance(appearance) }
     fun setSubtitleDelay(delayMs: Long) = manager.setSubtitleDelay(delayMs)
+    fun setVideoZoom(scale: Float) = manager.setVideoZoom(scale)
+    fun setVideoScaleMode(mode: com.vibeplayer.app.player.VideoScaleMode) = save {
+        settings.setVideoScaleMode(mode)
+        manager.setVideoZoom(1f)
+    }
+    fun setSleepTimer(minutes: Int) = manager.setSleepTimer(minutes)
+    fun setSleepAfterVideo() = manager.setSleepAfterVideo()
+    fun cancelSleepTimer() = manager.cancelSleepTimer()
 
     private fun save(action: suspend () -> Unit) {
         viewModelScope.launch {

@@ -96,6 +96,14 @@ class PlayerManager @Inject constructor(
     private val volumeController = PlaybackVolumeController(context)
     private val _state = MutableStateFlow(PlayerState(volume = volumeController.volume))
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+    private val _videoZoom = MutableStateFlow(1f)
+    val videoZoom: StateFlow<Float> = _videoZoom.asStateFlow()
+    private val sleepTimer = SleepTimer {
+        pause()
+        _state.update { it.copy(buffering = false) }
+    }
+    val sleepTimerState = sleepTimer.state
+    private var sleepTimerJob: Job? = null
     private val _preferences = MutableStateFlow(PlayerPreferences())
     val preferences: StateFlow<PlayerPreferences> = _preferences.asStateFlow()
     private val _diagnostics = MutableStateFlow(PlaybackDiagnostics())
@@ -345,10 +353,12 @@ class PlayerManager @Inject constructor(
             clearVisibleSubtitles()
             updateDerived(isPlaying = false)
             _state.update { it.copy(buffering = false, isPrepared = true, subtitleText = null) }
+            sleepTimer.onVideoCompleted()
+            sleepTimerJob?.cancel()
         }
         player.setOnBufferingUpdateListener { _, percent ->
-            _state.update { it.copy(buffering = encryptedSeekInFlight != null ||
-                (percent < 100 && !it.isPlaying && (playWhenPrepared || subtitleSeekPending))) }
+            _state.update { it.copy(buffering = !sleepTimerState.value.expired && (encryptedSeekInFlight != null ||
+                (percent < 100 && !it.isPlaying && (playWhenPrepared || subtitleSeekPending)))) }
         }
         player.setOnInfoListener { _, what, _ ->
             if (pausedSurfaceFramePosition != null &&
@@ -358,11 +368,13 @@ class PlayerManager @Inject constructor(
             }
             when (what) {
                 IMediaPlayer.MEDIA_INFO_BUFFERING_START -> _state.update {
-                    it.copy(buffering = playWhenPrepared || subtitleSeekPending)
+                    it.copy(buffering = !sleepTimerState.value.expired && (playWhenPrepared || subtitleSeekPending))
                 }
                 IMediaPlayer.MEDIA_INFO_BUFFERING_END,
                 IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START,
-                IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update { it.copy(buffering = encryptedSeekInFlight != null) }
+                IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update {
+                    it.copy(buffering = !sleepTimerState.value.expired && encryptedSeekInFlight != null)
+                }
             }
             if (what == IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START || what == IMediaPlayer.MEDIA_INFO_METADATA_UPDATE) {
                 updateTracks()
@@ -374,7 +386,9 @@ class PlayerManager @Inject constructor(
             val errorCode = httpProxy?.failure?.let { "PLAYBACK_HTTP_${it.name}" }
                 ?: "IJK_ERROR_${what}_${extra}"
             Log.e("PlayerManager", "Playback failed (what=$what, extra=$extra, code=$errorCode)")
-            stop()
+            // IPTV can recover onto another route for the same channel. Keep its
+            // timer so a background retry cannot silently discard the user's deadline.
+            stop(preserveSleepTimer = true)
             _state.update {
                 it.copy(
                     error = errorCode,
@@ -459,6 +473,8 @@ class PlayerManager @Inject constructor(
     fun failLoading(message: String) = _state.update { it.copy(error = message, buffering = false) }
 
     fun beginLoading(title: String? = null, subtitle: String? = null) {
+        cancelSleepTimer()
+        _videoZoom.value = 1f
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
         videoSurfaceLost = false
@@ -500,14 +516,21 @@ class PlayerManager @Inject constructor(
         recreateSurface: Boolean = false,
         preserveManualSubtitles: Boolean = false,
         networkByteCounter: (() -> Long)? = null,
-        interruptPendingReads: (() -> Unit)? = null
+        interruptPendingReads: (() -> Unit)? = null,
+        preserveSessionControls: Boolean = preserveManualSubtitles
     ) {
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
         videoSurfaceLost = false
         restoringPausedSurface = false
         stopDiagnostics()
-        if (!preserveManualSubtitles) clearManualSubtitles()
+        if (!preserveManualSubtitles) {
+            clearManualSubtitles()
+        }
+        if (!preserveSessionControls) {
+            cancelSleepTimer()
+            _videoZoom.value = 1f
+        }
         manualSubtitleTimeline = null
         preparationJob?.cancel()
         val replaceSoftwareOutput = _preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE &&
@@ -520,7 +543,7 @@ class PlayerManager @Inject constructor(
             player.setDisplay(null)
         }
         decoderRestore = null
-        playWhenPrepared = playWhenReady
+        playWhenPrepared = playWhenReady && !(preserveSessionControls && sleepTimerState.value.expired)
         currentRequest = PlaybackRequest(url, title, subtitle, headers.toMap(), trustSelfSignedCertificate,
             privatePlayback, subtitleConfigurations, hlsVariant, networkByteCounter, interruptPendingReads)
         stopPositionTicker()
@@ -619,6 +642,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun play() {
+        sleepTimer.acknowledgeExpiration()
         cancelPausedSurfaceFrame(pause = true)
         pausedSeekPosition = null
         playWhenPrepared = true
@@ -660,7 +684,10 @@ class PlayerManager @Inject constructor(
         updateDerived(isPlaying = false)
     }
 
-    fun stop() {
+    fun stop() = stop(preserveSleepTimer = false)
+
+    private fun stop(preserveSleepTimer: Boolean) {
+        if (!preserveSleepTimer) cancelSleepTimer()
         encryptedSeekTarget = null
         encryptedSeekInFlight = null
         cancelPausedSurfaceFrame()
@@ -755,6 +782,37 @@ class PlayerManager @Inject constructor(
         runCatching { volumeController.setVolume(volume) }
             .onSuccess { actual -> _state.update { it.copy(volume = actual) } }
             .onFailure { Log.w("PlayerManager", "Unable to change media volume (${it.javaClass.simpleName})") }
+    }
+
+    fun setVideoZoom(scale: Float) { _videoZoom.value = normalizeVideoZoom(scale) }
+
+    fun setSleepTimer(minutes: Int) {
+        if (!_state.value.isPrepared) return
+        sleepTimer.start(minutes, android.os.SystemClock.elapsedRealtime())
+        sleepTimerJob?.cancel()
+        sleepTimerJob = scope.launch {
+            while (sleepTimerState.value.mode == SleepTimerMode.COUNTDOWN) {
+                sleepTimer.tick(android.os.SystemClock.elapsedRealtime())
+                if (sleepTimerState.value.mode != SleepTimerMode.COUNTDOWN) {
+                    break
+                }
+                delay(sleepTimerState.value.remainingMs.coerceIn(1L, 1_000L))
+            }
+        }
+    }
+
+    fun setSleepAfterVideo() {
+        if (!_state.value.isPrepared || _state.value.durationMs <= 0) {
+            return
+        }
+        sleepTimerJob?.cancel()
+        sleepTimer.afterVideo()
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        sleepTimer.cancel()
     }
 
     fun selectAudioTrack(track: AudioTrack) {
@@ -1045,6 +1103,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun release() {
+        cancelSleepTimer()
         softwareOutputHolder = null
         encryptedSeekTarget = null
         encryptedSeekInFlight = null

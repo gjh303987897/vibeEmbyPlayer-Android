@@ -59,7 +59,7 @@ import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import kotlin.math.roundToInt
 
-private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING }
+private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING, VIDEO_SCALE, SLEEP_TIMER, SLEEP_CUSTOM }
 
 /** Shared chrome for every source; performance remains visible when controls are hidden or locked. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -94,6 +94,8 @@ fun BoxScope.PlayerSettings(
     if (expanded && !locked) {
         val decoder by viewModel.decoder.collectAsStateWithLifecycle()
         val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+        val zoom by viewModel.videoZoom.collectAsStateWithLifecycle()
+        val sleepTimer by viewModel.sleepTimer.collectAsStateWithLifecycle()
         val saveFailed by viewModel.saveFailed.collectAsStateWithLifecycle()
         ModalBottomSheet(
             onDismissRequest = { expanded = false; page = PlayerSettingsPage.ROOT },
@@ -103,6 +105,7 @@ fun BoxScope.PlayerSettings(
                 if (page != PlayerSettingsPage.ROOT) IconButton(onClick = {
                     page = when (page) {
                         PlayerSettingsPage.SUBTITLE_APPEARANCE, PlayerSettingsPage.SUBTITLE_TIMING -> PlayerSettingsPage.SUBTITLES
+                        PlayerSettingsPage.SLEEP_CUSTOM -> PlayerSettingsPage.SLEEP_TIMER
                         else -> PlayerSettingsPage.ROOT
                     }
                 }) {
@@ -115,6 +118,9 @@ fun BoxScope.PlayerSettings(
                     PlayerSettingsPage.PLAYBACK_SPEED -> R.string.player_speed
                     PlayerSettingsPage.SUBTITLE_APPEARANCE -> R.string.subtitle_appearance
                     PlayerSettingsPage.SUBTITLE_TIMING -> R.string.subtitle_timing
+                    PlayerSettingsPage.VIDEO_SCALE -> R.string.video_scale
+                    PlayerSettingsPage.SLEEP_TIMER -> R.string.sleep_timer
+                    PlayerSettingsPage.SLEEP_CUSTOM -> R.string.sleep_timer_custom
                     PlayerSettingsPage.ROOT -> R.string.player_settings
                 }),
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
@@ -154,6 +160,16 @@ fun BoxScope.PlayerSettings(
                         preferences.subtitleAppearance, viewModel::setSubtitleAppearance)
                     page == PlayerSettingsPage.SUBTITLE_TIMING -> SubtitleTimingSettings(
                         playerState.subtitleDelayMs, playerState.isPrepared, viewModel::setSubtitleDelay)
+                    page == PlayerSettingsPage.VIDEO_SCALE -> VideoScaleSettings(
+                        preferences.videoScaleMode, zoom, viewModel::setVideoScaleMode, viewModel::setVideoZoom)
+                    page == PlayerSettingsPage.SLEEP_TIMER -> SleepTimerSettings(
+                        sleepTimer, playerState.isPrepared, playerState.isPrepared && playerState.durationMs > 0,
+                        viewModel::setSleepTimer, viewModel::setSleepAfterVideo, viewModel::cancelSleepTimer,
+                        onCustom = { page = PlayerSettingsPage.SLEEP_CUSTOM })
+                    page == PlayerSettingsPage.SLEEP_CUSTOM -> SleepTimerCustomSettings(playerState.isPrepared) {
+                        viewModel.setSleepTimer(it)
+                        page = PlayerSettingsPage.SLEEP_TIMER
+                    }
                     page == PlayerSettingsPage.PLAYBACK_SPEED -> SpeedChoices(
                         PLAYBACK_SPEEDS, playerState.playbackSpeed, viewModel::setPlaybackSpeed
                     )
@@ -162,6 +178,19 @@ fun BoxScope.PlayerSettings(
                         SpeedChoices(LONG_PRESS_SPEEDS, preferences.longPressSpeed, viewModel::setLongPressSpeed)
                     }
                     tab == 0 -> {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.video_scale)) },
+                            supportingContent = { Text(stringResource(videoScaleLabel(preferences.videoScaleMode)) +
+                                " · " + stringResource(R.string.video_zoom_value, zoom)) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.VIDEO_SCALE }
+                        )
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.sleep_timer)) },
+                            supportingContent = { Text(sleepTimerSummary(sleepTimer)) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.SLEEP_TIMER }
+                        )
                         ListItem(
                             headlineContent = { Text(stringResource(R.string.subtitle_title)) },
                             supportingContent = { Text(playerState.subtitleTracks

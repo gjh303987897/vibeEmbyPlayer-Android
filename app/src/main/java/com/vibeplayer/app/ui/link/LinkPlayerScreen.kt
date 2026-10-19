@@ -53,9 +53,11 @@ fun LinkPlayerScreen(
     val gestures = rememberPlayerGestureState()
     val playerSettings: PlayerSettingsViewModel = hiltViewModel()
     val playerPreferences by playerSettings.preferences.collectAsState()
+    val videoZoom by playerSettings.videoZoom.collectAsState()
+    val sleepTimer by playerSettings.sleepTimer.collectAsState()
     PlayerFullscreenEffect(fullscreen)
     // Playing keeps the display awake; pausing lets it sleep again.
-    KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering)
+    KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering, enabled = !sleepTimer.expired)
 
     LaunchedEffect(encodedUrl) { viewModel.play(encodedUrl) }
     DisposableEffect(viewModel) { onDispose { viewModel.stopPlayback() } }
@@ -84,6 +86,7 @@ fun LinkPlayerScreen(
             update = {
                 it.updateSurfaceGeneration(state.surfaceGeneration)
                 if (state.isPrepared) it.updateVideoSize()
+                it.updatePresentation(playerPreferences.videoScaleMode, videoZoom)
                 it.bitmapSubtitleFrame = state.bitmapSubtitleFrame
             },
             modifier = Modifier.fillMaxSize()
@@ -99,6 +102,8 @@ fun LinkPlayerScreen(
                 .matchParentSize()
                 .playerGestureSurface(
                     enabled = !locked,
+                    zoomScale = videoZoom,
+                    onZoomChange = playerSettings::setVideoZoom,
                     speedWhilePressed = playerPreferences.longPressSpeed,
                     gesture = gestures,
                     onToggleControls = { controlsVisible = !controlsVisible },

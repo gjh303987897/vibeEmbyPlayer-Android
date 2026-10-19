@@ -40,6 +40,55 @@ class PlayerControlsTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private var surfaceBounds: Rect? = null
 
+    @Test fun pinchZoomDoesNotSeekChangeVolumeTogglePlaybackOrDimTheWindow() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var root: View
+            lateinit var window: Window
+            val zoom = mutableStateOf(1f)
+            var taps = 0
+            var playbackToggles = 0
+            var seeks = 0
+            var volumeChanges = 0
+            var boosts = 0
+            val laidOut = CountDownLatch(1)
+            scenario.onActivity { activity ->
+                root = activity.window.decorView
+                window = activity.window
+                activity.setContent {
+                    val gesture = rememberPlayerGestureState()
+                    Box(Modifier.fillMaxSize().onGloballyPositioned {
+                        surfaceBounds = it.boundsInWindow()
+                        laidOut.countDown()
+                    }.playerGestureSurface(gesture, { taps++ }, { playbackToggles++ },
+                        { boosts++ }, {}, 10_000, 600_000, { seeks++ }, .5f, { volumeChanges++ },
+                        zoomScale = zoom.value, onZoomChange = { zoom.value = it }))
+                }
+            }
+            assertTrue(laidOut.await(10, TimeUnit.SECONDS))
+            instrumentation.waitForIdleSync()
+            val brightness = window.attributes.screenBrightness
+            val down = SystemClock.uptimeMillis()
+            multiTouch(root, down, MotionEvent.ACTION_DOWN, listOf(.4f to .5f))
+            multiTouch(root, down, MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                listOf(.4f to .5f, .6f to .5f))
+            multiTouch(root, down, MotionEvent.ACTION_MOVE, listOf(.25f to .5f, .75f to .5f))
+            multiTouch(root, down, MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                listOf(.25f to .5f, .75f to .5f))
+            multiTouch(root, down, MotionEvent.ACTION_UP, listOf(.25f to .5f))
+            Thread.sleep(400) // Include the single-tap deadline, not only the immediate release.
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                assertTrue("two-finger spread must zoom", zoom.value > 1.2f)
+                assertEquals(0, taps)
+                assertEquals(0, playbackToggles)
+                assertEquals(0, seeks)
+                assertEquals(0, volumeChanges)
+                assertEquals(0, boosts)
+                assertEquals(brightness, window.attributes.screenBrightness, .0001f)
+            }
+        }
+    }
+
     @Test fun rightSwipeChangesSystemMediaVolumeAndLockPreservesBrightness() {
         val audio = instrumentation.targetContext.getSystemService(AudioManager::class.java)
         val originalVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -195,6 +244,27 @@ class PlayerControlsTest {
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try { assertTrue("the player view must handle the touch", root.dispatchTouchEvent(event)) }
             finally { event.recycle() }
+        }
+    }
+
+    private fun multiTouch(root: View, down: Long, action: Int, points: List<Pair<Float, Float>>) {
+        instrumentation.runOnMainSync {
+            val location = IntArray(2)
+            root.getLocationInWindow(location)
+            val bounds = requireNotNull(surfaceBounds)
+            val properties = Array(points.size) { index -> MotionEvent.PointerProperties().apply {
+                id = index
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            } }
+            val coordinates = Array(points.size) { index -> MotionEvent.PointerCoords().apply {
+                x = bounds.left + points[index].first * bounds.width - location[0]
+                y = bounds.top + points[index].second * bounds.height - location[1]
+                pressure = 1f
+                size = 1f
+            } }
+            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, points.size, properties,
+                coordinates, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
+            try { root.dispatchTouchEvent(event) } finally { event.recycle() }
         }
     }
 }
