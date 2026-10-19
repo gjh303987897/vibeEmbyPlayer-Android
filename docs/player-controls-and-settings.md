@@ -65,6 +65,21 @@ BufferQueue connected to the CPU until its Surface is destroyed. Reusing it for 
 failed on the test phone (`nativeWindowConnect: -22`) and silently fell back to software.
 The Surface generation survives source-state resets; obsolete holder-destroy callbacks cannot
 detach the replacement. Pending play/pause actions also update the reload's restoration intent.
+
+The same rule applies when IJK automatically selects AVCodec for an unsupported hardware
+format while the saved preference still says hardware. The manager records the actual software
+decoder's holder when preparation completes, retains it across repeated `beginLoading()` calls,
+and replaces that Surface before the next hardware preparation. Resetting the native player
+does not erase the Surface's CPU ownership. A newly created Surface used for lifecycle recovery
+is bound only after resetting the old decoder, so the old software renderer cannot claim it.
+Preparation also waits if the initial view has not arrived or another request supersedes a
+pending Surface replacement. These rules follow Android's
+[Surface producer lifetime](https://source.android.com/docs/core/graphics/arch-sh).
+
+`automaticSoftwareFallbackThenHardwareReplacesSurfaceAcrossSourceChanges` uses a generated
+High 10 fixture to exercise an automatic software fallback, regular and superseded source
+changes, and actual MediaCodec colour-bar output. `videoPreparationWaitsForSurfaceWhenViewArrivesAfterPlaybackRequest`
+covers a playback request arriving before the view. Neither case changes the saved decoder preference.
 Selecting the already-selected audio track is skipped because pinned IJK otherwise reopens
 the stream and can race its existing decoder thread.
 

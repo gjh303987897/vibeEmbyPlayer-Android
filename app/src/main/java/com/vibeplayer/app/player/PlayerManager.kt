@@ -110,6 +110,9 @@ class PlayerManager @Inject constructor(
     private var surfaceReady: CompletableDeferred<Unit>? = null
     val player = IjkMediaPlayer()
     private var boundHolder: SurfaceHolder? = null
+    // Native reset does not release a CPU renderer's BufferQueue connection.
+    // Retain its owner across beginLoading(), including repeated resets.
+    private var softwareOutputHolder: SurfaceHolder? = null
     private var videoSurfaceLost = false
     private var restoringPausedSurface = false
     private var pausedSurfaceFramePosition: Long? = null
@@ -120,11 +123,18 @@ class PlayerManager @Inject constructor(
     private var pausedSurfaceFrameJob: Job? = null
 
     fun setVideoSurface(holder: SurfaceHolder, attached: Boolean) {
+        if (!attached && softwareOutputHolder === holder) softwareOutputHolder = null
         if (attached) {
             val restoreOutput = videoSurfaceLost && _state.value.isPrepared
             videoSurfaceLost = false
+            // surfaceCreated supplies a fresh native Surface, even when Android
+            // reuses the Java holder after a stop/resume lifecycle transition.
+            softwareOutputHolder = null
             boundHolder = holder
-            player.setDisplay(holder)
+            if (!restoreOutput) {
+                player.setDisplay(holder)
+                if (_state.value.isPrepared) rememberSoftwareOutput()
+            }
             val ready = surfaceReady
             surfaceReady = null
             ready?.complete(Unit)
@@ -203,6 +213,12 @@ class PlayerManager @Inject constructor(
         // reset() creates a new native player whose revision starts again at zero.
         bitmapSubtitleRevision = -1L
         player.setDisplay(boundHolder)
+    }
+
+    private fun rememberSoftwareOutput() {
+        if (player.videoDecoder == IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC) {
+            softwareOutputHolder = boundHolder
+        }
     }
 
     private var positionTicker: Job? = null
@@ -297,6 +313,7 @@ class PlayerManager @Inject constructor(
             val redrawPausedFrame = restoringPausedSurface && !(restore?.playWhenReady ?: playWhenPrepared)
             restoringPausedSurface = false
             Log.i("PlayerManager", "Video prepared (decoder=${player.videoDecoder}, restoring=${restore != null})")
+            rememberSoftwareOutput()
             acceptNativeSubtitles = true
             _state.update { it.copy(isPrepared = true, buffering = false, error = null) }
             updateTracks()
@@ -485,7 +502,10 @@ class PlayerManager @Inject constructor(
         if (!preserveManualSubtitles) clearManualSubtitles()
         manualSubtitleTimeline = null
         preparationJob?.cancel()
-        if (recreateSurface && boundHolder != null) {
+        val replaceSoftwareOutput = _preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE &&
+            boundHolder != null && softwareOutputHolder === boundHolder
+        if ((recreateSurface || replaceSoftwareOutput) && boundHolder != null) {
+            if (replaceSoftwareOutput) Log.i("PlayerManager", "Replacing software output Surface before hardware preparation")
             surfaceReady = CompletableDeferred()
             surfaceGeneration++
             boundHolder = null
@@ -521,6 +541,9 @@ class PlayerManager @Inject constructor(
             preferencesReady.await()
             // CPU rendering connects the old BufferQueue until its Surface is destroyed.
             // Wait for the view to supply a fresh Surface before MediaCodec can configure it.
+            // A new source may supersede a pending replacement, or arrive before
+            // the initial view. Never prepare a video against IJK's dummy output.
+            if (boundHolder == null && surfaceReady == null) surfaceReady = CompletableDeferred()
             surfaceReady?.await()
             try {
                 val remoteUrl = url.toHttpUrlOrNull()
@@ -980,6 +1003,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun release() {
+        softwareOutputHolder = null
         encryptedSeekTarget = null
         encryptedSeekInFlight = null
         cancelPausedSurfaceFrame()

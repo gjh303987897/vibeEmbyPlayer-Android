@@ -11,6 +11,7 @@ import android.os.SystemClock
 import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
@@ -41,6 +42,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import tv.danmaku.ijk.media.player.IjkMediaMeta
@@ -56,6 +58,229 @@ import tv.danmaku.ijk.media.player.misc.ITrackInfo
 class PlayerManagerPlaybackTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private var surfaceObserver: Job? = null
+
+    @Test
+    fun av1RendersWithAudioAndSubtitlesInBothDecoderModesAndThenPlaysH264() {
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as VibePlayerApp
+        val shared = app.playerManager
+        val original = shared.preferences.value.videoDecodeMode
+        val av1 = copyResource(R.raw.video_sample_av1, ".mp4")
+        val h264 = copyResource(R.raw.video_sample_controls, ".mp4")
+        try {
+            callOnMain { shared.stop() }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val view = attachSurface(scenario, shared)
+                for (mode in VideoDecodeMode.entries) {
+                    callOnMain { shared.stop() }
+                    runBlocking { app.settingsDataStore.setVideoDecodeMode(mode) }
+                    awaitCondition("$mode preference must be loaded") { shared.preferences.value.videoDecodeMode == mode }
+                    callOnMain { shared.play(av1.absolutePath, "AV1 colour bars $mode", null) }
+                    awaitCondition("AV1 must open a video decoder, audio and subtitles in $mode") {
+                        assertNull(shared.state.value.error)
+                        shared.state.value.isPrepared &&
+                            shared.player.videoDecoder != IjkMediaPlayer.FFP_PROPV_DECODER_UNKNOWN &&
+                            shared.state.value.audioTracks.isNotEmpty() && shared.state.value.subtitleTracks.isNotEmpty()
+                    }
+                    callOnMain {
+                        // Do not depend on the user's saved subtitle language or "off" preference.
+                        shared.selectSubtitle(shared.state.value.subtitleTracks.first(), persist = false)
+                        // The short local fixture can already be fully demuxed while text is
+                        // disabled by the saved preference. Refill the selected subtitle queue.
+                        shared.seekTo(500)
+                        assertEquals("embedded subtitle stream must be selected", 2,
+                            shared.player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT))
+                    }
+                    awaitCondition("AV1 must advance, render frames and display its embedded caption in $mode") {
+                        assertNull(shared.state.value.error)
+                        shared.state.value.isPlaying && shared.state.value.positionMs >= MIN_POSITION_MS &&
+                            shared.player.videoOutputFramesPerSecond > 0f &&
+                            // FFmpeg's mov_text decoder emits ASS dialogue with CR/LF suffixes.
+                            shared.state.value.subtitleText?.trim() == "AV1 fixture subtitle"
+                    }
+                    val av1Decoder = callOnMain {
+                        val decoder = shared.player.videoDecoder
+                        assertTrue("AV1 must use a real video decoder ($mode: $decoder)",
+                            decoder == IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC ||
+                                decoder == IjkMediaPlayer.FFP_PROPV_DECODER_MEDIACODEC)
+                        if (mode == VideoDecodeMode.SOFTWARE) {
+                            assertEquals("software mode must decode AV1 on the client",
+                                IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC, decoder)
+                        }
+                        val audio = shared.player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_AUDIO)
+                        assertEquals("aac", shared.player.trackInfo?.getOrNull(audio)?.format
+                            ?.getString(IjkMediaMeta.IJKM_KEY_CODEC_NAME))
+                        assertTrue("AAC audio decoder must remain active",
+                            !shared.player.mediaInfo?.mAudioDecoder.isNullOrBlank())
+                        assertEquals(mode, shared.preferences.value.videoDecodeMode)
+                        decoder
+                    }
+                    assertColourBarsVisible(view)
+                    val generation = shared.state.value.surfaceGeneration
+                    // Keep the same view: a software AV1 fallback can own its BufferQueue even
+                    // though the saved preference still requests hardware for the next movie.
+                    callOnMain { shared.play(h264.absolutePath, "H264 after AV1 $mode", null) }
+                    awaitCondition("H264 must render after AV1 in $mode") {
+                        assertNull(shared.state.value.error)
+                        shared.state.value.isPlaying && shared.state.value.positionMs >= MIN_POSITION_MS &&
+                            shared.player.videoOutputFramesPerSecond > 0f &&
+                            shared.player.videoDecoder != IjkMediaPlayer.FFP_PROPV_DECODER_UNKNOWN
+                    }
+                    if (mode == VideoDecodeMode.HARDWARE && av1Decoder == IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC) {
+                        assertTrue("hardware preparation after AV1 fallback needs a fresh Surface",
+                            shared.state.value.surfaceGeneration > generation)
+                    }
+                    assertColourBarsVisible(view)
+                }
+            }
+        } catch (failure: AssertionError) {
+            val state = shared.state.value
+            throw AssertionError("AV1 failure: mode=${shared.preferences.value.videoDecodeMode}, prepared=${state.isPrepared}, playing=${state.isPlaying}, position=${state.positionMs}, subtitle=${state.subtitleText}, decoder=${shared.player.videoDecoder}, fps=${shared.player.videoOutputFramesPerSecond}, error=${state.error}", failure)
+        } finally {
+            callOnMain {
+                surfaceObserver?.cancel()
+                shared.stop()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(original) }
+            av1.delete()
+            h264.delete()
+        }
+    }
+
+    @Test
+    fun videoPreparationWaitsForSurfaceWhenViewArrivesAfterPlaybackRequest() {
+        val context = instrumentation.targetContext
+        val shared = (context.applicationContext as VibePlayerApp).playerManager
+        val sample = copyResource(R.raw.video_sample_controls, ".mp4")
+        try {
+            callOnMain { shared.stop() }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val previous = attachSurface(scenario, shared)
+                val previousSurface = callOnMain { previous.getChildAt(0) as SurfaceView }
+                scenario.onActivity { activity -> activity.setContentView(FrameLayout(activity)) }
+                awaitCondition("previous Surface must be destroyed before the new request") {
+                    !previousSurface.holder.surface.isValid
+                }
+                callOnMain {
+                    shared.beginLoading("Waiting for initial view")
+                    shared.play(sample.absolutePath, "Delayed Surface", null)
+                }
+                // Deliberately keep a local, immediately readable source without a Surface.
+                // Preparing now would configure IJK's dummy video output before the UI arrives.
+                SystemClock.sleep(500)
+                callOnMain {
+                    assertFalse("native preparation must wait for a real Surface", shared.state.value.isPrepared)
+                    assertFalse(shared.state.value.isPlaying)
+                    assertTrue(shared.state.value.buffering)
+                    assertNull(shared.state.value.error)
+                }
+                val current = attachSurface(scenario, shared)
+                awaitCondition("attaching the delayed view must start visible video playback") {
+                    assertNull(shared.state.value.error)
+                    shared.state.value.isPrepared && shared.state.value.isPlaying &&
+                        shared.state.value.positionMs >= MIN_POSITION_MS &&
+                        shared.player.videoOutputFramesPerSecond > 0f
+                }
+                assertColourBarsVisible(current)
+            }
+        } finally {
+            callOnMain {
+                surfaceObserver?.cancel()
+                shared.stop()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            sample.delete()
+        }
+    }
+
+    @Test
+    fun automaticSoftwareFallbackThenHardwareReplacesSurfaceAcrossSourceChanges() {
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as VibePlayerApp
+        val shared = app.playerManager
+        val original = shared.preferences.value.videoDecodeMode
+        val software = copyResource(R.raw.video_sample_high10, ".mp4")
+        val hardware = copyResource(R.raw.video_sample_controls, ".mp4")
+        try {
+            callOnMain { shared.stop() }
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(VideoDecodeMode.HARDWARE) }
+            awaitCondition("hardware preference must be loaded") {
+                shared.preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                // Keep this IjkPlayerView throughout: replacing the entire view between files
+                // would hide the stale CPU BufferQueue by supplying a fresh Surface implicitly.
+                val view = attachSurface(scenario, shared)
+                callOnMain { shared.play(hardware.absolutePath, "Hardware baseline", null) }
+                awaitCondition("baseline must render") {
+                    assertNull(shared.state.value.error)
+                    shared.state.value.isPlaying && shared.state.value.positionMs >= MIN_POSITION_MS &&
+                        shared.player.videoOutputFramesPerSecond > 0f
+                }
+                assumeTrue("device needs an AVC MediaCodec to exercise CPU-to-MediaCodec ownership",
+                    callOnMain { shared.player.videoDecoder } == IjkMediaPlayer.FFP_PROPV_DECODER_MEDIACODEC)
+                assertColourBarsVisible(view)
+
+                for (sourceChange in listOf("repeated loading", "direct", "superseded replacement")) {
+                    callOnMain { shared.play(software.absolutePath, "Automatic High 10 fallback", null) }
+                    awaitCondition("High 10 must fall back to AVCodec without changing the preference") {
+                        assertNull(shared.state.value.error)
+                        shared.preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE &&
+                            shared.state.value.isPlaying && shared.state.value.positionMs >= MIN_POSITION_MS &&
+                            shared.player.videoDecoder == IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC &&
+                            shared.player.videoOutputFramesPerSecond > 0f
+                    }
+                    assertColourBarsVisible(view)
+                    val oldSurface = callOnMain { view.getChildAt(0) as SurfaceView }
+                    val oldGeneration = shared.state.value.surfaceGeneration
+                    callOnMain {
+                        if (sourceChange == "repeated loading") {
+                            // ViewModel initialization and play() both begin loading. The second
+                            // reset must retain the old Surface's CPU ownership and pending refresh.
+                            shared.beginLoading("First metadata preparation")
+                            shared.beginLoading("Second metadata preparation")
+                        }
+                        shared.play(hardware.absolutePath, "Hardware after software", null)
+                        if (sourceChange == "superseded replacement") {
+                            // Main has not yielded to Compose yet: the first play requested a new
+                            // generation, but its Surface has not been created. A new loading
+                            // request cancels that deferred and must wait for the same replacement.
+                            assertTrue(shared.state.value.surfaceGeneration > oldGeneration)
+                            shared.beginLoading("Superseding pending Surface")
+                            shared.play(hardware.absolutePath, "Latest hardware request", null)
+                            assertFalse(shared.state.value.isPrepared)
+                        }
+                    }
+                    awaitCondition("source change must replace the CPU-owned Surface ($sourceChange)") {
+                        val current = view.getChildAt(0) as SurfaceView
+                        shared.state.value.surfaceGeneration > oldGeneration && current !== oldSurface &&
+                            current.holder.surface.isValid
+                    }
+                    awaitCondition("new Surface must render using MediaCodec ($sourceChange)") {
+                        assertNull(shared.state.value.error)
+                        shared.preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE &&
+                            shared.state.value.isPlaying && shared.state.value.positionMs >= MIN_POSITION_MS &&
+                            shared.player.videoDecoder == IjkMediaPlayer.FFP_PROPV_DECODER_MEDIACODEC &&
+                            shared.player.videoOutputFramesPerSecond > 0f
+                    }
+                    if (sourceChange == "superseded replacement") {
+                        assertEquals("Latest hardware request", shared.state.value.title)
+                    }
+                    assertColourBarsVisible(view)
+                }
+            }
+        } finally {
+            callOnMain {
+                surfaceObserver?.cancel()
+                shared.stop()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(original) }
+            software.delete()
+            hardware.delete()
+        }
+    }
 
     @Test
     fun webDavTsslSeekInterruptsSlowOldSegmentAndKeepsLatestPausedTarget() {

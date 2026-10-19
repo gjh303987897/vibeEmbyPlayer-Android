@@ -95,6 +95,35 @@ explicitly. Audio decoding uses IJK's FFmpeg path. `PlayerManager` reads the pub
 audio-decoder evidence and selected stream metadata for the `AudioDecodeNotice` shown by each player
 page. It does not infer successful decoding solely from a codec name.
 
+The 2026-10-19 WebDAV investigation also identified a separate video-decoder gap: a 3840×2160
+AV1 (`av01`) MP4 opened AAC audio and embedded subtitles, but the shipped FFmpeg 3.4 build had
+no AV1 decoder and reported native video decoder `UNKNOWN`. IJK considered the session prepared
+because its audio stream opened, producing sound and subtitles over a black video Surface.
+The native recipe now statically links pinned dav1d 1.5.4 and backports FFmpeg's dav1d wrapper,
+decoder registration and MOV `av1C` handling to the existing IJK/FFmpeg ABI. The wrapper preserves
+packet timestamps, reference-counted pictures, drain behavior and sequence configuration after
+flush/seek. AV1 uses client software decoding when IJK cannot select a hardware decoder, including
+when the saved preference is hardware. Network routing and original-file playback remain unchanged.
+AV1 regressions use a synthetic AV1/AAC/mov_text fixture
+and require an active video decoder, advancing playback, captions and actual Surface pixels.
+
+On the affected HUAWEI TAS-AL00 (Android 12), the user configured the `test` WebDAV service
+directly in the independent verification app. Opening the authorized Queencard MP4 through
+the normal browse/player UI produced visible 3840×2160 video, AAC audio-rendering events and
+visible English captions, including after seeking. No server credentials were copied to the host.
+A native on-device synthetic check also decoded colour frames before and after forward/backward
+seeks with the rebuilt `libijkffmpeg.so`. This establishes decoding and actual UI rendering;
+it does not promise real-time 4K software decoding on every device.
+
+The 2026-10-19 device regressions passed: AV1/AAC/embedded captions and coloured Surface
+pixels with both decoder preferences, AV1-to-H.264 source changes, software fallback followed
+by hardware preparation (including superseded loading requests), delayed initial Surface,
+paused Surface restoration with retained subtitles, and WebDAV TSSL seek cancellation.
+The synthetic subtitle assertion trims FFmpeg's trailing CR/LF; the fixture contains fifteen
+seconds of colour bars and a continuous caption. `assembleDebug`, `assembleDebugAndroidTest`,
+all 95 JVM tests and `lint` passed. All twelve APK IJK library digests match the four rebuilt
+ABI archives; ELF LOAD alignment is at least 16 KB and `zipalign -c -P 16 4` passes.
+
 Resetting stock IJK recreates its native player and drops the video Surface. The shared player
 rebinds its existing `SurfaceHolder` after every reset. `IjkPlayerView` fits the video using its
 sample aspect ratio instead of stretching the picture.

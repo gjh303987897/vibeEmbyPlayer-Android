@@ -1,0 +1,110 @@
+--- a/configure
++++ b/configure
+@@ -267,6 +267,7 @@
+   --enable-libvo-amrwbenc  enable AMR-WB encoding via libvo-amrwbenc [no]
+   --enable-libvorbis       enable Vorbis en/decoding via libvorbis,
+                            native implementation exists [no]
++  --enable-libdav1d       enable AV1 decoding via dav1d [no]
+   --enable-libvpx          enable VP8 and VP9 de/encoding via libvpx [no]
+   --enable-libwavpack      enable wavpack encoding via libwavpack [no]
+   --enable-libwebp         enable WebP encoding via libwebp [no]
+@@ -1593,6 +1594,7 @@
+     libbs2b
+     libcaca
+     libcelt
++    libdav1d
+     libdc1394
+     libdrm
+     libflite
+@@ -2978,6 +2980,7 @@
+ libvorbis_decoder_deps="libvorbis"
+ libvorbis_encoder_deps="libvorbis"
+ libvorbis_encoder_select="audio_frame_queue"
++libdav1d_decoder_deps="libdav1d"
+ libvpx_vp8_decoder_deps="libvpx"
+ libvpx_vp8_encoder_deps="libvpx"
+ libvpx_vp9_decoder_deps="libvpx"
+@@ -6000,6 +6003,8 @@
+ enabled libvorbis         && require_pkg_config libvorbis vorbis vorbis/codec.h vorbis_info_init &&
+                              require_pkg_config libvorbisenc vorbisenc vorbis/vorbisenc.h vorbis_encode_init
+ 
++enabled libdav1d         && require libdav1d dav1d/dav1d.h dav1d_version -ldav1d
++
+ enabled libvpx            && {
+     enabled libvpx_vp8_decoder && {
+         use_pkg_config libvpx_vp8_decoder "vpx >= 0.9.1" "vpx/vpx_decoder.h vpx/vp8dx.h" vpx_codec_vp8_dx ||
+--- a/libavcodec/allcodecs.c
++++ b/libavcodec/allcodecs.c
+@@ -649,6 +649,7 @@
+     REGISTER_ENCODER(LIBTWOLAME,        libtwolame);
+     REGISTER_ENCODER(LIBVO_AMRWBENC,    libvo_amrwbenc);
+     REGISTER_ENCDEC (LIBVORBIS,         libvorbis);
++    REGISTER_DECODER(LIBDAV1D,          libdav1d);
+     REGISTER_ENCDEC (LIBVPX_VP8,        libvpx_vp8);
+     REGISTER_ENCDEC (LIBVPX_VP9,        libvpx_vp9);
+     REGISTER_ENCODER(LIBWAVPACK,        libwavpack);
+--- a/libavcodec/Makefile
++++ b/libavcodec/Makefile
+@@ -940,6 +940,7 @@
+ OBJS-$(CONFIG_LIBVORBIS_DECODER)          += libvorbisdec.o
+ OBJS-$(CONFIG_LIBVORBIS_ENCODER)          += libvorbisenc.o \
+                                              vorbis_data.o
++OBJS-$(CONFIG_LIBDAV1D_DECODER)         += libdav1d.o
+ OBJS-$(CONFIG_LIBVPX_VP8_DECODER)         += libvpxdec.o
+ OBJS-$(CONFIG_LIBVPX_VP8_ENCODER)         += libvpxenc.o
+ OBJS-$(CONFIG_LIBVPX_VP9_DECODER)         += libvpxdec.o libvpx.o
+--- a/libavformat/isom.c
++++ b/libavformat/isom.c
+@@ -186,6 +186,7 @@
+     { AV_CODEC_ID_H264, MKTAG('x', 'a', 'l', 'g') }, /* XAVC-L HD422 produced by FCP */
+     { AV_CODEC_ID_H264, MKTAG('a', 'v', 'l', 'g') }, /* Panasonic P2 AVC-LongG */
+ 
++    { AV_CODEC_ID_AV1,  MKTAG('a', 'v', '0', '1') }, /* AV1 */
+     { AV_CODEC_ID_VP9,  MKTAG('v', 'p', '0', '9') }, /* VP9 */
+ 
+     { AV_CODEC_ID_MPEG1VIDEO, MKTAG('m', '1', 'v', ' ') },
+--- a/libavformat/mov.c
++++ b/libavformat/mov.c
+@@ -4654,6 +4654,34 @@
+     return 0;
+ }
+ 
++static int mov_read_av1c(MOVContext *c, AVIOContext *pb, MOVAtom atom)
++{
++    AVStream *st;
++    int ret;
++
++    if (c->fc->nb_streams < 1)
++        return 0;
++    st = c->fc->streams[c->fc->nb_streams - 1];
++
++    if (atom.size < 4) {
++        av_log(c->fc, AV_LOG_ERROR, "Empty AV1 Codec Configuration Box\n");
++        return AVERROR_INVALIDDATA;
++    }
++
++    /* For now, propagate only the OBUs, if any. Once libavcodec is
++       updated to handle isobmff style extradata this can be removed. */
++    avio_skip(pb, 4);
++
++    if (atom.size == 4)
++        return 0;
++
++    ret = ff_get_extradata(c->fc, st->codecpar, pb, atom.size - 4);
++    if (ret < 0)
++        return ret;
++
++    return 0;
++}
++
+ static int mov_read_vpcc(MOVContext *c, AVIOContext *pb, MOVAtom atom)
+ {
+     AVStream *st;
+@@ -5564,6 +5592,7 @@
+ { MKTAG('d','O','p','s'), mov_read_dops },
+ { MKTAG('S','m','D','m'), mov_read_smdm },
+ { MKTAG('C','o','L','L'), mov_read_coll },
++{ MKTAG('a','v','1','C'), mov_read_av1c },
+ { MKTAG('v','p','c','C'), mov_read_vpcc },
+ { 0, NULL }
+ };

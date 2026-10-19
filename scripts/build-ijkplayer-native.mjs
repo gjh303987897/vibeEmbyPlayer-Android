@@ -24,6 +24,10 @@ const host = windows ? 'windows-x86_64' : process.platform === 'darwin' ? 'darwi
 const toolchain = path.join(ndk, 'toolchains/llvm/prebuilt', host, 'bin');
 const bash = options.bash || 'bash';
 const jobs = Number(options.jobs || Math.min(os.availableParallelism(), 8));
+const python = options.python || 'python';
+// A local Meson module directory may be used without installing system packages.
+const mesonEnv = options['meson-path'] ? { PYTHONPATH: path.resolve(options['meson-path']) } : {};
+const meson = args => run(python, ['-m', 'mesonbuild.mesonmain', ...args], root, mesonEnv);
 const build = path.join(root, 'build/ijk-native');
 const vendor = path.join(root, 'third_party/ijkplayer');
 const source = path.join(build, 'source');
@@ -44,6 +48,7 @@ const shell = (args, cwd) => run(bash, ['-c', args.map(quote).join(' ')], cwd);
 const sha256 = filename => crypto.createHash('sha256').update(fs.readFileSync(filename)).digest('hex');
 fs.mkdirSync(source, { recursive: true });
 const repos = [
+  { name: 'dav1d', url: 'https://code.videolan.org/videolan/dav1d.git', tag: '1.5.4', commit: '54706fc6bc0cdecab7e9593974a4039cc038fca7', license: 'BSD-2-Clause' },
   { name: 'ffmpeg', url: 'https://github.com/Bilibili/FFmpeg.git', tag: 'ff3.4--ijk0.8.7--20180103--001', commit: '2902e33f6e59ed77ddc1b372586c1ab8db1fb096', license: 'LGPL-2.1-or-later' },
   { name: 'libxml2', url: 'https://github.com/GNOME/libxml2.git', tag: 'v2.12.10', commit: '02d577715e1951cf114ca4e9adaf5605156c4f4c', license: 'MIT' },
   { name: 'ijkplayer', url: 'https://github.com/bilibili/ijkplayer.git', tag: 'k0.8.8', commit: 'cced91e3ae3730f5c63f3605b00d25eafcf5b97b', license: 'LGPL-2.1-or-later' },
@@ -69,6 +74,13 @@ const int64Patch = path.join(vendor, 'ffmpeg-int64-options.patch');
 if (spawnSync('git', ['apply', '--reverse', '--check', int64Patch], { cwd: ffmpeg, stdio: 'ignore' }).status !== 0) {
   run('git', ['apply', int64Patch], ffmpeg);
 }
+const av1Patch = path.join(vendor, 'ffmpeg-dav1d.patch');
+if (spawnSync('git', ['apply', '--reverse', '--check', av1Patch], { cwd: ffmpeg, stdio: 'ignore' }).status !== 0) {
+  run('git', ['apply', av1Patch], ffmpeg);
+}
+const wrapper = path.join(vendor, 'libdav1d.c');
+const wrapperOutput = path.join(ffmpeg, 'libavcodec/libdav1d.c');
+if (!fs.existsSync(wrapperOutput) || sha256(wrapperOutput) !== sha256(wrapper)) fs.copyFileSync(wrapper, wrapperOutput);
 const ijkSource = path.join(source, 'ijkplayer');
 const ijkPatch = path.join(vendor, 'ijkplayer-ndk26.patch');
 if (spawnSync('git', ['apply', '--reverse', '--check', ijkPatch], { cwd: ijkSource, stdio: 'ignore' }).status !== 0) {
@@ -103,9 +115,12 @@ const metadata = {
     jniExport: 'Java_com_vibeplayer_app_player_NativeBitmapSubtitles_read',
   },
   nativeTls: false, tlsTransport: 'Application HTTP loopback proxy', artifacts: {},
+  av1: { patchSha256: sha256(av1Patch), wrapperSha256: sha256(path.join(vendor, 'libdav1d.c')) },
 };
-const prior = path.join(vendor, 'native-build.json');
-if (fs.existsSync(prior)) Object.assign(metadata.artifacts, JSON.parse(fs.readFileSync(prior, 'utf8')).artifacts);
+// Separate metadata files allow independent ABI jobs without sharing writable outputs.
+const prior = options.metadata ? path.resolve(options.metadata) : path.join(vendor, 'native-build.json');
+const seed = fs.existsSync(prior) ? prior : path.join(vendor, 'native-build.json');
+if (fs.existsSync(seed)) Object.assign(metadata.artifacts, JSON.parse(fs.readFileSync(seed, 'utf8')).artifacts);
 for (const name of selected) {
   const abi = abis[name];
   if (!abi) throw Error(`Unknown ABI ${name}`);
@@ -121,6 +136,16 @@ for (const name of selected) {
   run('cmake', ['--build', xmlBuild, '--parallel', String(jobs)]);
   run('cmake', ['--install', xmlBuild]);
   const compiler = forward(path.join(toolchain, `${abi.target}21-clang`));
+  const dav1dBuild = path.join(location, 'dav1d');
+  const dav1dOutput = path.join(location, 'dav1d-output');
+  const crossFile = path.join(location, 'dav1d-cross.ini');
+  fs.writeFileSync(crossFile, `[binaries]\nc = ['${forward(path.join(toolchain, `clang${exe}`))}', '--target=${abi.target}21']\nar = '${forward(path.join(toolchain, `llvm-ar${exe}`))}'\nstrip = '${forward(path.join(toolchain, `llvm-strip${exe}`))}'\n[host_machine]\nsystem = 'android'\ncpu_family = '${abi.arch === 'x86' ? 'x86' : abi.arch}'\ncpu = '${name === 'armv7a' ? 'armv7-a' : abi.arch}'\nendian = 'little'\n[properties]\nneeds_exe_wrapper = true\n`);
+  meson(['setup', ...(fs.existsSync(path.join(dav1dBuild, 'build.ninja')) ? ['--reconfigure'] : []),
+    dav1dBuild, path.join(source, 'dav1d'), '--cross-file', crossFile, '--prefix', dav1dOutput,
+    '--libdir=lib', '--buildtype=release', '--default-library=static', '-Db_staticpic=true',
+    '-Denable_tools=false', '-Denable_tests=false', '-Denable_examples=false', '-Denable_docs=false']);
+  run('ninja', ['-C', dav1dBuild, `-j${jobs}`], root, mesonEnv);
+  meson(['install', '-C', dav1dBuild]);
   const flags = [
     '--prefix=output', '--target-os=android', `--arch=${abi.arch}`, ...abi.extra, '--enable-cross-compile',
     `--cc=${compiler}`, `--cxx=${compiler}++`, `--ar=${forward(path.join(toolchain, `llvm-ar${exe}`))}`,
@@ -128,11 +153,11 @@ for (const name of selected) {
     `--strip=${forward(path.join(toolchain, `llvm-strip${exe}`))}`, `--host-cc=${options['host-cc'] || 'clang'}`,
     '--enable-pic', '--disable-gpl', '--disable-nonfree', '--disable-autodetect', '--disable-programs', '--disable-doc',
     '--disable-avdevice', '--disable-postproc', '--disable-avresample', '--disable-encoders', '--disable-muxers',
-    '--disable-devices', '--disable-iconv', '--disable-debug', '--enable-libxml2', '--enable-zlib',
-    `--extra-cflags=-DANDROID -I${forward(path.join(xmlOutput, 'include/libxml2'))}`,
-    `--extra-ldflags=-L${forward(path.join(xmlOutput, 'lib'))}`,
+    '--disable-devices', '--disable-iconv', '--disable-debug', '--enable-libxml2', '--enable-zlib', '--enable-libdav1d',
+    `--extra-cflags=-DANDROID -I${forward(path.join(xmlOutput, 'include/libxml2'))} -I${forward(path.join(dav1dOutput, 'include'))}`,
+    `--extra-ldflags=-L${forward(path.join(xmlOutput, 'lib'))} -L${forward(path.join(dav1dOutput, 'lib'))}`,
   ];
-  const configuration = JSON.stringify({ flags, patch: metadata.patchSha256, int64Patch: metadata.int64Options.patchSha256 });
+  const configuration = JSON.stringify({ flags, patch: metadata.patchSha256, int64Patch: metadata.int64Options.patchSha256, av1Patch: metadata.av1.patchSha256 });
   const savedConfiguration = path.join(location, 'configure-arguments.json');
   if (!fs.existsSync(savedConfiguration) || fs.readFileSync(savedConfiguration, 'utf8') !== configuration) {
     shell(['bash', forward(path.join(ffmpeg, 'configure')), ...flags], location);
@@ -140,7 +165,7 @@ for (const name of selected) {
   }
   // Reject reduced configure results before producing an archive.
   const config = fs.readFileSync(path.join(location, 'config.h'), 'utf8');
-  const required = ['AC3_DECODER', 'EAC3_DECODER', 'DCA_DECODER', 'TRUEHD_DECODER', 'ASS_DECODER', 'SSA_DECODER',
+  const required = ['LIBDAV1D_DECODER', 'AC3_DECODER', 'EAC3_DECODER', 'DCA_DECODER', 'TRUEHD_DECODER', 'ASS_DECODER', 'SSA_DECODER',
     'SUBRIP_DECODER', 'WEBVTT_DECODER', 'MOVTEXT_DECODER', 'DVDSUB_DECODER', 'DVBSUB_DECODER', 'PGSSUB_DECODER',
     'MATROSKA_DEMUXER', 'MOV_DEMUXER', 'HLS_DEMUXER', 'DASH_DEMUXER', 'CRYPTO_PROTOCOL', 'HTTP_PROTOCOL'];
   for (const feature of required) if (!config.includes(`#define CONFIG_${feature} 1`)) throw Error(`Missing ${feature} on ${name}`);
@@ -149,7 +174,7 @@ for (const name of selected) {
   const native = path.join(location, 'libijkffmpeg.so');
   shell([compiler, '-shared', '-Wl,--no-undefined', '-Wl,-z,noexecstack', '-Wl,-z,max-page-size=16384',
     '-Wl,-Bsymbolic', '-Wl,-soname,libijkffmpeg.so', '-Wl,--whole-archive', ...libraries.map(library => `lib${library}/lib${library}.a`),
-    '-Wl,--no-whole-archive', forward(path.join(xmlOutput, 'lib/libxml2.a')), '-lm', '-lz', '-ldl', '-llog', '-latomic', '-o', forward(native)], location);
+    '-Wl,--no-whole-archive', forward(path.join(xmlOutput, 'lib/libxml2.a')), forward(path.join(dav1dOutput, 'lib/libdav1d.a')), '-lm', '-lz', '-ldl', '-llog', '-latomic', '-o', forward(native)], location);
   run(path.join(toolchain, `llvm-strip${exe}`), ['--strip-unneeded', native]);
   const core = path.join(location, 'core');
   run('cmake', ['-S', vendor, '-B', core, '-G', 'Ninja',
@@ -181,6 +206,7 @@ for (const name of selected) {
 fs.copyFileSync(path.join(source, 'libxml2/Copyright'), path.join(vendor, 'COPYING.libxml2'));
 fs.copyFileSync(path.join(source, 'libyuv/LICENSE'), path.join(vendor, 'COPYING.libyuv'));
 fs.copyFileSync(path.join(source, 'soundtouch/LICENSE'), path.join(vendor, 'COPYING.soundtouch'));
+fs.copyFileSync(path.join(source, 'dav1d/COPYING'), path.join(vendor, 'COPYING.dav1d'));
 fs.copyFileSync(path.join(ndk, 'NOTICE.toolchain'), path.join(vendor, 'NOTICE.NDK.toolchain'));
 fs.copyFileSync(path.join(ndk, 'sources/android/cpufeatures/NOTICE'), path.join(vendor, 'NOTICE.cpufeatures'));
 console.log(`Produced ${selected.join(', ')} full decoder IJKPlayer native AARs; metadata: ${prior}`);

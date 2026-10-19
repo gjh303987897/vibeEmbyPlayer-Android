@@ -6,6 +6,13 @@
   ],
   "sources": [
     {
+      "name": "dav1d",
+      "url": "https://code.videolan.org/videolan/dav1d.git",
+      "tag": "1.5.4",
+      "commit": "54706fc6bc0cdecab7e9593974a4039cc038fca7",
+      "license": "BSD-2-Clause"
+    },
+    {
       "name": "ffmpeg",
       "url": "https://github.com/Bilibili/FFmpeg.git",
       "tag": "ff3.4--ijk0.8.7--20180103--001",
@@ -64,10 +71,10 @@
   "artifacts": {
     "arm64": {
       "file": "ijkplayer-arm64-0.8.8-full.aar",
-      "sha256": "a370df6c621bb26e3a78d3de331d413b9e58e00bcbb51d74603b4bb7099cfa68",
+      "sha256": "3224acc9bb5e8ce1e5f7fa30cdd6e98b15e65de34be60964288e2ed3769b52ec",
       "upstreamAarSha256": "12d5324160415afd678e901cf9cbfb28c2be5ff2918f9e576f40b8d7c1ac9841",
       "nativeHashes": {
-        "libijkffmpeg.so": "bcc28d8d8bb55f54945b1ea99ccf4635de80b7ac9139b2e5609ea9b0fb9eb671",
+        "libijkffmpeg.so": "f320413df05906437508bbeb965b00b7302d239da463e25528fa8127df29656a",
         "libijkplayer.so": "7ffff1960b7a3450bae40d7aae6ba8bbf5530179efcb6d08e38bf4aaee9e6b56",
         "libijksdl.so": "451a24668b65834745ff5c98a745753c43f1e1343249e4cc206c2beac68a0285"
       },
@@ -99,10 +106,12 @@
         "--disable-debug",
         "--enable-libxml2",
         "--enable-zlib",
-        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/arm64/xml-output/include/libxml2",
-        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/arm64/xml-output/lib"
+        "--enable-libdav1d",
+        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/arm64/xml-output/include/libxml2 -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/arm64/dav1d-output/include",
+        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/arm64/xml-output/lib -LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/arm64/dav1d-output/lib"
       ],
       "requiredFeatures": [
+        "LIBDAV1D_DECODER",
         "AC3_DECODER",
         "EAC3_DECODER",
         "DCA_DECODER",
@@ -125,10 +134,10 @@
     },
     "armv7a": {
       "file": "ijkplayer-armv7a-0.8.8-full.aar",
-      "sha256": "b688c2f9bc06c4f4036eb886163402b6ecfd509f8fe9a4f2395da4570aeddedc",
+      "sha256": "5984b68067e8168bb5c9d78729b6735c109ce36eab079f5b92d76b103d3ff23a",
       "upstreamAarSha256": "dcd76afad49954d5bd205ada8f661804c0c9f8e8e8f113fc931799b4df2b866a",
       "nativeHashes": {
-        "libijkffmpeg.so": "314bca3efca8518cb22cf6ec3e38c13296b1b4307486a697f4b9872cae262bbe",
+        "libijkffmpeg.so": "6c06e09b89bc7beb7f5ea1d8ae7b3a59097edb2b039a2e888c87d8ee28e6ca41",
         "libijkplayer.so": "c62c5bf9cc71eeabf4f26efc1f000fd1a7572221c495f9db7776f76fb08bcb61",
         "libijksdl.so": "eedfd1a2e5f0cc95707f1280d0568b9395ee5176489099e74afc5935730104af"
       },
@@ -162,10 +171,12 @@
         "--disable-debug",
         "--enable-libxml2",
         "--enable-zlib",
-        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/armv7a/xml-output/include/libxml2",
-        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/armv7a/xml-output/lib"
+        "--enable-libdav1d",
+        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/armv7a/xml-output/include/libxml2 -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/armv7a/dav1d-output/include",
+        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/armv7a/xml-output/lib -LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/armv7a/dav1d-output/lib"
       ],
       "requiredFeatures": [
+        "LIBDAV1D_DECODER",
         "AC3_DECODER",
         "EAC3_DECODER",
         "DCA_DECODER",
@@ -188,10 +199,10 @@
     },
     "x86": {
       "file": "ijkplayer-x86-0.8.8-full.aar",
-      "sha256": "8dcecf9b1e3834fa8b68d05c8ade31abdcec85369e1493d4a0a30a92c371657d",
+      "sha256": "250fb3136e040f2e684e24a857e6d74c5c85eddab6801643902f40e35230d0f5",
       "upstreamAarSha256": "1a23aa9da7b8e51877abb26538dcaa487bb1c2d5be8b15da71a4b9a6f39ce50a",
       "nativeHashes": {
-        "libijkffmpeg.so": "b54e93baa16b2cc18709eea6c28d71e634b99e07932db6064abefe237fc98e16",
+        "libijkffmpeg.so": "81545cc0990b9a35ba8f7600340d2b0b1f79521d36a12358a678a9ad1c0ab798",
         "libijkplayer.so": "b5c58e2f2e1913e638d79023288a9c6c4f5db1d8580047597e3ca0e573205c63",
         "libijksdl.so": "25cd5c34090c395f4c1c96b362ecef36b46ef332771250d83434920d2c989d06"
       },
@@ -226,10 +237,12 @@
         "--disable-debug",
         "--enable-libxml2",
         "--enable-zlib",
-        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86/xml-output/include/libxml2",
-        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86/xml-output/lib"
+        "--enable-libdav1d",
+        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86/xml-output/include/libxml2 -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86/dav1d-output/include",
+        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86/xml-output/lib -LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86/dav1d-output/lib"
       ],
       "requiredFeatures": [
+        "LIBDAV1D_DECODER",
         "AC3_DECODER",
         "EAC3_DECODER",
         "DCA_DECODER",
@@ -252,10 +265,10 @@
     },
     "x86_64": {
       "file": "ijkplayer-x86_64-0.8.8-full.aar",
-      "sha256": "3964c43b61d67b19081b38c242caa38c2ed141365fd7402aca30d6d80ec74a70",
+      "sha256": "8089550bfea20b733faff6e3fa57542d628ebc16c72f030966fad1a4d75c790f",
       "upstreamAarSha256": "ef93518f7bf943a562ba01dd41163f19e03acec8e71ecce07213b9f49d7a255d",
       "nativeHashes": {
-        "libijkffmpeg.so": "a66dabfbe50629db1e6a942d48cd5e6d0d452794b5f61e1111ffe7c02db811b4",
+        "libijkffmpeg.so": "4451c2dec9e46201aa720c231d3f7f1b042d06fb2874c19eb6fa303c52c7f23b",
         "libijkplayer.so": "778ab00f8df8c07b8ecf22fa7e780c0be413cdae330ced634a4cea64ead336d9",
         "libijksdl.so": "0115cb518dadc6aafe891b729b8076ef03045f1e36da6c4ce39a18376e305d3f"
       },
@@ -287,10 +300,12 @@
         "--disable-debug",
         "--enable-libxml2",
         "--enable-zlib",
-        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86_64/xml-output/include/libxml2",
-        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86_64/xml-output/lib"
+        "--enable-libdav1d",
+        "--extra-cflags=-DANDROID -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86_64/xml-output/include/libxml2 -ID:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86_64/dav1d-output/include",
+        "--extra-ldflags=-LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86_64/xml-output/lib -LD:/workspace/vibeEmbyPlayer-Android/build/ijk-native/x86_64/dav1d-output/lib"
       ],
       "requiredFeatures": [
+        "LIBDAV1D_DECODER",
         "AC3_DECODER",
         "EAC3_DECODER",
         "DCA_DECODER",
@@ -311,5 +326,9 @@
         "HTTP_PROTOCOL"
       ]
     }
+  },
+  "av1": {
+    "patchSha256": "89bb17940c59c6eb652622981a97b710545f11b605cdf8abbcaee906429a67ba",
+    "wrapperSha256": "9c159bcacaec351288c990269588ad8eca8ef1beeea978b43dc5be0d3ddaa79a"
   }
 }

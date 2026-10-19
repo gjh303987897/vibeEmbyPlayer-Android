@@ -82,7 +82,7 @@ require a connected device or an installed emulator.
 
 ## Rebuild IJK native dependencies
 
-Install Node.js 18.14 or newer, Git (including Git Bash), Ninja and a host Clang compiler in addition
+Install Node.js 18.14 or newer, Git (including Git Bash), Ninja, NASM, Python 3 and Meson 1.9.2, and a host Clang compiler in addition
 to the tools above. Keep the SDK CMake directory ahead of other CMake installations on `Path`.
 
 ```powershell
@@ -95,9 +95,9 @@ node scripts/build-ijkplayer-native.mjs `
 Scoop's SDK directories can be junctions. If a tool cannot traverse the `current/ndk` junction,
 use its real directory, such as `$env:USERPROFILE/scoop/persist/android-clt/ndk/26.1.10909125`.
 
-The recipe pins IJKPlayer, FFmpeg, libxml2, libyuv and SoundTouch revisions; applies the distributed
+The recipe pins IJKPlayer, FFmpeg, dav1d, libxml2, libyuv and SoundTouch revisions; applies the distributed
 NDK and subtitle patches; and builds all three native libraries with 16 KB ELF alignment. FFmpeg enables the
-required AC-3/E-AC-3/DTS/TrueHD and subtitle decoders, Matroska/HLS/DASH demuxers and AES HLS crypto.
+required AV1 (dav1d), AC-3/E-AC-3/DTS/TrueHD and subtitle decoders, Matroska/HLS/DASH demuxers and AES HLS crypto.
 GPL and nonfree components remain disabled. HTTPS is handled by the app's OkHttp transport.
 The subtitle patch and distributed support sources bridge decoded PGS/DVD/DVB bitmaps into the
 Kotlin player without replacing the upstream Java AAR. Their hashes are recorded in native-build.json.
@@ -107,6 +107,13 @@ feature configurations, hashes and license notices are written under `third_part
 The original official ABI AARs are packaging inputs; Gradle includes only the rebuilt `-full.aar`
 native variants. To resume selected architectures, pass `--abi x86,x86_64`; completed objects are
 reused when configuration matches. See `THIRD_PARTY_LICENSES.md` for source and notice details.
+
+The recipe runs Meson through `python -m mesonbuild.mesonmain`. Use `--python <python.exe>`
+to select an interpreter, and optionally `--meson-path <directory containing mesonbuild>` for
+an isolated Meson installation. Set `TEMP` and `TMP` to a writable build directory if the host
+sandbox prevents Python from cleaning its default temporary directory. dav1d is statically
+linked into `libijkffmpeg.so`, including its optimized assembly and both supported bit depths;
+no additional shared library or remote decoder is required.
 
 The recipe also applies `ffmpeg-int64-options.patch`. It keeps decimal `INT64` options exact when
 IJK passes Android tagged heap pointers through FFmpeg dictionaries. Run the packaged-library
