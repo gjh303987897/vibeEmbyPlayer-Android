@@ -7,8 +7,16 @@ All sources share the bottom controls and support
 
 All five source screens (Emby/Jellyfin, WebDAV, IPTV, links and local media) use the same
 gesture handling and settings panel. The settings button sits independently at the lower right.
-The panel uses three Material 3 tabs; long-press speed has a separate
-selection page with a back action.
+The panel uses three Material 3 tabs. Under Playback, Subtitles and Playback speed
+open separate selection pages with a back action; their root rows show the current
+subtitle and speed. Subtitles shares the quick dialog's choices: off, available embedded,
+external or manually imported tracks, and loading a subtitle from the phone even when
+the source has no tracks. Selecting a track or speed applies immediately through
+`PlayerSettingsViewModel` and `PlayerManager`, and the bottom controls stay in sync.
+Playback speed uses the same 0.5x, 1x, 1.25x, 1.5x and 2x choices in both entries.
+Long-press speed remains a separate setting and selection page; changing normal
+playback speed does not change its saved value. Each subpage has its own scroll state,
+so scrolling the main settings cannot hide the first choices on entry.
 IPTV adds a [route selection page](iptv-multi-source.md) under Playback, with separate
 Routes and Quality tabs for manual source selection and the persisted automatic quality preference.
 The button and bottom playback controls share navigation/cutout safe-area padding. The seek
@@ -132,12 +140,28 @@ margins, and the settings action is at the bottom right. Enabling/disabling perf
 the landscape title bounds unchanged at `[249,36][640,108]`. Checks also cover the portrait
 stacked readout, dismissed audio notice, lock/unlock readout visibility and settings access.
 
+Settings selection entries verified on 2026-10-19: `assembleDebug`,
+`assembleDebugAndroidTest`, all 95 JVM tests and `lint` pass (zero errors, three existing
+warnings). HUAWEI TAS-AL00 / Android 12 passes `PlayerSettingsSelectionTest` in portrait
+and landscape with generated AV1 colour bars, embedded text and a parsed local subtitle.
+The test clicks the production settings, checks the native IJK rate at 1.5x and after
+returning to 1x through the quick control, preserves pause and the saved hold-speed setting,
+and checks that releasing a temporary speed restores the newly selected regular rate.
+It verifies native embedded-stream selection and visible caption text, local subtitle
+selection, clearing captions, root-row summaries, scrolling to the phone import action,
+and subpage back navigation. Screenshots show the selected speed and subtitle in both
+orientations. The test uses synthetic media only; it does not browse configured services
+or exercise choosing a new document in the system file picker. User subtitle preference,
+orientation and the temporary USB stay-awake setting are restored after validation.
+
 ## References
 
 - [Android media volume](https://developer.android.com/media/platform/output)
 - [Window brightness](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness)
 - [Process CPU time](https://developer.android.com/reference/android/os/Process#getElapsedCpuTime())
 - [Material 3 bottom sheets](https://developer.android.com/develop/ui/compose/components/bottom-sheets)
+- [Compose single-selection radio buttons](https://developer.android.com/develop/ui/compose/components/radio-button)
+- [Compose interaction testing](https://developer.android.com/develop/ui/compose/testing/apis)
 - [Android Surface ownership](https://source.android.com/docs/core/graphics/arch-sh)
 - [Compose safe drawing insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
 - [Pinned IJK options](https://github.com/bilibili/ijkplayer/blob/k0.8.8/ijkmedia/ijkplayer/ff_ffplay_options.h)

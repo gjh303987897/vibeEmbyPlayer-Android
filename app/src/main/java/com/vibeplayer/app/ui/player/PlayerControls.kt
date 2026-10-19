@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vibeplayer.app.R
 import com.vibeplayer.app.model.PlayerLayout
+import com.vibeplayer.app.player.PLAYBACK_SPEEDS
 import java.util.Locale
 
 /** Every source uses the same layout and commands, including manual subtitle selection. */
@@ -111,7 +112,7 @@ private fun SpeedMenu(speed: Float, onSelect: (Float) -> Unit) {
             Text("${speed}x", color = Color.White)
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            listOf(.5f, 1f, 1.25f, 1.5f, 2f).forEach { value ->
+            PLAYBACK_SPEEDS.forEach { value ->
                 DropdownMenuItem(text = { Text("${value}x") }, onClick = { onSelect(value); expanded = false })
             }
         }

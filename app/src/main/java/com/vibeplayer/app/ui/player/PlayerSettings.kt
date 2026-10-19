@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,11 +51,14 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vibeplayer.app.R
 import com.vibeplayer.app.player.LONG_PRESS_SPEEDS
+import com.vibeplayer.app.player.PLAYBACK_SPEEDS
 import com.vibeplayer.app.player.PlayerPreferences
 import com.vibeplayer.app.player.VideoDecodeMode
 import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import kotlin.math.roundToInt
+
+private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED }
 
 /** Shared chrome for every source; performance remains visible when controls are hidden or locked. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,12 +73,11 @@ fun BoxScope.PlayerSettings(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var speedPage by rememberSaveable { mutableStateOf(false) }
-    var sourcePage by rememberSaveable { mutableStateOf(false) }
+    var page by rememberSaveable { mutableStateOf(PlayerSettingsPage.ROOT) }
 
     if (controlsVisible && !locked) {
         IconButton(
-            onClick = { expanded = true; speedPage = false; sourcePage = false },
+            onClick = { expanded = true; page = PlayerSettingsPage.ROOT },
             modifier = Modifier.align(Alignment.BottomEnd).bottomEdgeInsets().padding(end = 8.dp, bottom = 8.dp)
                 .background(Color.Black.copy(alpha = .65f), CircleShape).zIndex(3f)
         ) {
@@ -88,47 +92,65 @@ fun BoxScope.PlayerSettings(
     }
     if (expanded && !locked) {
         val decoder by viewModel.decoder.collectAsStateWithLifecycle()
+        val playerState by viewModel.playerState.collectAsStateWithLifecycle()
         val saveFailed by viewModel.saveFailed.collectAsStateWithLifecycle()
         ModalBottomSheet(
-            onDismissRequest = { expanded = false; speedPage = false; sourcePage = false },
+            onDismissRequest = { expanded = false; page = PlayerSettingsPage.ROOT },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (speedPage || sourcePage) IconButton(onClick = { speedPage = false; sourcePage = false }) {
+                if (page != PlayerSettingsPage.ROOT) IconButton(onClick = { page = PlayerSettingsPage.ROOT }) {
                     Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.back))
                 }
-                Text(stringResource(when {
-                    speedPage -> R.string.player_hold_speed
-                    sourcePage -> R.string.iptv_source_selection
-                    else -> R.string.player_settings
+                Text(stringResource(when (page) {
+                    PlayerSettingsPage.HOLD_SPEED -> R.string.player_hold_speed
+                    PlayerSettingsPage.SOURCE -> R.string.iptv_source_selection
+                    PlayerSettingsPage.SUBTITLES -> R.string.subtitle_title
+                    PlayerSettingsPage.PLAYBACK_SPEED -> R.string.player_speed
+                    PlayerSettingsPage.ROOT -> R.string.player_settings
                 }),
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
             }
-            if (!speedPage && !sourcePage) TabRow(selectedTabIndex = tab) {
+            if (page == PlayerSettingsPage.ROOT) TabRow(selectedTabIndex = tab) {
                 listOf(R.string.player_settings_playback, R.string.player_settings_decode, R.string.player_settings_performance)
                     .forEachIndexed { index, title ->
                         Tab(selected = tab == index, onClick = { tab = index }, text = { Text(stringResource(title)) })
                     }
             }
+            val pageScroll = key(page) { rememberScrollState() }
             Column(Modifier.fillMaxWidth().heightIn(max = 440.dp)
-                .then(if (sourcePage) Modifier else Modifier.verticalScroll(rememberScrollState()))
+                .then(if (page == PlayerSettingsPage.SOURCE) Modifier else Modifier.verticalScroll(pageScroll))
                 .padding(bottom = 24.dp)) {
                 if (saveFailed) Text(stringResource(R.string.player_settings_save_failed),
                     color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                 when {
-                    sourcePage && sourceSettings != null -> sourceSettings()
-                    speedPage -> {
+                    page == PlayerSettingsPage.SOURCE && sourceSettings != null -> sourceSettings()
+                    page == PlayerSettingsPage.SUBTITLES -> SubtitleChoices(
+                        playerState.subtitleTracks, playerState.selectedSubtitleKey, viewModel::selectSubtitle,
+                        Modifier.padding(horizontal = 16.dp)
+                    )
+                    page == PlayerSettingsPage.PLAYBACK_SPEED -> SpeedChoices(
+                        PLAYBACK_SPEEDS, playerState.playbackSpeed, viewModel::setPlaybackSpeed
+                    )
+                    page == PlayerSettingsPage.HOLD_SPEED -> {
                         Text(stringResource(R.string.player_hold_speed_help), modifier = Modifier.padding(16.dp))
-                        LONG_PRESS_SPEEDS.forEach { speed ->
-                            Row(Modifier.fillMaxWidth().selectable(preferences.longPressSpeed == speed,
-                                role = Role.RadioButton, onClick = { viewModel.setLongPressSpeed(speed) })
-                                .padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = preferences.longPressSpeed == speed, onClick = null)
-                                Text("${speed}x", Modifier.padding(start = 16.dp))
-                            }
-                        }
+                        SpeedChoices(LONG_PRESS_SPEEDS, preferences.longPressSpeed, viewModel::setLongPressSpeed)
                     }
                     tab == 0 -> {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.subtitle_title)) },
+                            supportingContent = { Text(playerState.subtitleTracks
+                                .firstOrNull { it.key == playerState.selectedSubtitleKey }?.label
+                                ?: stringResource(R.string.subtitle_off)) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.SUBTITLES }
+                        )
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.player_speed)) },
+                            supportingContent = { Text("${playerState.playbackSpeed}x") },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.PLAYBACK_SPEED }
+                        )
                         Text(stringResource(R.string.player_layout), style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                         Column(Modifier.padding(horizontal = 16.dp)) {
@@ -140,7 +162,7 @@ fun BoxScope.PlayerSettings(
                             headlineContent = { Text(stringResource(R.string.iptv_source_selection)) },
                             supportingContent = { Text(sourceSummary.orEmpty()) },
                             trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
-                            modifier = Modifier.clickable { sourcePage = true }
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.SOURCE }
                         )
                         ListItem(
                             headlineContent = { Text(stringResource(R.string.player_hold_speed)) },
@@ -149,7 +171,7 @@ fun BoxScope.PlayerSettings(
                                 Text("${preferences.longPressSpeed}x")
                                 Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null)
                             } },
-                            modifier = Modifier.clickable { speedPage = true }
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.HOLD_SPEED }
                         )
                     }
                     tab == 1 -> {
@@ -187,6 +209,20 @@ fun BoxScope.PlayerSettings(
                             modifier = Modifier.padding(16.dp))
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedChoices(speeds: List<Float>, selected: Float, onSelect: (Float) -> Unit) {
+    Column(Modifier.fillMaxWidth().selectableGroup()) {
+        speeds.forEach { speed ->
+            Row(Modifier.fillMaxWidth().selectable(selected == speed,
+                role = Role.RadioButton, onClick = { onSelect(speed) })
+                .padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = selected == speed, onClick = null)
+                Text("${speed}x", Modifier.padding(start = 16.dp))
             }
         }
     }

@@ -3,6 +3,7 @@ package com.vibeplayer.app.ui.player
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Subtitles
@@ -29,15 +30,31 @@ internal fun SubtitleSelector(tracks: List<SubtitleTrack>, selectedKey: String?,
         title = { Text(stringResource(R.string.subtitle_title)) },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
-                SubtitleChoice(stringResource(R.string.subtitle_off), selectedKey == null) { onSelect(null); expanded = false }
-                tracks.forEach { track ->
-                    SubtitleChoice(track.label, track.key == selectedKey) { onSelect(track); expanded = false }
-                }
-                ManualSubtitleImportAction()
+                SubtitleChoices(tracks, selectedKey, onSelect = { track ->
+                    onSelect(track)
+                    expanded = false
+                })
             }
         },
         confirmButton = { TextButton(onClick = { expanded = false }) { Text(stringResource(R.string.customization_close)) } }
     )
+}
+
+/** Shared choices for the quick dialog and the player's settings page. Scroll is owned by the caller. */
+@Composable
+internal fun SubtitleChoices(
+    tracks: List<SubtitleTrack>,
+    selectedKey: String?,
+    onSelect: (SubtitleTrack?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier.selectableGroup()) {
+        SubtitleChoice(stringResource(R.string.subtitle_off), selectedKey == null) { onSelect(null) }
+        tracks.forEach { track ->
+            SubtitleChoice(track.label, track.key == selectedKey) { onSelect(track) }
+        }
+        ManualSubtitleImportAction()
+    }
 }
 
 @Composable

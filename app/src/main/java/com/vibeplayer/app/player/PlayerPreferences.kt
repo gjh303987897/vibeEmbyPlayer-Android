@@ -15,3 +15,4 @@ data class PlayerPreferences(
 )
 
 val LONG_PRESS_SPEEDS = listOf(1.25f, 1.5f, 2f, 2.5f, 3f, 4f)
+val PLAYBACK_SPEEDS = listOf(.5f, 1f, 1.25f, 1.5f, 2f)
