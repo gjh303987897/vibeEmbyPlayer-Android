@@ -49,6 +49,7 @@ data class PlayerState(
     val title: String? = null,
     val subtitle: String? = null,
     val subtitleText: String? = null,
+    val subtitleDelayMs: Long = 0L,
     val bitmapSubtitleFrame: BitmapSubtitleFrame? = null,
     val error: String? = null,
     val playbackSpeed: Float = 1f,
@@ -250,9 +251,13 @@ class PlayerManager @Inject constructor(
 
     private fun clearManualSubtitles() {
         subtitleSessionId++
+        subtitleDelayRefreshJob?.cancel()
+        subtitleDelayRefreshJob = null
+        subtitleDelayMs = 0L
         manualSubtitles.clear()
         manualSubtitleTimeline = null
         _state.update { it.copy(
+            subtitleDelayMs = 0L,
             subtitleTracks = it.subtitleTracks.filterNot { track -> track.key.startsWith("manual:") },
             selectedSubtitleKey = it.selectedSubtitleKey?.takeUnless { key -> key.startsWith("manual:") }
         ) }
@@ -270,6 +275,8 @@ class PlayerManager @Inject constructor(
     private var acceptNativeSubtitles = false
     private var subtitleSeekPending = false
     private var subtitleSelectionInitialized = false
+    private var subtitleDelayMs = 0L
+    private var subtitleDelayRefreshJob: Job? = null
     private val audioFocus = PlaybackAudioFocus(
         context,
         onPauseForLoss = { pauseForFocusLoss() },
@@ -316,6 +323,7 @@ class PlayerManager @Inject constructor(
             rememberSoftwareOutput()
             acceptNativeSubtitles = true
             _state.update { it.copy(isPrepared = true, buffering = false, error = null) }
+            NativeBitmapSubtitles.setDelay(player, subtitleDelayMs)
             updateTracks()
             if (lastSpeed != 1f) player.setSpeed(lastSpeed)
             val start = _state.value.positionMs
@@ -534,7 +542,8 @@ class PlayerManager @Inject constructor(
             playbackSpeed = lastSpeed,
             volume = _state.value.volume,
             surfaceGeneration = surfaceGeneration,
-            privatePlayback = privatePlayback
+            privatePlayback = privatePlayback,
+            subtitleDelayMs = subtitleDelayMs
         )
         updateDiagnosticsMonitoring()
         preparationJob = scope.launch {
@@ -756,6 +765,37 @@ class PlayerManager @Inject constructor(
         updateTracks()
     }
 
+    /** Positive means later; the offset belongs to this video, including decoder/Surface reloads. */
+    fun setSubtitleDelay(delayMs: Long) {
+        val delay = delayMs.coerceIn(-MAX_SUBTITLE_DELAY_MS, MAX_SUBTITLE_DELAY_MS)
+        if (delay == subtitleDelayMs) return
+        subtitleDelayMs = delay
+        _state.update { it.copy(subtitleDelayMs = delay) }
+        if (_state.value.isPrepared) {
+            NativeBitmapSubtitles.setDelay(player, delay)
+            clearVisibleSubtitles()
+            updateSubtitleText(_state.value.positionMs)
+            refreshNativeSubtitleTiming()
+        }
+    }
+
+    private fun refreshNativeSubtitleTiming() {
+        subtitleDelayRefreshJob?.cancel()
+        val selected = _state.value.selectedSubtitleKey ?: return
+        // Live sources cannot refill already consumed cues by seeking. Their queued cues
+        // are re-evaluated by the native scheduler when its subtitle clock changes.
+        if (!selected.startsWith("timedtext:") || _state.value.durationMs <= 0L) return
+        val session = subtitleSessionId
+        subtitleDelayRefreshJob = scope.launch {
+            // Coalesce repeated 100ms adjustments; seeking refills cues already consumed
+            // under the previous clock without changing the audio/video target or pause intent.
+            delay(150)
+            if (session == subtitleSessionId && _state.value.selectedSubtitleKey == selected && _state.value.isPrepared) {
+                seekTo(_state.value.positionMs)
+            }
+        }
+    }
+
     fun selectSubtitle(track: SubtitleTrack?, persist: Boolean = true) {
         val key = track?.key
         if (!persist && subtitleSelectionInitialized && key == _state.value.selectedSubtitleKey) return
@@ -789,6 +829,7 @@ class PlayerManager @Inject constructor(
         if (_state.value.isPrepared) {
             acceptNativeSubtitles = true
             discardBitmapSubtitleSnapshot()
+            if (subtitleDelayMs != 0L) refreshNativeSubtitleTiming()
         }
         if (persist) scope.launch(Dispatchers.IO) {
             when {
@@ -895,12 +936,13 @@ class PlayerManager @Inject constructor(
     }
 
     private fun updateSubtitleText(positionMs: Long) {
+        val position = subtitlePositionMs(positionMs, subtitleDelayMs)
         if (_state.value.selectedSubtitleKey.orEmpty().startsWith("manual:")) {
-            _state.update { it.copy(subtitleText = manualSubtitleTimeline?.textAt(positionMs)) }
+            _state.update { it.copy(subtitleText = manualSubtitleTimeline?.textAt(position)) }
             return
         }
         if (!_state.value.selectedSubtitleKey.orEmpty().startsWith("external:")) return
-        val cue = subtitleCues.firstOrNull { positionMs in it.startMs..it.endMs }
+        val cue = subtitleCues.firstOrNull { position >= it.startMs && position < it.endMs }
         _state.update { it.copy(subtitleText = cue?.text) }
     }
 

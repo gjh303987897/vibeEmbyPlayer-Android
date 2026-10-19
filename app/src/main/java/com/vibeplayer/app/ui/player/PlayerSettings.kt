@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -58,7 +59,7 @@ import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import kotlin.math.roundToInt
 
-private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED }
+private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING }
 
 /** Shared chrome for every source; performance remains visible when controls are hidden or locked. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,7 +100,12 @@ fun BoxScope.PlayerSettings(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (page != PlayerSettingsPage.ROOT) IconButton(onClick = { page = PlayerSettingsPage.ROOT }) {
+                if (page != PlayerSettingsPage.ROOT) IconButton(onClick = {
+                    page = when (page) {
+                        PlayerSettingsPage.SUBTITLE_APPEARANCE, PlayerSettingsPage.SUBTITLE_TIMING -> PlayerSettingsPage.SUBTITLES
+                        else -> PlayerSettingsPage.ROOT
+                    }
+                }) {
                     Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.back))
                 }
                 Text(stringResource(when (page) {
@@ -107,6 +113,8 @@ fun BoxScope.PlayerSettings(
                     PlayerSettingsPage.SOURCE -> R.string.iptv_source_selection
                     PlayerSettingsPage.SUBTITLES -> R.string.subtitle_title
                     PlayerSettingsPage.PLAYBACK_SPEED -> R.string.player_speed
+                    PlayerSettingsPage.SUBTITLE_APPEARANCE -> R.string.subtitle_appearance
+                    PlayerSettingsPage.SUBTITLE_TIMING -> R.string.subtitle_timing
                     PlayerSettingsPage.ROOT -> R.string.player_settings
                 }),
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
@@ -125,10 +133,27 @@ fun BoxScope.PlayerSettings(
                     color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                 when {
                     page == PlayerSettingsPage.SOURCE && sourceSettings != null -> sourceSettings()
-                    page == PlayerSettingsPage.SUBTITLES -> SubtitleChoices(
-                        playerState.subtitleTracks, playerState.selectedSubtitleKey, viewModel::selectSubtitle,
-                        Modifier.padding(horizontal = 16.dp)
-                    )
+                    page == PlayerSettingsPage.SUBTITLES -> {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.subtitle_appearance)) },
+                            supportingContent = { Text(stringResource(R.string.subtitle_appearance_summary)) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.SUBTITLE_APPEARANCE }
+                        )
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.subtitle_timing)) },
+                            supportingContent = { Text(stringResource(R.string.subtitle_timing_value, playerState.subtitleDelayMs / 1000f)) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.SUBTITLE_TIMING }
+                        )
+                        HorizontalDivider()
+                        SubtitleChoices(playerState.subtitleTracks, playerState.selectedSubtitleKey, viewModel::selectSubtitle,
+                            Modifier.padding(horizontal = 16.dp))
+                    }
+                    page == PlayerSettingsPage.SUBTITLE_APPEARANCE -> SubtitleAppearanceSettings(
+                        preferences.subtitleAppearance, viewModel::setSubtitleAppearance)
+                    page == PlayerSettingsPage.SUBTITLE_TIMING -> SubtitleTimingSettings(
+                        playerState.subtitleDelayMs, playerState.isPrepared, viewModel::setSubtitleDelay)
                     page == PlayerSettingsPage.PLAYBACK_SPEED -> SpeedChoices(
                         PLAYBACK_SPEEDS, playerState.playbackSpeed, viewModel::setPlaybackSpeed
                     )

@@ -11,7 +11,8 @@ data class PlayerPreferences(
     val showDiagnostics: Boolean = false,
     val layout: PlayerLayout = PlayerLayout.TRENDY,
     val videoDecodeMode: VideoDecodeMode = VideoDecodeMode.HARDWARE,
-    val iptvQuality: IptvQualityPreference = IptvQualityPreference.HIGHEST
+    val iptvQuality: IptvQualityPreference = IptvQualityPreference.HIGHEST,
+    val subtitleAppearance: SubtitleAppearance = SubtitleAppearance()
 )
 
 val LONG_PRESS_SPEEDS = listOf(1.25f, 1.5f, 2f, 2.5f, 3f, 4f)

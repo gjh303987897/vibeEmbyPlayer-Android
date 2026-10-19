@@ -1,5 +1,19 @@
 # Generated video fixtures
 
+`res/raw/video_sample_subtitle_timing.mp4` contains ten seconds of 320×180
+synthetic SMPTE bars, AAC sine-wave audio and an English `mov_text` track. Create
+`timing.srt` with `Timing first` at 00:00:02,000–00:00:04,000 and `Timing second`
+at 00:00:06,000–00:00:08,000, then run:
+
+```powershell
+ffmpeg -f lavfi -i 'smptebars=size=320x180:rate=24' -f lavfi -i 'sine=frequency=440:sample_rate=48000' -i timing.srt -t 10 -map 0:v -map 1:a -map 2:s -c:v libx264 -profile:v baseline -pix_fmt yuv420p -preset veryfast -crf 28 -g 24 -c:a aac -b:a 32k -c:s mov_text -metadata:s:s:0 language=eng -disposition:s:0 default -movflags +faststart video_sample_subtitle_timing.mp4
+```
+
+`subtitleTimingShiftsEmbeddedAndImportedCuesAndResetsForTheNextVideo` checks signed
+native offsets, reset, actual video pixels, paused imported captions and session
+reset using this generated sample. It contains no user media. The test APK is
+compiled for the subtitle-enhancement change; device execution is deferred.
+
 `res/raw/video_sample_high10.mp4` contains 15 seconds of synthetic SMPTE colour bars
 and a 440 Hz sine wave. It contains no user media. Reproduce it with FFmpeg:
 

@@ -16,6 +16,9 @@ dialogue is combined. Seeking in either direction updates the visible text.
 Import errors stay in the subtitle dialog and do not change playback errors.
 Text subtitles clear the measured control-panel height when controls are visible,
 so either layout and orientation leaves imported dialogue unobscured.
+The shared [subtitle appearance and timing settings](subtitle-enhancements.md) also
+apply to imported text. Timing changes query the unmodified cue timeline, including
+while paused; delayed cues at time zero remain hidden until their shifted start.
 
 An import captures the playback session before the picker opens. A result for a
 previous video cannot attach to a new video. Imports can be cancelled. Up to four

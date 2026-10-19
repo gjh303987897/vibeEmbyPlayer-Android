@@ -1,0 +1,16 @@
+<resources>
+    <string name="subtitle_appearance">Subtitle appearance</string>
+    <string name="subtitle_appearance_summary">Font size, vertical position and background</string>
+    <string name="subtitle_appearance_help">Applies to text subtitles and is saved for all videos. Raising subtitles adds to the safe position above playback controls. Image subtitles keep their original artwork.</string>
+    <string name="subtitle_preview">Subtitle preview</string>
+    <string name="subtitle_font_size">Font size</string>
+    <string name="subtitle_bottom_offset">Raise subtitles</string>
+    <string name="subtitle_background_transparency">Background transparency</string>
+    <string name="subtitle_appearance_reset">Restore default appearance</string>
+    <string name="subtitle_timing">Subtitle timing</string>
+    <string name="subtitle_timing_value">%1$+.1f s</string>
+    <string name="subtitle_timing_help">Negative: earlier. Positive: later. Applies to all subtitle types for this video only; resets when opening another video. Range: −10 to +10 seconds.</string>
+    <string name="subtitle_earlier">Earlier 0.1s</string>
+    <string name="subtitle_later">Later 0.1s</string>
+    <string name="subtitle_timing_reset">Reset offset to zero</string>
+</resources>

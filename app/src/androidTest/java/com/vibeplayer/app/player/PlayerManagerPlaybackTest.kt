@@ -60,6 +60,72 @@ class PlayerManagerPlaybackTest {
     private var surfaceObserver: Job? = null
 
     @Test
+    fun subtitleTimingShiftsEmbeddedAndImportedCuesAndResetsForTheNextVideo() {
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as VibePlayerApp
+        val manager = app.playerManager
+        val originalLanguage = runBlocking { app.settingsDataStore.preferredTextLanguage.first() }
+        val sample = copyResource(R.raw.video_sample_subtitle_timing, ".mp4")
+        try {
+            callOnMain { manager.stop() }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val view = attachSurface(scenario, manager)
+                callOnMain { manager.play(sample.absolutePath, "Subtitle timing", null) }
+                awaitCondition("timed text must be available") {
+                    assertNull(manager.state.value.error)
+                    manager.state.value.isPrepared && manager.state.value.subtitleTracks.isNotEmpty()
+                }
+                callOnMain { manager.selectSubtitle(manager.state.value.subtitleTracks.first(), persist = false) }
+                for ((offset, position, caption) in listOf(
+                    Triple(2_000L, 5_000L, "Timing first"),
+                    Triple(-2_000L, 1_000L, "Timing first"),
+                    Triple(0L, 6_500L, "Timing second")
+                )) {
+                    callOnMain {
+                        manager.pause()
+                        manager.setSubtitleDelay(offset)
+                        manager.seekTo(position)
+                        manager.play()
+                    }
+                    awaitCondition("embedded caption must follow $offset ms offset") {
+                        assertNull(manager.state.value.error)
+                        manager.state.value.subtitleText?.trim() == caption &&
+                            manager.state.value.positionMs >= position && manager.player.videoOutputFramesPerSecond > 0f
+                    }
+                    assertColourBarsVisible(view)
+                }
+                callOnMain {
+                    manager.pause()
+                    manager.addManualSubtitle(manager.subtitleSessionId,
+                        com.vibeplayer.app.domain.subtitle.TextSubtitles.parse(
+                            "1\n00:00:02,000 --> 00:00:04,000\nImported timing".toByteArray(), "timing.srt"))
+                    manager.seekTo(3_000)
+                    assertEquals("Imported timing", manager.state.value.subtitleText)
+                    manager.setSubtitleDelay(2_000)
+                    assertNull(manager.state.value.subtitleText)
+                    manager.setSubtitleDelay(0)
+                    assertEquals("Imported timing", manager.state.value.subtitleText)
+                    assertFalse("timing changes must preserve pause", manager.state.value.isPlaying)
+                    manager.setSubtitleDelay(-2_000)
+                    manager.play(sample.absolutePath, "Next video", null)
+                    assertEquals("opening another source must clear its predecessor's offset", 0L, manager.state.value.subtitleDelayMs)
+                }
+                awaitCondition("next video must prepare with its default timing") {
+                    manager.state.value.isPrepared && manager.state.value.subtitleDelayMs == 0L
+                }
+            }
+        } finally {
+            callOnMain {
+                surfaceObserver?.cancel()
+                manager.stop()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            runBlocking { app.settingsDataStore.setPreferredTextLanguage(originalLanguage) }
+            sample.delete()
+        }
+    }
+
+    @Test
     fun av1RendersWithAudioAndSubtitlesInBothDecoderModesAndThenPlaysH264() {
         val context = instrumentation.targetContext
         val app = context.applicationContext as VibePlayerApp

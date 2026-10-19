@@ -19,4 +19,5 @@ class BitmapSubtitleFrame(
 @Keep
 object NativeBitmapSubtitles {
     external fun read(player: IjkMediaPlayer, revision: Long): BitmapSubtitleFrame?
+    external fun setDelay(player: IjkMediaPlayer, delayMs: Long)
 }

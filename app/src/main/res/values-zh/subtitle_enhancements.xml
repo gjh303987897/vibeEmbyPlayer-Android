@@ -1,0 +1,16 @@
+<resources>
+    <string name="subtitle_appearance">字幕外观</string>
+    <string name="subtitle_appearance_summary">字号、底部位置和背景</string>
+    <string name="subtitle_appearance_help">适用于文本字幕，保存后对所有视频生效。数值越大字幕越靠上，并会自动避让播放控件。位图字幕保留原有图像排版。</string>
+    <string name="subtitle_preview">字幕预览 · Subtitle preview</string>
+    <string name="subtitle_font_size">字幕字号</string>
+    <string name="subtitle_bottom_offset">字幕上移</string>
+    <string name="subtitle_background_transparency">背景透明度</string>
+    <string name="subtitle_appearance_reset">恢复默认外观</string>
+    <string name="subtitle_timing">字幕时间校准</string>
+    <string name="subtitle_timing_value">%1$+.1f 秒</string>
+    <string name="subtitle_timing_help">负数提前，正数延后。适用于当前视频的所有字幕，打开其他视频时自动归零。范围为 −10 至 +10 秒。</string>
+    <string name="subtitle_earlier">提前 0.1 秒</string>
+    <string name="subtitle_later">延后 0.1 秒</string>
+    <string name="subtitle_timing_reset">偏移归零</string>
+</resources>

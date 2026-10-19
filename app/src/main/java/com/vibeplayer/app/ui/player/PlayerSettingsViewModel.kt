@@ -51,6 +51,9 @@ class PlayerSettingsViewModel @Inject constructor(
     fun setPlaybackSpeed(speed: Float) = manager.setPlaybackSpeed(speed)
     fun setVolume(volume: Float) = manager.setVolume(volume)
     fun selectSubtitle(track: com.vibeplayer.app.player.SubtitleTrack?) = manager.selectSubtitle(track)
+    fun setSubtitleAppearance(appearance: com.vibeplayer.app.player.SubtitleAppearance) =
+        save { settings.setSubtitleAppearance(appearance) }
+    fun setSubtitleDelay(delayMs: Long) = manager.setSubtitleDelay(delayMs)
 
     private fun save(action: suspend () -> Unit) {
         viewModelScope.launch {

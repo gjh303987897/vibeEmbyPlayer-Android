@@ -82,6 +82,12 @@ const wrapper = path.join(vendor, 'libdav1d.c');
 const wrapperOutput = path.join(ffmpeg, 'libavcodec/libdav1d.c');
 if (!fs.existsSync(wrapperOutput) || sha256(wrapperOutput) !== sha256(wrapper)) fs.copyFileSync(wrapper, wrapperOutput);
 const ijkSource = path.join(source, 'ijkplayer');
+const subtitleDelayPatch = path.join(vendor, 'ijkplayer-subtitle-delay.patch');
+// This final overlay touches context from the bitmap patch. Validate older layers
+// against their original context, then reapply the timing overlay deterministically.
+if (spawnSync('git', ['apply', '--reverse', '--check', subtitleDelayPatch], { cwd: ijkSource, stdio: 'ignore' }).status === 0) {
+  run('git', ['apply', '--reverse', subtitleDelayPatch], ijkSource);
+}
 const ijkPatch = path.join(vendor, 'ijkplayer-ndk26.patch');
 if (spawnSync('git', ['apply', '--reverse', '--check', ijkPatch], { cwd: ijkSource, stdio: 'ignore' }).status !== 0) {
   run('git', ['apply', ijkPatch], ijkSource);
@@ -89,6 +95,9 @@ if (spawnSync('git', ['apply', '--reverse', '--check', ijkPatch], { cwd: ijkSour
 const bitmapPatch = path.join(vendor, 'ijkplayer-bitmap-subtitles.patch');
 if (spawnSync('git', ['apply', '--reverse', '--check', bitmapPatch], { cwd: ijkSource, stdio: 'ignore' }).status !== 0) {
   run('git', ['apply', bitmapPatch], ijkSource);
+}
+if (spawnSync('git', ['apply', '--reverse', '--check', subtitleDelayPatch], { cwd: ijkSource, stdio: 'ignore' }).status !== 0) {
+  run('git', ['apply', subtitleDelayPatch], ijkSource);
 }
 const abis = {
   armv7a: { android: 'armeabi-v7a', arch: 'arm', target: 'armv7a-linux-androideabi', extra: ['--cpu=armv7-a', '--enable-neon'] },
@@ -115,6 +124,11 @@ const metadata = {
     jniExport: 'Java_com_vibeplayer_app_player_NativeBitmapSubtitles_read',
   },
   nativeTls: false, tlsTransport: 'Application HTTP loopback proxy', artifacts: {},
+  subtitleTiming: {
+    patchSha256: sha256(subtitleDelayPatch),
+    jniExport: 'Java_com_vibeplayer_app_player_NativeBitmapSubtitles_setDelay',
+    maxDelayMs: 10000,
+  },
   av1: { patchSha256: sha256(av1Patch), wrapperSha256: sha256(path.join(vendor, 'libdav1d.c')) },
 };
 // Separate metadata files allow independent ABI jobs without sharing writable outputs.

@@ -14,6 +14,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.vibeplayer.app.player.LONG_PRESS_SPEEDS
 import com.vibeplayer.app.player.PlayerPreferences
 import com.vibeplayer.app.player.VideoDecodeMode
+import com.vibeplayer.app.player.SubtitleAppearance
 import com.vibeplayer.app.model.IptvQualityPreference
 import com.vibeplayer.app.model.AppearancePreferences
 import com.vibeplayer.app.model.HomeLayout
@@ -63,6 +64,9 @@ class SettingsDataStore @Inject constructor(
         val PLAYER_LAYOUT = stringPreferencesKey("player_layout")
         val SERVICE_CARD_SCALE = intPreferencesKey("service_card_scale")
         val SHOW_PLAYBACK_DIAGNOSTICS = booleanPreferencesKey("player_show_diagnostics")
+        val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size_sp")
+        val SUBTITLE_BOTTOM_OFFSET = intPreferencesKey("subtitle_bottom_offset_dp")
+        val SUBTITLE_BACKGROUND = intPreferencesKey("subtitle_background_opacity_percent")
     }
 
     val themeMode: Flow<String?> = dataStore.data
@@ -103,7 +107,12 @@ class SettingsDataStore @Inject constructor(
             videoDecodeMode = VideoDecodeMode.entries.firstOrNull { it.name == preferences[Keys.VIDEO_DECODE_MODE] }
                 ?: VideoDecodeMode.HARDWARE,
             iptvQuality = IptvQualityPreference.entries.firstOrNull { it.name == preferences[Keys.IPTV_QUALITY] }
-                ?: IptvQualityPreference.HIGHEST
+                ?: IptvQualityPreference.HIGHEST,
+            subtitleAppearance = SubtitleAppearance(
+                preferences[Keys.SUBTITLE_FONT_SIZE] ?: 16,
+                preferences[Keys.SUBTITLE_BOTTOM_OFFSET] ?: 0,
+                preferences[Keys.SUBTITLE_BACKGROUND] ?: 65
+            ).normalized()
         )
     }
 
@@ -135,6 +144,15 @@ class SettingsDataStore @Inject constructor(
     suspend fun setLongPressSpeed(speed: Float) {
         require(speed in LONG_PRESS_SPEEDS)
         dataStore.edit { it[Keys.LONG_PRESS_SPEED] = speed }
+    }
+
+    suspend fun setSubtitleAppearance(appearance: SubtitleAppearance) {
+        val safe = appearance.normalized()
+        dataStore.edit {
+            it[Keys.SUBTITLE_FONT_SIZE] = safe.fontSizeSp
+            it[Keys.SUBTITLE_BOTTOM_OFFSET] = safe.bottomOffsetDp
+            it[Keys.SUBTITLE_BACKGROUND] = safe.backgroundOpacityPercent
+        }
     }
 
     suspend fun setShowPerformance(enabled: Boolean) {

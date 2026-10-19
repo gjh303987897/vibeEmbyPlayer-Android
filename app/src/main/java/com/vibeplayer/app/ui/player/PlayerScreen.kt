@@ -114,7 +114,7 @@ fun PlayerScreen(
             modifier = Modifier.matchParentSize()
         )
 
-        PlayerSubtitleOverlay(state.subtitleText, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp))
+        PlayerSubtitleOverlay(state.subtitleText, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp), playerPreferences.subtitleAppearance)
 
         // Loading + failure feedback: a playback error must never look like an
         // endless spinner.

@@ -101,6 +101,13 @@ required AV1 (dav1d), AC-3/E-AC-3/DTS/TrueHD and subtitle decoders, Matroska/HLS
 GPL and nonfree components remain disabled. HTTPS is handled by the app's OkHttp transport.
 The subtitle patch and distributed support sources bridge decoded PGS/DVD/DVB bitmaps into the
 Kotlin player without replacing the upstream Java AAR. Their hashes are recorded in native-build.json.
+`ijkplayer-subtitle-delay.patch` adds a subtitle-only clock offset and JNI setter
+for embedded text and bitmap tracks. The build recipe temporarily reverses this
+last overlay when validating earlier patch layers, then reapplies it. Rebuilding
+an existing source cache therefore uses the same patch order as a clean build.
+Run `node scripts/test-ijkplayer-subtitle-timing.mjs` after preparing native sources
+to exercise the actual queue scheduler with the host Clang compiler; no device is
+required. This complements, rather than replaces, Android playback validation.
 
 Sources and intermediates live under the ignored `build/ijk-native/` directory. Completed AARs,
 feature configurations, hashes and license notices are written under `third_party/ijkplayer/`.

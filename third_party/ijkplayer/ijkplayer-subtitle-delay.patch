@@ -1,0 +1,63 @@
+--- a/ijkmedia/ijkplayer/ff_ffplay_def.h
++++ b/ijkmedia/ijkplayer/ff_ffplay_def.h
+@@ -562,6 +562,8 @@
+     int64_t subtitle_revision;
+     int subtitle_active;
+     int subtitle_seek_pending;
++    int64_t subtitle_delay_ms;
++    int64_t subtitle_render_delay_ms;
+ 
+     /* format/codec options */
+     AVDictionary *format_opts;
+--- a/ijkmedia/ijkplayer/ff_ffplay.c
++++ b/ijkmedia/ijkplayer/ff_ffplay.c
+@@ -1306,6 +1306,14 @@
+     VideoState *is = ffp->is;
+     double clock = get_master_clock(is);
+     SDL_LockMutex(ffp->subtitle_mutex);
++    /* Shift the subtitle clock only; audio/video clocks and packet timestamps stay intact. */
++    clock -= ffp->subtitle_delay_ms / 1000.0;
++    if (ffp->subtitle_render_delay_ms != ffp->subtitle_delay_ms) {
++        ffp->subtitle_render_delay_ms = ffp->subtitle_delay_ms;
++        vibe_bitmap_subtitles_clear_l(ffp, 1);
++        if (frame_queue_nb_remaining(&is->subpq) > 0)
++            frame_queue_peek(&is->subpq)->uploaded = 0;
++    }
+     if (!ffp->subtitle_active || ffp->subtitle_seek_pending || is->seek_req || is->abort_request || isnan(clock))
+         goto done;
+     while (frame_queue_nb_remaining(&is->subpq) > 0) {
+--- a/ijkmedia/ijkplayer/android/ijkplayer_jni.c
++++ b/ijkmedia/ijkplayer/android/ijkplayer_jni.c
+@@ -98,6 +98,32 @@
+     return result;
+ }
+ 
++JNIEXPORT void JNICALL
++Java_com_vibeplayer_app_player_NativeBitmapSubtitles_setDelay(JNIEnv *env, jobject bridge,
++                                                             jobject player, jlong delay_ms)
++{
++    IjkMediaPlayer *mp = NULL;
++    FFPlayer *ffp;
++    (void)bridge;
++    JNI_CHECK_GOTO(player, env, "java/lang/IllegalArgumentException", "Subtitle player is null", LABEL_RETURN);
++    mp = jni_get_media_player(env, player);
++    JNI_CHECK_GOTO(mp, env, "java/lang/IllegalStateException", "Subtitle player is not initialized", LABEL_RETURN);
++    ffp = mp->ffplayer;
++    JNI_CHECK_GOTO(ffp && ffp->subtitle_mutex, env, "java/lang/IllegalStateException", "Subtitle clock is unavailable", LABEL_RETURN);
++    SDL_LockMutex(ffp->subtitle_mutex);
++    if (delay_ms < -10000) delay_ms = -10000;
++    if (delay_ms > 10000) delay_ms = 10000;
++    if (ffp->subtitle_delay_ms != delay_ms) {
++        ffp->subtitle_delay_ms = delay_ms;
++        /* Invalidate even if several edits return to the old offset before refresh. */
++        ffp->subtitle_render_delay_ms = INT64_MIN;
++        vibe_bitmap_subtitles_clear_l(ffp, 1);
++    }
++    SDL_UnlockMutex(ffp->subtitle_mutex);
++LABEL_RETURN:
++    ijkmp_dec_ref_p(&mp);
++}
++
+ static IjkMediaPlayer *jni_set_media_player(JNIEnv* env, jobject thiz, IjkMediaPlayer *mp)
+ {
+     pthread_mutex_lock(&g_clazz.mutex);

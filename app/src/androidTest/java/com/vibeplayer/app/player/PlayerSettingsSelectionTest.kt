@@ -75,7 +75,7 @@ class PlayerSettingsSelectionTest {
                                 it.updateVideoSize()
                             }, modifier = Modifier.fillMaxSize())
                             PlayerSubtitleOverlay(state.subtitleText,
-                                Modifier.align(Alignment.Center).testTag("visible-settings-subtitle"))
+                                Modifier.align(Alignment.Center).testTag("visible-settings-subtitle"), preferences.subtitleAppearance)
                             PlayerControls(viewModel, Modifier.align(Alignment.BottomCenter))
                             PlayerSettings(true, false, preferences, viewModel)
                         }

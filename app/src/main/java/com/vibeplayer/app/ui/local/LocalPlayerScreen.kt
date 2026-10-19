@@ -89,7 +89,7 @@ fun LocalPlayerScreen(
         )
 
         state.subtitleText?.let { text ->
-            PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp))
+            PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp), playerPreferences.subtitleAppearance)
         }
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.

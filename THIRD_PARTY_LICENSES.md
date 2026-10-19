@@ -36,6 +36,8 @@ native FFmpeg TLS backend. Audio remains client-decoded; Emby/Jellyfin streams r
 - `third_party/ijkplayer/ffmpeg-dav1d.patch` and `libdav1d.c`: AV1 decoder registration, MOV configuration-box parsing and the FFmpeg n4.2 dav1d wrapper adapted to FFmpeg 3.4 / dav1d 1.5.x. The wrapper retains its LGPL notices; the MOV reader is backported from FFmpeg n4.4.
 - `third_party/ijkplayer/tests/int64_options_test.c` and `scripts/test-ijkplayer-int64.mjs`: on-device regression against the packaged FFmpeg library.
 - `third_party/ijkplayer/ijkplayer-bitmap-subtitles.patch`: playback-clock subtitle scheduling and JNI integration.
+- `third_party/ijkplayer/ijkplayer-subtitle-delay.patch`: signed subtitle clock offset and JNI setter, layered over the subtitle scheduler.
+- `third_party/ijkplayer/tests/subtitle_timing_test.c` and `scripts/test-ijkplayer-subtitle-timing.mjs`: host regression of the patched queue scheduler.
 - `third_party/ijkplayer/bitmap_subtitles.{c,h}`, `bitmap_subtitle_pixels.{c,h}`: distributed subtitle bridge and pixel conversion sources.
 - `third_party/ijkplayer/native-build.json`: source revisions, patch hashes, configuration and output hashes.
 - `third_party/ijkplayer/ffmpeg-<abi>-config.h`: retained FFmpeg feature configuration for each ABI.

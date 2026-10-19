@@ -13,6 +13,8 @@ subtitle and speed. Subtitles shares the quick dialog's choices: off, available 
 external or manually imported tracks, and loading a subtitle from the phone even when
 the source has no tracks. Selecting a track or speed applies immediately through
 `PlayerSettingsViewModel` and `PlayerManager`, and the bottom controls stay in sync.
+The Subtitles settings page also opens separate [appearance and timing pages](subtitle-enhancements.md)
+for saved text size/position/background and the current video's signed subtitle offset.
 Playback speed uses the same 0.5x, 1x, 1.25x, 1.5x and 2x choices in both entries.
 Long-press speed remains a separate setting and selection page; changing normal
 playback speed does not change its saved value. Each subpage has its own scroll state,
