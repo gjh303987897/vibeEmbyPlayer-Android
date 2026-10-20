@@ -1,0 +1,18 @@
+<resources>
+    <string name="video_info_title">视频信息</string>
+    <string name="video_info_help">显示当前所选视频和音频轨道的源媒体信息。帧率为源帧率，与实时输出帧率不同；码率由媒体提供，无法获取的数据显示为“未知”。</string>
+    <string name="video_info_unknown">未知</string>
+    <string name="video_info_video">视频</string>
+    <string name="video_info_audio">音频</string>
+    <string name="video_info_resolution">视频分辨率</string>
+    <string name="video_info_frame_rate">视频帧率</string>
+    <string name="video_info_video_codec">视频编码格式</string>
+    <string name="video_info_video_bitrate">视频码率</string>
+    <string name="video_info_profile">视频编码配置</string>
+    <string name="video_info_pixel_format">像素格式</string>
+    <string name="video_info_audio_codec">音频编码格式</string>
+    <string name="video_info_audio_bitrate">音频码率</string>
+    <string name="video_info_sample_rate">音频采样率</string>
+    <string name="video_info_channels">音频声道</string>
+    <string name="video_info_channel_count">%1$d 声道</string>
+</resources>

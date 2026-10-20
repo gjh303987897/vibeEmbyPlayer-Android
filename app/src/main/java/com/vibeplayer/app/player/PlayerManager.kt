@@ -59,6 +59,7 @@ data class PlayerState(
     val audioTracks: List<AudioTrack> = emptyList(),
     val selectedAudioTrackKey: String? = null,
     val audioDecode: AudioDecodeInfo? = null,
+    val mediaInfo: PlaybackMediaInfo = PlaybackMediaInfo(),
     val videoDecodeMode: VideoDecodeMode? = null,
     val surfaceGeneration: Long = 0L,
     val privatePlayback: Boolean = false
@@ -322,6 +323,9 @@ class PlayerManager @Inject constructor(
 
     @MainThread
     private fun installListeners() {
+        player.setOnVideoSizeChangedListener { _, _, _, _, _ ->
+            if (_state.value.isPrepared) updateTracks()
+        }
         player.setOnPreparedListener {
             val restore = decoderRestore
             decoderRestore = null
@@ -709,7 +713,7 @@ class PlayerManager @Inject constructor(
         stopPositionTicker()
         clearVisibleSubtitles()
         runCatching { player.stop() }
-        _state.update { it.copy(isPrepared = false, buffering = false) }
+        _state.update { it.copy(isPrepared = false, buffering = false, mediaInfo = PlaybackMediaInfo()) }
     }
 
     fun seekTo(positionMs: Long) {
@@ -914,6 +918,7 @@ class PlayerManager @Inject constructor(
 
     private fun updateTracks() {
         val infos = runCatching { player.trackInfo?.toList() ?: emptyList() }.getOrDefault(emptyList())
+        val selectedVideo = runCatching { player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_VIDEO) }.getOrDefault(-1)
         val selectedAudio = runCatching { player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_AUDIO) }.getOrDefault(-1)
         val selectedText = runCatching { player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT) }.getOrDefault(-1)
         val externalKey = _state.value.selectedSubtitleKey?.takeIf { it.startsWith("external:") }
@@ -945,13 +950,17 @@ class PlayerManager @Inject constructor(
             val decoder = runCatching { player.mediaInfo?.mAudioDecoder }.getOrNull()
             decideAudioDecode(codec, hardwareDecoder = decoder == "MediaCodec", decoderAvailable = !decoder.isNullOrBlank())
         }
+        val mediaInfo = if (_state.value.isPrepared) runCatching {
+            readPlaybackMediaInfo(infos, selectedVideo, selectedAudio)
+        }.getOrDefault(PlaybackMediaInfo()) else PlaybackMediaInfo()
         _state.update {
             it.copy(
                 audioTracks = audio,
                 selectedAudioTrackKey = audio.firstOrNull { track -> track.selected }?.key,
                 subtitleTracks = allSubtitles,
                 selectedSubtitleKey = allSubtitles.firstOrNull { track -> track.selected }?.key,
-                audioDecode = audioInfo
+                audioDecode = audioInfo,
+                mediaInfo = mediaInfo
             )
         }
     }

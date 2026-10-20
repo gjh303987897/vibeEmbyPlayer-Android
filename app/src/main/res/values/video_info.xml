@@ -1,0 +1,18 @@
+<resources>
+    <string name="video_info_title">Video information</string>
+    <string name="video_info_help">Source metadata for the selected video and audio tracks. Frame rate is the source rate, not live output FPS. Bitrates are provided by the media; missing values are shown as unknown.</string>
+    <string name="video_info_unknown">Unknown</string>
+    <string name="video_info_video">Video</string>
+    <string name="video_info_audio">Audio</string>
+    <string name="video_info_resolution">Video resolution</string>
+    <string name="video_info_frame_rate">Video frame rate</string>
+    <string name="video_info_video_codec">Video codec</string>
+    <string name="video_info_video_bitrate">Video bitrate</string>
+    <string name="video_info_profile">Video profile</string>
+    <string name="video_info_pixel_format">Pixel format</string>
+    <string name="video_info_audio_codec">Audio codec</string>
+    <string name="video_info_audio_bitrate">Audio bitrate</string>
+    <string name="video_info_sample_rate">Audio sample rate</string>
+    <string name="video_info_channels">Audio channels</string>
+    <string name="video_info_channel_count">%1$d ch</string>
+</resources>

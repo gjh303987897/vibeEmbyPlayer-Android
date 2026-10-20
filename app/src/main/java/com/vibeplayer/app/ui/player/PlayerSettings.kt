@@ -57,7 +57,7 @@ import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import kotlin.math.roundToInt
 
-private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING, VIDEO_SCALE, SLEEP_TIMER, SLEEP_CUSTOM, PICTURE_IN_PICTURE, LAYOUT, DECODE, PERFORMANCE }
+private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING, VIDEO_SCALE, SLEEP_TIMER, SLEEP_CUSTOM, PICTURE_IN_PICTURE, LAYOUT, DECODE, PERFORMANCE, VIDEO_INFO }
 
 /** Shared chrome for every source; performance remains visible when controls are hidden or locked. */
 @Composable
@@ -122,6 +122,7 @@ fun BoxScope.PlayerSettings(
                         PlayerSettingsPage.LAYOUT -> R.string.player_layout
                         PlayerSettingsPage.DECODE -> R.string.player_settings_decode
                         PlayerSettingsPage.PERFORMANCE -> R.string.player_settings_performance
+                        PlayerSettingsPage.VIDEO_INFO -> R.string.video_info_title
                         PlayerSettingsPage.ROOT -> R.string.player_settings
                     }),
                         style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
@@ -133,6 +134,7 @@ fun BoxScope.PlayerSettings(
                     if (saveFailed) Text(stringResource(R.string.player_settings_save_failed),
                         color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                     when {
+                        page == PlayerSettingsPage.VIDEO_INFO -> VideoInfoSettings(playerState.mediaInfo)
                         page == PlayerSettingsPage.SOURCE && sourceSettings != null -> sourceSettings()
                         page == PlayerSettingsPage.SUBTITLES -> {
                             ListItem(
@@ -186,6 +188,9 @@ fun BoxScope.PlayerSettings(
                                 "${playerState.playbackSpeed}x") { page = PlayerSettingsPage.PLAYBACK_SPEED }
                             PlayerSettingMenuRow(Icons.Outlined.AspectRatio, stringResource(R.string.video_scale),
                                 stringResource(videoScaleLabel(preferences.videoScaleMode))) { page = PlayerSettingsPage.VIDEO_SCALE }
+                            PlayerSettingMenuRow(Icons.Outlined.Info, stringResource(R.string.video_info_title)) {
+                                page = PlayerSettingsPage.VIDEO_INFO
+                            }
                             if (sourceSettings != null) PlayerSettingMenuRow(Icons.AutoMirrored.Outlined.AltRoute,
                                 stringResource(R.string.iptv_source_selection), sourceSummary) { page = PlayerSettingsPage.SOURCE }
                             PlayerSettingMenuRow(Icons.Outlined.PictureInPictureAlt, stringResource(R.string.pip_title)) {

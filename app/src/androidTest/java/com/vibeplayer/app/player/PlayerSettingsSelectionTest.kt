@@ -106,6 +106,19 @@ class PlayerSettingsSelectionTest {
                 compose.runOnUiThread { compose.activity.requestedOrientation = requested }
                 compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == orientation }
                 compose.onNodeWithContentDescription(text(R.string.player_settings)).performClick()
+                compose.onNodeWithText(text(R.string.video_info_title)).performScrollTo().performClick()
+                compose.onNodeWithText("160 × 96").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithText("24 fps").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithText("AV1").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithText("AAC").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithText("48000 Hz").performScrollTo().assertIsDisplayed()
+                compose.runOnIdle {
+                    assertEquals(5504L, manager.state.value.mediaInfo.video?.bitrate)
+                    assertEquals(32263L, manager.state.value.mediaInfo.audio?.bitrate)
+                    assertFalse("viewing information must preserve pause", manager.state.value.isPlaying)
+                }
+                capture("settings-video-info-$orientation.png")
+                compose.onNodeWithContentDescription(text(R.string.back)).performClick()
                 compose.onNodeWithText(text(R.string.video_scale)).performScrollTo().performClick()
                 choice(text(R.string.video_scale_crop)).performClick()
                 compose.waitUntil(10_000) { manager.preferences.value.videoScaleMode == VideoScaleMode.CROP }
@@ -186,6 +199,7 @@ class PlayerSettingsSelectionTest {
         } finally {
             compose.runOnUiThread {
                 manager.stop()
+                assertEquals("stopping must clear the previous streams' metadata", PlaybackMediaInfo(), manager.state.value.mediaInfo)
                 manager.setPlaybackSpeed(1f)
                 compose.activity.requestedOrientation = originalOrientation
                 app.stopService(Intent(app, PlaybackService::class.java))

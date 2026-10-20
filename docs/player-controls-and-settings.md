@@ -42,7 +42,9 @@ Long-press speed remains a separate setting and selection page; changing normal
 playback speed does not change its saved value. Each subpage has its own scroll state,
 so scrolling the main settings cannot hide the first choices on entry.
 Decoder, performance/diagnostics and layout preferences remain available as
-separate pages from the same root menu. No playback capabilities are added by the
+separate pages from the same root menu. [Video information](video-information.md)
+shows the selected streams' source resolution/FPS, codecs, video/audio bitrates,
+sample rate and channel count without reloading playback. No playback capabilities are added by the
 visual change, including no YouTube annotations or adaptive-quality selection.
 IPTV adds a [route selection page](iptv-multi-source.md) in the root menu, with separate
 Routes and Quality tabs for manual source selection and the persisted automatic quality preference.
