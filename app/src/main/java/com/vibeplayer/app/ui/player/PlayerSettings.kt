@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -135,12 +136,14 @@ fun BoxScope.PlayerSettings(
                         page == PlayerSettingsPage.SOURCE && sourceSettings != null -> sourceSettings()
                         page == PlayerSettingsPage.SUBTITLES -> {
                             ListItem(
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                 headlineContent = { Text(stringResource(R.string.subtitle_appearance)) },
                                 supportingContent = { Text(stringResource(R.string.subtitle_appearance_summary)) },
                                 trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
                                 modifier = Modifier.clickable { page = PlayerSettingsPage.SUBTITLE_APPEARANCE }
                             )
                             ListItem(
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                 headlineContent = { Text(stringResource(R.string.subtitle_timing)) },
                                 supportingContent = { Text(stringResource(R.string.subtitle_timing_value, playerState.subtitleDelayMs / 1000f)) },
                                 trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
@@ -224,6 +227,7 @@ fun BoxScope.PlayerSettings(
                             val performanceLabel = stringResource(R.string.player_performance_overlay)
                             val diagnosticsLabel = stringResource(R.string.player_diagnostics)
                             ListItem(
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                 headlineContent = { Text(performanceLabel) },
                                 supportingContent = { Text(stringResource(R.string.player_performance_overlay_help)) },
                                 trailingContent = { Switch(checked = preferences.showPerformance, onCheckedChange = viewModel::setShowPerformance,
@@ -232,6 +236,7 @@ fun BoxScope.PlayerSettings(
                             Text(stringResource(R.string.player_performance_scope), style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(16.dp))
                             ListItem(
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                 headlineContent = { Text(diagnosticsLabel) },
                                 supportingContent = { Text(stringResource(R.string.player_diagnostics_help)) },
                                 trailingContent = { Switch(checked = preferences.showDiagnostics, onCheckedChange = viewModel::setShowDiagnostics,

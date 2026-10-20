@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
@@ -71,6 +72,7 @@ internal fun SleepTimerSettings(
                 timer.mode == SleepTimerMode.COUNTDOWN && timer.minutes == minutes, prepared) { onMinutes(minutes) }
         }
         ListItem(headlineContent = { Text(stringResource(R.string.sleep_timer_custom)) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
             modifier = Modifier.clickable(enabled = prepared, onClick = onCustom))
         SettingRadioRow(stringResource(R.string.sleep_timer_after_video), timer.mode == SleepTimerMode.AFTER_VIDEO,

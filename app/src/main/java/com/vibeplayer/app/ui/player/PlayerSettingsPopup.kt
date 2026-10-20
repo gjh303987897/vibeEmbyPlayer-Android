@@ -36,8 +36,11 @@ internal fun PlayerSettingsPopup(onDismiss: () -> Unit, content: @Composable Col
     Popup(popupPositionProvider = position, onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true)) {
         MaterialTheme(colorScheme = darkColorScheme(primary = Color.White, onPrimary = Color.Black,
-            surface = Color.Transparent, onSurface = Color.White, onSurfaceVariant = Color.White.copy(alpha = .7f))) {
-            Surface(shape = RoundedCornerShape(20.dp), color = Color(0xE61C1C1C),
+            surface = Color(0xFF1C1C1C), onSurface = Color.White, onSurfaceVariant = Color(0xFFD1D1D1))) {
+            // A custom translucent background cannot infer its content color from the palette.
+            // Set it explicitly so a light host theme cannot supply black text/icons.
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.widthIn(max = maxWidth)
                     .width(360.dp).heightIn(max = maxHeight)) {
                 Column(content = content)

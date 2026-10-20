@@ -11,7 +11,19 @@ action dock, with fullscreen at the far right; PiP and audio-track actions stay 
 the header. Settings opens a rounded, translucent dark popup above that dock,
 without a full-screen dimming scrim. Its height is bounded to the available window
 and long pages scroll, including in landscape. Clicking outside or system Back
-closes the popup. Subtitles and Playback speed
+closes the popup.
+
+The popup keeps a local dark palette in both light and dark app themes. Its
+custom translucent Surface explicitly provides white content, preventing titles,
+plain text and icons from inheriting a light host's black foreground. Secondary
+text uses opaque `#D1D1D1`; the `#1C1C1C` panel is 96% opaque. Over a pure-white
+video frame, the resulting background is approximately `#252525`, giving normal
+primary/secondary text contrast of approximately 15:1 / 10:1. Disabled controls
+retain Material 3's distinct disabled appearance. The palette's semantic surface
+stays opaque for nested components; only the panel's ListItems use transparent
+containers, so their background is not painted twice.
+
+Subtitles and Playback speed
 open separate selection pages with a back action; their icon/label/value root rows show the current
 subtitle and speed. Subtitles shares the quick dialog's choices: off, available embedded,
 external or manually imported tracks, and loading a subtitle from the phone even when
@@ -139,6 +151,18 @@ the same units.
 
 ## Validation
 
+Popup contrast follow-up completed on 2026-10-21: `assembleDebug`,
+`assembleDebugAndroidTest` and `lint` pass (zero errors, the same three warnings).
+On HUAWEI TAS-AL00 / API 31, the isolated package is checked under light and dark
+app themes. Screenshots cover the root menu, subtitle selection/appearance/timing,
+speed/hold speed, sizing, decoder, performance, layout, PiP, sleep presets and the
+custom-duration field. Invalid input (0) shows a readable error; valid input (2)
+shows white input text and a black-on-white enabled action. No timer is started.
+Performance switches are checked off/on and restored, and the dark root/subtitle
+pages are also checked in landscape over generated colour bars. Theme and USB
+stay-awake settings are restored afterward. IPTV-specific route content is not
+part of this visual device pass; it inherits the same scoped palette.
+
 Menu/progress/fullscreen and idle-lock update verified on 2026-10-20:
 `assembleDebug`, `assembleDebugAndroidTest`, all 117 JVM tests and `lint` pass
 (zero errors, the three existing warnings). On HUAWEI TAS-AL00 / API 31,
@@ -219,6 +243,7 @@ orientation and the temporary USB stay-awake setting are restored after validati
 - [Material 3 Slider customization](https://developer.android.com/develop/ui/compose/components/slider)
 - [Compose single-selection radio buttons](https://developer.android.com/develop/ui/compose/components/radio-button)
 - [Compose interaction testing](https://developer.android.com/develop/ui/compose/testing/apis)
+- [Material Surface content-color inheritance](https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/Surface.kt)
 - [Android Surface ownership](https://source.android.com/docs/core/graphics/arch-sh)
 - [Compose safe drawing insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
 - [Pinned IJK options](https://github.com/bilibili/ijkplayer/blob/k0.8.8/ijkmedia/ijkplayer/ff_ffplay_options.h)

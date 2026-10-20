@@ -77,6 +77,7 @@ internal fun PictureInPictureSettings(automatic: Boolean, onAutomaticChange: (Bo
         Button(onClick = { controller?.enter() }, enabled = state.canEnter) { Text(stringResource(R.string.pip_enter)) }
         val automaticLabel = stringResource(R.string.pip_automatic)
         ListItem(headlineContent = { Text(automaticLabel) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             supportingContent = { Text(stringResource(R.string.pip_automatic_help)) },
             trailingContent = { Switch(automatic, onCheckedChange = onAutomaticChange, enabled = state.supported,
                 modifier = Modifier.semantics { contentDescription = automaticLabel }) })
