@@ -1,6 +1,6 @@
 # Subtitle appearance and timing
 
-Open **Player settings → Playback → Subtitles**. Track selection and phone import
+Open **Player settings → Subtitles**. Track selection and phone import
 remain on that page. **Subtitle appearance** and **Subtitle timing** open separate
 scrollable pages; their back buttons return to Subtitles.
 

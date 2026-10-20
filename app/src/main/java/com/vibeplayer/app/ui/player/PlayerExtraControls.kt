@@ -8,8 +8,6 @@ import android.media.AudioManager
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Audiotrack
-import androidx.compose.material.icons.outlined.Fullscreen
-import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,11 +63,9 @@ fun PlayerFullscreenEffect(fullscreen: Boolean) {
     }
 }
 
-/** Shared fullscreen and audio-track actions used by every video source. */
+/** Header actions; fullscreen is in the shared bottom-right dock. */
 @Composable
 fun PlayerExtraActions(
-    fullscreen: Boolean,
-    onToggleFullscreen: () -> Unit,
     audioTracks: List<AudioTrack>,
     selectedAudioTrackKey: String?,
     onAudioTrackSelected: (AudioTrack) -> Unit
@@ -78,15 +74,6 @@ fun PlayerExtraActions(
         PlayerPipAction()
         if (audioTracks.size > 1) {
             AudioTrackSelector(audioTracks, selectedAudioTrackKey, onAudioTrackSelected)
-        }
-        IconButton(onClick = onToggleFullscreen) {
-            Icon(
-                imageVector = if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
-                contentDescription = stringResource(
-                    if (fullscreen) R.string.player_exit_fullscreen else R.string.player_fullscreen
-                ),
-                tint = Color.White
-            )
         }
     }
 }

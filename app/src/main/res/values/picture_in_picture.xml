@@ -1,7 +1,6 @@
 <resources>
     <string name="pip_title">Picture-in-picture</string>
     <string name="pip_enter">Enter picture-in-picture</string>
-    <string name="pip_settings_summary">Small window playback and automatic entry</string>
     <string name="pip_help">Keep watching in a small system window. Tap it for playback controls or to return to the player. Closing the window pauses playback.</string>
     <string name="pip_automatic">Enter when leaving the app</string>
     <string name="pip_automatic_help">Automatically enter while a video is playing. Paused videos, audio-only media and open player dialogs do not enter automatically.</string>

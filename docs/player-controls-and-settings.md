@@ -6,35 +6,49 @@ All sources share the bottom controls and support
 [loading phone subtitles](manual-subtitles.md), even without embedded tracks.
 
 All five source screens (Emby/Jellyfin, WebDAV, IPTV, links and local media) use the same
-gesture handling and settings panel. The settings button sits independently at the lower right.
-The panel uses three Material 3 tabs. Under Playback, Subtitles and Playback speed
-open separate selection pages with a back action; their root rows show the current
+gesture handling and settings panel. Settings and fullscreen share a bottom-right
+action dock, with fullscreen at the far right; PiP and audio-track actions stay in
+the header. Settings opens a rounded, translucent dark popup above that dock,
+without a full-screen dimming scrim. Its height is bounded to the available window
+and long pages scroll, including in landscape. Clicking outside or system Back
+closes the popup. Subtitles and Playback speed
+open separate selection pages with a back action; their icon/label/value root rows show the current
 subtitle and speed. Subtitles shares the quick dialog's choices: off, available embedded,
 external or manually imported tracks, and loading a subtitle from the phone even when
 the source has no tracks. Selecting a track or speed applies immediately through
 `PlayerSettingsViewModel` and `PlayerManager`, and the bottom controls stay in sync.
 The Subtitles settings page also opens separate [appearance and timing pages](subtitle-enhancements.md)
 for saved text size/position/background and the current video's signed subtitle offset.
-Playback also opens separate [video sizing and sleep timer pages](video-sizing-and-sleep-timer.md).
+The root menu also opens separate [video sizing and sleep timer pages](video-sizing-and-sleep-timer.md).
 Sizing supports fit, crop, original pixels and session pinch zoom. Sleep offers
 15/30/60-minute presets, a custom-duration subpage and natural-end stopping.
 [Picture-in-picture](picture-in-picture.md) adds a header action and its own
-Playback settings page, including an automatic-on-leave preference. In PiP,
+settings page, including an automatic-on-leave preference. In PiP,
 the normal chrome/gestures are hidden and system media controls handle playback.
 Playback speed uses the same 0.5x, 1x, 1.25x, 1.5x and 2x choices in both entries.
 Long-press speed remains a separate setting and selection page; changing normal
 playback speed does not change its saved value. Each subpage has its own scroll state,
 so scrolling the main settings cannot hide the first choices on entry.
-IPTV adds a [route selection page](iptv-multi-source.md) under Playback, with separate
+Decoder, performance/diagnostics and layout preferences remain available as
+separate pages from the same root menu. No playback capabilities are added by the
+visual change, including no YouTube annotations or adaptive-quality selection.
+IPTV adds a [route selection page](iptv-multi-source.md) in the root menu, with separate
 Routes and Quality tabs for manual source selection and the persisted automatic quality preference.
 The button and bottom playback controls share navigation/cutout safe-area padding. The seek
 area uses the larger of the left/right safe insets on both sides, so a one-sided landscape
 cutout cannot move the primary action away from the physical screen centre. Insets are read
 at layout time and remain responsive to system-bar visibility changes. The seek
-bar and timestamps span the full safe width. Only the bottom action/volume row reserves 56 dp
-symmetrically on both sides, keeping play/pause centred and leaving the settings button clear
-of the volume slider. The shared control panel keeps transport centered; speed, volume and
-subtitle menus use the side areas on wide screens and a separate row on narrow screens.
+bar spans the safe width with a 4-dp red elapsed track, a translucent remaining
+track and a round thumb (12 dp, 16 dp while dragging). The underlying Material 3
+Slider retains its 48-dp touch area, accessibility and drag/commit behavior. A
+combined elapsed/total label appears below the bar at the left and previews the
+pending seek position while dragging. Live media without a duration stays disabled;
+no estimated buffered range is drawn. The former 1000-dp panel width cap is removed
+so wide-screen progress reaches the safe edges too.
+The transport row keeps play/pause physically centred. The quick actions and
+portrait volume slider reserve 104 dp at the right for the two dock actions;
+quick actions use a separate row on narrow screens. Title, screen lock, gestures,
+PiP integration, video output and playback commands retain their existing behavior.
 
 All sources use the same top bar. Performance readouts occupy a trailing slot beside the
 header actions (stacked in portrait); enabling them adds no top padding. Title and actions align
@@ -56,6 +70,16 @@ Locking disables the existing gesture modifier instead of removing its composabl
 used to dispose `PlayerBrightnessController`, restoring system brightness and causing the visible
 brightness jump. The window override now remains across lock/unlock and is restored on navigation
 away. Cancelling a long press clears the temporary speed and gesture indicator.
+
+While locked, the unlock icon disappears after three seconds without touch input.
+Touching the locked video reveals it and restarts the idle interval after all fingers
+are released. The full-screen blocking surface remains active while the icon is hidden;
+the revealing gesture cannot also unlock or change playback, brightness, volume or
+position. A subsequent press on the visible icon unlocks normally. The shared component
+applies this behavior to every source without changing the unlocked controls' visibility.
+The full-screen touch observer is attached only while locked. Keeping a pointer-input
+node attached while unlocked, even with an immediately returning handler, intercepts
+hit testing and prevents the underlying volume/brightness gestures from receiving input.
 
 ## Preferences and decoding
 
@@ -115,6 +139,30 @@ the same units.
 
 ## Validation
 
+Menu/progress/fullscreen and idle-lock update verified on 2026-10-20:
+`assembleDebug`, `assembleDebugAndroidTest`, all 117 JVM tests and `lint` pass
+(zero errors, the three existing warnings). On HUAWEI TAS-AL00 / API 31,
+all four tests in `PlayerControlsTest` and `PlayerSettingsSelectionTest` pass.
+They cover actual music-stream changes, brightness preservation, initial and repeated
+three-second idle hiding, holding a finger down, blocked locked swipes, reveal without
+unlocking, a subsequent unlock, pinch gestures, and hold-speed restoration. The
+selection test exercises the production popup in portrait/landscape, including
+subtitles, native playback speed, sizing/zoom and preset/custom sleep timer navigation.
+Accessibility is connected before composition and nodes are refreshed before each
+lock-icon check, avoiding stale semantics from the previous visibility state.
+
+The device run found and fixed the unlocked pointer-input interception described above.
+Manual checks use generated colour bars over a USB-forwarded local HTTP endpoint:
+the real player displays video, the dark settings popup anchors above the bottom-right
+dock, the new seek bar accepts a drag to approximately 06:25 in a ten-minute file,
+and fullscreen enters/exits immersive mode without restarting playback. On the 2340-pixel
+landscape display, play/pause remains centred at approximately x=1170; settings and
+fullscreen stay at the lower right. Screen captures confirm both initial and post-hold
+idle hiding. The isolated application's ID preserves the original app's data.
+Temporary USB stay-awake/forwarding settings are restored after the run.
+Large fonts, other cutout geometries and custom-duration keyboard entry remain outside
+this device run's coverage.
+
 Build and lint tasks and the JVM suite must pass. `PlaybackPerformanceTest` covers core
 normalization, invalid sampling intervals and busy/total counter validation.
 `PlayerControlsTest` dispatches touchscreen events through the Activity decor view, checks the system music volume, clicks
@@ -167,7 +215,8 @@ orientation and the temporary USB stay-awake setting are restored after validati
 - [Android media volume](https://developer.android.com/media/platform/output)
 - [Window brightness](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness)
 - [Process CPU time](https://developer.android.com/reference/android/os/Process#getElapsedCpuTime())
-- [Material 3 bottom sheets](https://developer.android.com/develop/ui/compose/components/bottom-sheets)
+- [Compose menus and anchored popups](https://developer.android.com/develop/ui/compose/components/menu)
+- [Material 3 Slider customization](https://developer.android.com/develop/ui/compose/components/slider)
 - [Compose single-selection radio buttons](https://developer.android.com/develop/ui/compose/components/radio-button)
 - [Compose interaction testing](https://developer.android.com/develop/ui/compose/testing/apis)
 - [Android Surface ownership](https://source.android.com/docs/core/graphics/arch-sh)

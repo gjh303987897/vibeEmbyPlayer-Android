@@ -1,7 +1,7 @@
 # Picture-in-picture playback
 
 Android PiP is available from the player header button and from
-**Player settings → Playback → Picture-in-picture**. It uses the existing
+**Player settings → Picture-in-picture**. It uses the existing
 `MainActivity`, IJK surface and framework media session, with no floating-overlay
 permission, extra playback Activity, new media backend or native-library changes.
 Emby/Jellyfin, WebDAV/TSSL, IPTV, links and local video share the integration.
@@ -28,7 +28,7 @@ Player settings, audio/subtitle dialogs and speed/volume menus suppress automati
 entry while visible. Launching the subtitle document picker or system app settings
 also blocks automatic entry until returning, so choosing a document does not
 unexpectedly shrink the player. Manual entry from the PiP settings page remains
-possible while that sheet is open. Unsupported devices show an explanation and
+possible while that settings panel is open. Unsupported devices show an explanation and
 do not expose the header action; denied access is explained in the settings page.
 
 ## Window and lifecycle

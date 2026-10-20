@@ -1,7 +1,7 @@
 # Video sizing and sleep timer
 
 All player sources (Emby/Jellyfin, WebDAV/TSSL, local files, links and IPTV) share
-these settings under **Player settings → Playback**. No source protocol or native
+these settings in the **Player settings** menu. No source protocol or native
 decoder library changes are needed. The reviewed Qt `PlayerRuntime.md` and
 `PlayerController` retain aspect-fit video in a fixed player surface, without
 equivalent sizing/sleep controls; these are Android additions.
@@ -45,7 +45,7 @@ The countdown uses `SystemClock.elapsedRealtime()`, not playback position,
 playback speed, wall time or the number of timer callbacks. Pausing does not stop
 the countdown. If execution is delayed, the next tick compares the actual elapsed
 deadline instead of extending the timer. The app-scoped player owns the timer,
-so it does not depend on the settings sheet being visible. It uses the existing
+so it does not depend on the settings panel being visible. It uses the existing
 playback process/service; there is no exact-alarm permission, scheduled playback
 or automatic start.
 
@@ -71,6 +71,14 @@ service and does not independently wake a killed playback process.
 
 ## Validation
 
+Device follow-up on 2026-10-20: HUAWEI TAS-AL00 / API 31 passes
+`PlayerControlsTest` (including pinch gestures) and `PlayerSettingsSelectionTest`
+with the new popup in portrait/landscape. The latter checks sizing, zoom/reset,
+timer presets, custom-duration selection, after-video mode and cancellation.
+These checks do not cover real-time timer expiry or the separate manager reload
+test below. The complete shared-controls run is recorded in
+[Player controls and settings](player-controls-and-settings.md#validation).
+
 Local validation on 2026-10-20: `assembleDebug`, `assembleDebugAndroidTest`,
 all 110 JVM tests and `lint` pass. Lint reports zero errors and the same three
 existing warnings (TLS policy/trust manager and the custom-view constructor).
@@ -83,7 +91,7 @@ metadata and invalid zoom bounds. `SleepTimerTest` covers elapsed deadlines,
 delayed ticks, cancellation/rearming, natural completion, after-video mode,
 one-shot expiry, custom limits and overflow boundaries.
 
-Device regressions are compiled but not executed for this change:
+Device regressions were initially compiled without execution (see the follow-up above):
 
 - `PlayerControlsTest.pinchZoomDoesNotSeekChangeVolumeTogglePlaybackOrDimTheWindow`
   dispatches actual two-pointer touchscreen events through the Activity view tree.

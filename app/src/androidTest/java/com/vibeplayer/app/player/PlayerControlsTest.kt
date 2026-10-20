@@ -22,6 +22,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.vibeplayer.app.MainActivity
+import com.vibeplayer.app.R
 import com.vibeplayer.app.VibePlayerApp
 import com.vibeplayer.app.ui.player.PlayerScreenLock
 import com.vibeplayer.app.ui.player.playerGestureSurface
@@ -90,6 +91,9 @@ class PlayerControlsTest {
     }
 
     @Test fun rightSwipeChangesSystemMediaVolumeAndLockPreservesBrightness() {
+        // Connect accessibility before composing: its first connection initializes semantics asynchronously.
+        val automation = instrumentation.uiAutomation
+        automation.rootInActiveWindow
         val audio = instrumentation.targetContext.getSystemService(AudioManager::class.java)
         val originalVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         try {
@@ -139,6 +143,34 @@ class PlayerControlsTest {
                     assertTrue("the lock button must lock touches", locked.value)
                     assertEquals("locking must not restore system brightness", brightness, it.window.attributes.screenBrightness, .0001f)
                 }
+                awaitUnlockIcon("unlock must initially be available")
+                SystemClock.sleep(3_400)
+                instrumentation.waitForIdleSync()
+                assertFalse("the icon must disappear after three idle seconds", unlockIconPresent())
+
+                // Holding the locked surface reveals the icon without changing playback settings.
+                val lockedDown = SystemClock.uptimeMillis()
+                touch(root, MotionEvent.ACTION_DOWN, .85f, .5f, lockedDown)
+                try {
+                    SystemClock.sleep(3_400)
+                    instrumentation.waitForIdleSync()
+                    awaitUnlockIcon("a finger still on the screen is not idle")
+                } finally {
+                    touch(root, MotionEvent.ACTION_UP, .85f, .5f, lockedDown)
+                }
+                swipe(root, .85f, .7f, .85f, .3f)
+                swipe(root, .25f, .3f, .25f, .65f)
+                scenario.onActivity {
+                    assertTrue(locked.value)
+                    assertEquals(brightness, it.window.attributes.screenBrightness, .0001f)
+                    assertEquals("locked swipes must not raise volume", 0, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+                }
+                SystemClock.sleep(3_400)
+                instrumentation.waitForIdleSync()
+                assertFalse("the idle timer must restart after touch release", unlockIconPresent())
+                tapLock(root)
+                scenario.onActivity { assertTrue("the revealing tap must not also unlock", locked.value) }
+                awaitUnlockIcon("touch must reveal the unlock button")
                 tapLock(root)
                 scenario.onActivity {
                     assertFalse(locked.value)
@@ -152,6 +184,33 @@ class PlayerControlsTest {
         } finally {
             audio.setStreamVolume(AudioManager.STREAM_MUSIC, originalVolume, 0)
         }
+    }
+
+    private fun unlockIconPresent(): Boolean {
+        val description = instrumentation.targetContext.getString(R.string.player_unlock)
+        fun contains(node: android.view.accessibility.AccessibilityNodeInfo): Boolean {
+            // Read current semantics rather than cached nodes from before the idle transition.
+            if (!node.refresh()) return false
+            if (node.contentDescription?.toString() == description) return true
+            return (0 until node.childCount).any { index -> node.getChild(index)?.let(::contains) == true }
+        }
+        val present = instrumentation.uiAutomation.rootInActiveWindow?.let(::contains) == true
+        val screenshot = instrumentation.uiAutomation.takeScreenshot()
+        if (screenshot != null) {
+            java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "lock-last-observation.png")
+                .outputStream().use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            screenshot.recycle()
+        }
+        return present
+    }
+
+    private fun awaitUnlockIcon(message: String) {
+        val deadline = SystemClock.elapsedRealtime() + 1_000
+        do {
+            if (unlockIconPresent()) return
+            SystemClock.sleep(25)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        throw AssertionError(message + ": " + instrumentation.uiAutomation.rootInActiveWindow)
     }
 
     @Test fun configuredLongPressSpeedRestoresThePreviousSpeedOnRelease() {

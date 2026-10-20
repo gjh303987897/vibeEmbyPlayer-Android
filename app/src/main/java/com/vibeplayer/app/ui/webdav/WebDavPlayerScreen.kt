@@ -154,8 +154,6 @@ fun WebDavPlayerScreen(
                 onBack = { if (!navController.navigateUp()) navController.popBackStack() },
                 actions = {
                     PlayerExtraActions(
-                        fullscreen = fullscreen,
-                        onToggleFullscreen = { fullscreen = !fullscreen },
                         audioTracks = state.audioTracks,
                         selectedAudioTrackKey = state.selectedAudioTrackKey,
                         onAudioTrackSelected = viewModel::selectAudioTrack
@@ -166,7 +164,8 @@ fun WebDavPlayerScreen(
                 Modifier.align(Alignment.BottomCenter).bottomEdgeInsets(), onHeightChanged = { controlsHeight = it })
         }
 
-        if (!pipMode) PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings)
+        if (!pipMode) PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings,
+            fullscreen = fullscreen, onToggleFullscreen = { fullscreen = !fullscreen })
 
         if (!pipMode) PlayerScreenLock(
             locked = locked,

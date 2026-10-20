@@ -155,8 +155,6 @@ fun IptvPlayerScreen(
                 onBack = { navController.popBackStack() },
                 actions = {
                     PlayerExtraActions(
-                        fullscreen = fullscreen,
-                        onToggleFullscreen = { fullscreen = !fullscreen },
                         audioTracks = state.audioTracks,
                         selectedAudioTrackKey = state.selectedAudioTrackKey,
                         onAudioTrackSelected = viewModel::selectAudioTrack
@@ -168,6 +166,7 @@ fun IptvPlayerScreen(
         }
 
         if (!pipMode) PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings,
+            fullscreen = fullscreen, onToggleFullscreen = { fullscreen = !fullscreen },
             sourceSummary = iptvSourceSummary(routes),
             sourceSettings = {
                 IptvSourceSettings(routes, playerPreferences.iptvQuality, playerSettings::setIptvQuality,

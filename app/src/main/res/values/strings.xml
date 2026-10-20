@@ -247,7 +247,6 @@
     <string name="message_error_server">The server returned an error. Try again or check its status.</string>
     <string name="message_error_format">The response or media format is not supported.</string>
     <string name="player_settings">Player settings</string>
-    <string name="player_settings_playback">Playback</string>
     <string name="player_settings_decode">Decoding</string>
     <string name="player_settings_performance">Performance</string>
     <string name="player_hold_speed">Long-press speed</string>
