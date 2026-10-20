@@ -75,6 +75,7 @@ fun PlayerExtraActions(
     onAudioTrackSelected: (AudioTrack) -> Unit
 ) {
     Row {
+        PlayerPipAction()
         if (audioTracks.size > 1) {
             AudioTrackSelector(audioTracks, selectedAudioTrackKey, onAudioTrackSelected)
         }
@@ -97,6 +98,7 @@ private fun AudioTrackSelector(
     onSelect: (AudioTrack) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    PipAutoEntryBlocker(expanded)
     IconButton(onClick = { expanded = true }) {
         Icon(
             Icons.Outlined.Audiotrack,

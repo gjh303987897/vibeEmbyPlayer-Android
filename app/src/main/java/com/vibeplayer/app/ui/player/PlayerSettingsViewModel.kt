@@ -64,6 +64,7 @@ class PlayerSettingsViewModel @Inject constructor(
     fun setSleepTimer(minutes: Int) = manager.setSleepTimer(minutes)
     fun setSleepAfterVideo() = manager.setSleepAfterVideo()
     fun cancelSleepTimer() = manager.cancelSleepTimer()
+    fun setAutoPictureInPicture(enabled: Boolean) = save { settings.setAutoPictureInPicture(enabled) }
 
     private fun save(action: suspend () -> Unit) {
         viewModelScope.launch {

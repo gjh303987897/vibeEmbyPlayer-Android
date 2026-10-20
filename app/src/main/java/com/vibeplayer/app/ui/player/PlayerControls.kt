@@ -106,6 +106,7 @@ private fun SeekButton(seconds: Int, enabled: Boolean, onClick: () -> Unit) {
 @Composable
 private fun SpeedMenu(speed: Float, onSelect: (Float) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    PipAutoEntryBlocker(expanded)
     val label = stringResource(R.string.player_speed)
     Box {
         TextButton(onClick = { expanded = true }, modifier = Modifier.semantics { contentDescription = label }) {
@@ -122,6 +123,7 @@ private fun SpeedMenu(speed: Float, onSelect: (Float) -> Unit) {
 @Composable
 private fun VolumeMenu(volume: Float, onChange: (Float) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    PipAutoEntryBlocker(expanded)
     Box {
         IconButton(onClick = { expanded = true }) {
             Icon(Icons.AutoMirrored.Outlined.VolumeUp, stringResource(R.string.player_volume_control), tint = Color.White)

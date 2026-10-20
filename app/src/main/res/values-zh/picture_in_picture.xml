@@ -1,0 +1,15 @@
+<resources>
+    <string name="pip_title">画中画</string>
+    <string name="pip_enter">进入画中画</string>
+    <string name="pip_settings_summary">小窗播放与自动进入设置</string>
+    <string name="pip_help">在系统小窗中继续观看。点击小窗可暂停、播放或返回播放器；关闭小窗会暂停播放。</string>
+    <string name="pip_automatic">离开应用时进入画中画</string>
+    <string name="pip_automatic_help">播放视频时自动进入；已暂停的视频、纯音频，以及打开播放器对话框时不会自动进入。</string>
+    <string name="pip_unsupported">此设备不支持画中画。</string>
+    <string name="pip_permission">请在系统设置中允许本应用使用画中画。</string>
+    <string name="pip_private">私密视频保留在完整播放器中，不使用画中画。</string>
+    <string name="pip_not_playing">开始播放视频后可进入画中画。</string>
+    <string name="pip_system_settings">系统应用设置</string>
+    <string name="pip_enter_failed">暂时无法进入画中画，请检查系统设置后重试。</string>
+    <string name="pip_settings_failed">无法打开此设备的画中画设置。</string>
+</resources>

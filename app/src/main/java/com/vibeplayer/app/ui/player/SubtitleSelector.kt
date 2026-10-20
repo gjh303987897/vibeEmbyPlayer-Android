@@ -23,6 +23,7 @@ import com.vibeplayer.app.ui.components.ManualSubtitleImportAction
 @Composable
 internal fun SubtitleSelector(tracks: List<SubtitleTrack>, selectedKey: String?, onSelect: (SubtitleTrack?) -> Unit, compact: Boolean = false) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    PipAutoEntryBlocker(expanded)
     if (compact) IconButton(onClick = { expanded = true }) {
         Icon(Icons.Outlined.Subtitles, stringResource(R.string.subtitle_title), tint = Color.White)
     } else TextButton(onClick = { expanded = true }) { Text(stringResource(R.string.subtitle_title)) }

@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.app.PictureInPictureUiState
+import android.content.res.Configuration
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -24,6 +27,9 @@ import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
 import com.vibeplayer.app.security.PrivacyManager
+import com.vibeplayer.app.player.PlayerManager
+import com.vibeplayer.app.player.PictureInPictureController
+import com.vibeplayer.app.ui.player.LocalPlayerPip
 import com.vibeplayer.app.ui.navigation.VibePlayerNavHost
 import com.vibeplayer.app.ui.settings.SettingsViewModel
 import com.vibeplayer.app.ui.theme.VibePlayerTheme
@@ -36,6 +42,9 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
     @Inject lateinit var privacyManager: PrivacyManager
+    @Inject lateinit var playerManager: PlayerManager
+    lateinit var pictureInPicture: PictureInPictureController
+        private set
     private lateinit var privacyBiometricPrompt: BiometricPrompt
     private var privacyBiometricRequested = false
 
@@ -47,6 +56,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        pictureInPicture = PictureInPictureController(this, playerManager)
         privacyBiometricRequested = savedInstanceState?.getBoolean(STATE_PRIVACY_BIOMETRIC_REQUESTED) ?: false
         privacyBiometricPrompt = BiometricPrompt(
             this,
@@ -90,7 +100,9 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    VibePlayerNavHost(pageTransitions = settings.pageTransitions, privacyManager = privacyManager)
+                    CompositionLocalProvider(LocalPlayerPip provides pictureInPicture) {
+                        VibePlayerNavHost(pageTransitions = settings.pageTransitions, privacyManager = privacyManager)
+                    }
                 }
             }
         }
@@ -103,12 +115,41 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
+        if (::pictureInPicture.isInitialized) pictureInPicture.close()
         if (isFinishing) {
             privacyBiometricRequested = false
             privacyBiometricPrompt.cancelAuthentication()
             privacyManager.exitPrivacyMode()
         }
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        pictureInPicture.onResume()
+    }
+
+    override fun onStop() {
+        if (::pictureInPicture.isInitialized) pictureInPicture.onStop()
+        super.onStop()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (::pictureInPicture.isInitialized) pictureInPicture.onUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (::pictureInPicture.isInitialized) pictureInPicture.onModeChanged(isInPictureInPictureMode)
+    }
+
+    @androidx.annotation.RequiresApi(31)
+    override fun onPictureInPictureUiStateChanged(pipState: PictureInPictureUiState) {
+        super.onPictureInPictureUiStateChanged(pipState)
+        if (Build.VERSION.SDK_INT >= 35 && ::pictureInPicture.isInitialized) {
+            pictureInPicture.onTransitionChanged(pipState.isTransitioningToPip)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

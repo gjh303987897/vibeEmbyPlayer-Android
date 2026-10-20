@@ -58,6 +58,9 @@ fun IptvPlayerScreen(
     val playerPreferences by playerSettings.preferences.collectAsState()
     val videoZoom by playerSettings.videoZoom.collectAsState()
     val sleepTimer by playerSettings.sleepTimer.collectAsState()
+    val pipState = com.vibeplayer.app.ui.player.rememberPlayerPictureInPictureState()
+    val pipMode = pipState.hideChrome
+    val pipHost = com.vibeplayer.app.ui.player.LocalPlayerPip.current
     PlayerFullscreenEffect(fullscreen)
     // Playing keeps the display awake; pausing lets it sleep again.
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering, enabled = !sleepTimer.expired)
@@ -79,6 +82,7 @@ fun IptvPlayerScreen(
             factory = { ctx ->
                 IjkPlayerView(ctx, viewModel::setVideoSurface).apply {
                     player = viewModel.player
+                    onVideoBoundsChanged = pipHost?.let { it::updateSourceBounds }
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -88,14 +92,15 @@ fun IptvPlayerScreen(
             update = {
                 it.updateSurfaceGeneration(state.surfaceGeneration)
                 if (state.isPrepared) it.updateVideoSize()
-                it.updatePresentation(playerPreferences.videoScaleMode, videoZoom)
+                it.updatePresentation(if (pipMode) com.vibeplayer.app.player.VideoScaleMode.FIT else playerPreferences.videoScaleMode,
+                    if (pipMode) 1f else videoZoom)
                 it.bitmapSubtitleFrame = state.bitmapSubtitleFrame
             },
             modifier = Modifier.fillMaxSize()
         )
 
         state.subtitleText?.let { text ->
-            PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp), playerPreferences.subtitleAppearance)
+            PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (pipMode) 2.dp else if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp), playerPreferences.subtitleAppearance, compact = pipMode)
         }
         // Transparent gesture layer: below the control overlays (so a touch on a
         // button or the scrubber never reaches it), above the video surface.
@@ -103,7 +108,7 @@ fun IptvPlayerScreen(
             Modifier
                 .matchParentSize()
                 .playerGestureSurface(
-                    enabled = !locked,
+                    enabled = !locked && !pipMode,
                     zoomScale = videoZoom,
                     onZoomChange = playerSettings::setVideoZoom,
                     speedWhilePressed = playerPreferences.longPressSpeed,
@@ -120,7 +125,7 @@ fun IptvPlayerScreen(
                 )
         )
 
-        if (!locked) PlayerGestureOverlay(
+        if (!locked && !pipMode) PlayerGestureOverlay(
             indicator = gestures.indicator,
             modifier = Modifier.matchParentSize()
         )
@@ -128,7 +133,7 @@ fun IptvPlayerScreen(
 
         // Loading + failure feedback: a playback error must never look like an
         // endless spinner.
-        if (!locked) PlaybackStatusOverlay(
+        if (!locked && !pipMode) PlaybackStatusOverlay(
             buffering = state.buffering,
             error = state.error,
             onBack = { navController.popBackStack() },
@@ -137,7 +142,7 @@ fun IptvPlayerScreen(
                 .graphicsLayer { alpha = if (controlsVisible) 1f else 0.5f }
         )
 
-        if (controlsVisible && !locked) {
+        if (controlsVisible && !locked && !pipMode) {
             PlayerTopBar(
                 performance = {
                     if (playerPreferences.showPerformance || playerPreferences.showDiagnostics) PlayerPerformanceReadout(
@@ -162,7 +167,7 @@ fun IptvPlayerScreen(
                 Modifier.align(Alignment.BottomCenter).bottomEdgeInsets(), onHeightChanged = { controlsHeight = it })
         }
 
-        PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings,
+        if (!pipMode) PlayerSettings(controlsVisible, locked, playerPreferences, playerSettings,
             sourceSummary = iptvSourceSummary(routes),
             sourceSettings = {
                 IptvSourceSettings(routes, playerPreferences.iptvQuality, playerSettings::setIptvQuality,
@@ -170,7 +175,7 @@ fun IptvPlayerScreen(
             }
         )
 
-        PlayerScreenLock(
+        if (!pipMode) PlayerScreenLock(
             locked = locked,
             controlsVisible = controlsVisible,
             onToggleLock = {

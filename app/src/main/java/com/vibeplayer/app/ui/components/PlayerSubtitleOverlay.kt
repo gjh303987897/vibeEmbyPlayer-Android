@@ -11,24 +11,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vibeplayer.app.player.SubtitleAppearance
 
 @Composable
-fun PlayerSubtitleOverlay(text: String?, modifier: Modifier = Modifier, appearance: SubtitleAppearance = SubtitleAppearance()) {
+fun PlayerSubtitleOverlay(text: String?, modifier: Modifier = Modifier, appearance: SubtitleAppearance = SubtitleAppearance(), compact: Boolean = false) {
     text?.takeIf(String::isNotBlank)?.let { cue ->
         val safe = appearance.normalized()
+        val size = if (compact) safe.fontSizeSp.coerceAtMost(12) else safe.fontSizeSp
         BoxWithConstraints(modifier, contentAlignment = Alignment.BottomCenter) {
             // Keep room for dialogue even on a short landscape screen with controls visible.
-            val offset = safe.bottomOffsetDp.dp.coerceAtMost(maxHeight * .3f)
+            val offset = if (compact) 0.dp else safe.bottomOffsetDp.dp.coerceAtMost(maxHeight * .3f)
             Text(
                 text = cue,
                 color = Color.White,
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.titleMedium,
-                fontSize = safe.fontSizeSp.sp,
-                lineHeight = (safe.fontSizeSp * 1.4f).sp,
+                fontSize = size.sp,
+                lineHeight = (size * 1.4f).sp,
+                maxLines = if (compact) 3 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(bottom = offset)
                     .background(Color.Black.copy(alpha = safe.backgroundOpacityPercent / 100f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp)

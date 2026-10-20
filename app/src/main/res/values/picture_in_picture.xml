@@ -1,0 +1,15 @@
+<resources>
+    <string name="pip_title">Picture-in-picture</string>
+    <string name="pip_enter">Enter picture-in-picture</string>
+    <string name="pip_settings_summary">Small window playback and automatic entry</string>
+    <string name="pip_help">Keep watching in a small system window. Tap it for playback controls or to return to the player. Closing the window pauses playback.</string>
+    <string name="pip_automatic">Enter when leaving the app</string>
+    <string name="pip_automatic_help">Automatically enter while a video is playing. Paused videos, audio-only media and open player dialogs do not enter automatically.</string>
+    <string name="pip_unsupported">Picture-in-picture is unavailable on this device.</string>
+    <string name="pip_permission">Allow this app to use picture-in-picture in system settings.</string>
+    <string name="pip_private">Private videos stay in the full player and do not use picture-in-picture.</string>
+    <string name="pip_not_playing">Play a video to enter picture-in-picture.</string>
+    <string name="pip_system_settings">System app settings</string>
+    <string name="pip_enter_failed">Unable to enter picture-in-picture. Check the system setting and try again.</string>
+    <string name="pip_settings_failed">Unable to open picture-in-picture settings on this device.</string>
+</resources>

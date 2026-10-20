@@ -14,18 +14,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vibeplayer.app.R
 import com.vibeplayer.app.domain.subtitle.SubtitleImportError
 import com.vibeplayer.app.ui.player.ManualSubtitleViewModel
+import com.vibeplayer.app.ui.player.LocalPlayerPip
 
 @Composable
 fun ManualSubtitleImportAction(modifier: Modifier = Modifier, viewModel: ManualSubtitleViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingSession by rememberSaveable { mutableLongStateOf(-1L) }
+    val pip = LocalPlayerPip.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        pip?.setExternalUiVisible(false)
         if (uri != null) viewModel.load(uri, pendingSession)
     }
     Column(modifier) {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         TextButton(enabled = !state.loading, onClick = {
             pendingSession = viewModel.captureSession()
+            pip?.setExternalUiVisible(true)
             picker.launch(arrayOf("*/*"))
         }) { Text(stringResource(R.string.subtitle_load_phone)) }
         Text(stringResource(R.string.subtitle_import_help), style = MaterialTheme.typography.bodySmall)

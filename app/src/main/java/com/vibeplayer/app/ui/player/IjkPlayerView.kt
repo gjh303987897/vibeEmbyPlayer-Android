@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Rect
 import android.view.SurfaceHolder
 import android.view.Gravity
 import android.view.SurfaceView
@@ -26,6 +27,8 @@ class IjkPlayerView(
     private var surfaceView = SurfaceView(context)
     private var surfaceGeneration = 0L
     private val bitmapSubtitleView = BitmapSubtitleView(context)
+    private val visibleVideoBounds = Rect()
+    var onVideoBoundsChanged: ((Rect) -> Unit)? = null
 
     var bitmapSubtitleFrame: BitmapSubtitleFrame?
         get() = bitmapSubtitleView.frame
@@ -111,6 +114,7 @@ class IjkPlayerView(
         bitmapSubtitleView.setVideoBounds(
             centerX - halfWidth, centerY - halfHeight, centerX + halfWidth, centerY + halfHeight
         )
+        if (surfaceView.getGlobalVisibleRect(visibleVideoBounds)) onVideoBoundsChanged?.invoke(visibleVideoBounds)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {

@@ -59,7 +59,7 @@ import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import kotlin.math.roundToInt
 
-private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING, VIDEO_SCALE, SLEEP_TIMER, SLEEP_CUSTOM }
+private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING, VIDEO_SCALE, SLEEP_TIMER, SLEEP_CUSTOM, PICTURE_IN_PICTURE }
 
 /** Shared chrome for every source; performance remains visible when controls are hidden or locked. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,6 +75,7 @@ fun BoxScope.PlayerSettings(
     var expanded by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var page by rememberSaveable { mutableStateOf(PlayerSettingsPage.ROOT) }
+    PipAutoEntryBlocker(expanded)
 
     if (controlsVisible && !locked) {
         IconButton(
@@ -121,6 +122,7 @@ fun BoxScope.PlayerSettings(
                     PlayerSettingsPage.VIDEO_SCALE -> R.string.video_scale
                     PlayerSettingsPage.SLEEP_TIMER -> R.string.sleep_timer
                     PlayerSettingsPage.SLEEP_CUSTOM -> R.string.sleep_timer_custom
+                    PlayerSettingsPage.PICTURE_IN_PICTURE -> R.string.pip_title
                     PlayerSettingsPage.ROOT -> R.string.player_settings
                 }),
                     style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
@@ -170,6 +172,8 @@ fun BoxScope.PlayerSettings(
                         viewModel.setSleepTimer(it)
                         page = PlayerSettingsPage.SLEEP_TIMER
                     }
+                    page == PlayerSettingsPage.PICTURE_IN_PICTURE -> PictureInPictureSettings(
+                        preferences.autoPictureInPicture, viewModel::setAutoPictureInPicture)
                     page == PlayerSettingsPage.PLAYBACK_SPEED -> SpeedChoices(
                         PLAYBACK_SPEEDS, playerState.playbackSpeed, viewModel::setPlaybackSpeed
                     )
@@ -178,6 +182,12 @@ fun BoxScope.PlayerSettings(
                         SpeedChoices(LONG_PRESS_SPEEDS, preferences.longPressSpeed, viewModel::setLongPressSpeed)
                     }
                     tab == 0 -> {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.pip_title)) },
+                            supportingContent = { Text(stringResource(R.string.pip_settings_summary)) },
+                            trailingContent = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null) },
+                            modifier = Modifier.clickable { page = PlayerSettingsPage.PICTURE_IN_PICTURE }
+                        )
                         ListItem(
                             headlineContent = { Text(stringResource(R.string.video_scale)) },
                             supportingContent = { Text(stringResource(videoScaleLabel(preferences.videoScaleMode)) +

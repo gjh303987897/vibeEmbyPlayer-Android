@@ -69,6 +69,7 @@ class SettingsDataStore @Inject constructor(
         val SUBTITLE_BOTTOM_OFFSET = intPreferencesKey("subtitle_bottom_offset_dp")
         val SUBTITLE_BACKGROUND = intPreferencesKey("subtitle_background_opacity_percent")
         val VIDEO_SCALE_MODE = stringPreferencesKey("player_video_scale_mode")
+        val AUTO_PIP = booleanPreferencesKey("player_auto_picture_in_picture")
     }
 
     val themeMode: Flow<String?> = dataStore.data
@@ -116,7 +117,8 @@ class SettingsDataStore @Inject constructor(
                 preferences[Keys.SUBTITLE_BACKGROUND] ?: 65
             ).normalized(),
             videoScaleMode = VideoScaleMode.entries.firstOrNull { it.name == preferences[Keys.VIDEO_SCALE_MODE] }
-                ?: VideoScaleMode.FIT
+                ?: VideoScaleMode.FIT,
+            autoPictureInPicture = preferences[Keys.AUTO_PIP] ?: true
         )
     }
 
@@ -161,6 +163,10 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setVideoScaleMode(mode: VideoScaleMode) {
         dataStore.edit { it[Keys.VIDEO_SCALE_MODE] = mode.name }
+    }
+
+    suspend fun setAutoPictureInPicture(enabled: Boolean) {
+        dataStore.edit { it[Keys.AUTO_PIP] = enabled }
     }
 
     suspend fun setShowPerformance(enabled: Boolean) {

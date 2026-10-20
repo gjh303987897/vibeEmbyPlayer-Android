@@ -9,6 +9,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -42,6 +46,7 @@ import com.vibeplayer.app.ui.details.MediaDetailsScreen
 import com.vibeplayer.app.ui.home.HomeScreen
 import com.vibeplayer.app.ui.library.LibraryScreen
 import com.vibeplayer.app.ui.player.PlayerScreen
+import com.vibeplayer.app.ui.player.rememberPlayerPipState
 import com.vibeplayer.app.ui.search.SearchScreen
 import com.vibeplayer.app.ui.services.ServicesScreen
 import com.vibeplayer.app.ui.history.HistoryScreen
@@ -99,10 +104,17 @@ fun VibePlayerNavHost(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val isTopLevel = TopLevelDestination.entries.any { it.route == currentDestination?.route }
+    val pip = rememberPlayerPipState()
     LaunchedEffect(privacyUnlocked) {
         if (!privacyUnlocked) {
             navController.popBackStack(TopLevelDestination.Services.route, inclusive = false)
         }
+    }
+
+    // A late entry callback or privacy/navigation change must never shrink app pages into PiP.
+    if (pip.hideChrome && currentDestination != null && currentDestination.route !in playerRoutes) {
+        Box(Modifier.fillMaxSize().background(Color.Black))
+        return
     }
 
     Scaffold(
