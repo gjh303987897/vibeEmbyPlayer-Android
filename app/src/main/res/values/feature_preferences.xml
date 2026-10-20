@@ -18,9 +18,6 @@
     <string name="history_retention_help">Includes today. Expired playback history, link history and daily usage are deleted together. Reducing the period applies immediately; deleted records cannot be restored by increasing it.</string>
     <string name="history_retention_custom">Custom</string>
     <string name="history_retention_range">1–3650 days</string>
-    <string name="player_diagnostics">Playback diagnostics</string>
-    <string name="player_diagnostics_help">Show output FPS and playback network speed at the top right.</string>
-    <string name="player_diagnostics_scope">FPS measures actual video output. NET measures media data received per second. Local files show — for NET.</string>
     <string name="player_layout">Control layout</string>
     <string name="player_speed">Playback speed</string>
     <string name="player_volume_control">Volume</string>

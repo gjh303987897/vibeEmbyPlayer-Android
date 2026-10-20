@@ -7,6 +7,7 @@ import com.vibeplayer.app.data.local.datastore.SettingsDataStore
 import com.vibeplayer.app.player.PlaybackPerformance
 import com.vibeplayer.app.player.PlaybackPerformanceMonitor
 import com.vibeplayer.app.player.PlayerManager
+import com.vibeplayer.app.player.PlayerMetric
 import com.vibeplayer.app.player.VideoDecodeMode
 import com.vibeplayer.app.model.IptvQualityPreference
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,15 +37,14 @@ class PlayerSettingsViewModel @Inject constructor(
     val sleepTimer = manager.sleepTimerState
     val decoder = manager.state.map { it.videoDecodeMode }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(0), null)
-    val performance = preferences.map { it.showPerformance }.distinctUntilChanged()
-        .flatMapLatest { if (it) monitor.samples() else flowOf(PlaybackPerformance()) }
+    val performance = preferences.map { it.metrics.cpu to it.metrics.gpu }.distinctUntilChanged()
+        .flatMapLatest { (cpu, gpu) -> if (cpu || gpu) monitor.samples(cpu, gpu) else flowOf(PlaybackPerformance()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(0), PlaybackPerformance())
     private val _saveFailed = MutableStateFlow(false)
     val saveFailed = _saveFailed.asStateFlow()
 
     fun setLongPressSpeed(speed: Float) = save { settings.setLongPressSpeed(speed) }
-    fun setShowPerformance(enabled: Boolean) = save { settings.setShowPerformance(enabled) }
-    fun setShowDiagnostics(enabled: Boolean) = save { settings.setShowDiagnostics(enabled) }
+    fun setMetricVisible(metric: PlayerMetric, enabled: Boolean) = save { settings.setPlayerMetricVisible(metric, enabled) }
     fun setPlayerLayout(layout: com.vibeplayer.app.model.PlayerLayout) = save { settings.setPlayerLayout(layout) }
     fun setVideoDecodeMode(mode: VideoDecodeMode) = save { settings.setVideoDecodeMode(mode) }
     fun setIptvQuality(preference: IptvQualityPreference) = save { settings.setIptvQuality(preference) }

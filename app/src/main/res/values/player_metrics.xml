@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_metrics_help">Choose each readout independently. Enabled items stay at the top right, including while controls are hidden or locked.</string>
+    <string name="player_metric_cpu">CPU usage</string>
+    <string name="player_metric_gpu">GPU usage</string>
+    <string name="player_metric_fps">Live frame rate (FPS)</string>
+    <string name="player_metric_network">Network speed (NET)</string>
+    <string name="player_metric_cpu_help">This app’s share of all CPU cores, updated every 2 seconds while the player is visible.</string>
+    <string name="player_metric_gpu_help">Device GPU usage when driver counters are readable; otherwise unavailable. Does not measure dedicated video-decoder usage.</string>
+    <string name="player_metric_fps_help">Actual video output frames per second, separate from source frame rate. Zero while paused; unavailable before preparation or for audio-only media.</string>
+    <string name="player_metric_network_help">Media data received per second. Local media shows —. Updates once a second; buffering can continue while paused.</string>
+</resources>

@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.vibeplayer.app.player.LONG_PRESS_SPEEDS
 import com.vibeplayer.app.player.PlayerPreferences
+import com.vibeplayer.app.player.PlayerMetric
 import com.vibeplayer.app.player.VideoDecodeMode
 import com.vibeplayer.app.player.SubtitleAppearance
 import com.vibeplayer.app.player.VideoScaleMode
@@ -56,7 +57,6 @@ class SettingsDataStore @Inject constructor(
         val PAGE_TRANSITIONS = booleanPreferencesKey("page_transitions")
         val PREFERRED_TEXT_LANGUAGE = stringPreferencesKey("preferred_text_language")
         val LONG_PRESS_SPEED = floatPreferencesKey("player_long_press_speed")
-        val SHOW_PERFORMANCE = booleanPreferencesKey("player_show_performance")
         val VIDEO_DECODE_MODE = stringPreferencesKey("player_video_decode_mode")
         val IPTV_QUALITY = stringPreferencesKey("iptv_quality_preference")
         val HISTORY_RETENTION_DAYS = intPreferencesKey("history_retention_days")
@@ -64,7 +64,6 @@ class SettingsDataStore @Inject constructor(
         val JELLYFIN_HOME_LAYOUT = stringPreferencesKey("jellyfin_home_layout")
         val PLAYER_LAYOUT = stringPreferencesKey("player_layout")
         val SERVICE_CARD_SCALE = intPreferencesKey("service_card_scale")
-        val SHOW_PLAYBACK_DIAGNOSTICS = booleanPreferencesKey("player_show_diagnostics")
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size_sp")
         val SUBTITLE_BOTTOM_OFFSET = intPreferencesKey("subtitle_bottom_offset_dp")
         val SUBTITLE_BACKGROUND = intPreferencesKey("subtitle_background_opacity_percent")
@@ -103,8 +102,7 @@ class SettingsDataStore @Inject constructor(
     val playerPreferences: Flow<PlayerPreferences> = dataStore.data.map { preferences ->
         PlayerPreferences(
             longPressSpeed = preferences[Keys.LONG_PRESS_SPEED]?.takeIf { it in LONG_PRESS_SPEEDS } ?: 2f,
-            showPerformance = preferences[Keys.SHOW_PERFORMANCE] ?: false,
-            showDiagnostics = preferences[Keys.SHOW_PLAYBACK_DIAGNOSTICS] ?: false,
+            metrics = readPlayerMetricVisibility(preferences),
             layout = PlayerLayout.entries.firstOrNull { it.name == preferences[Keys.PLAYER_LAYOUT] }
                 ?: PlayerLayout.TRENDY,
             videoDecodeMode = VideoDecodeMode.entries.firstOrNull { it.name == preferences[Keys.VIDEO_DECODE_MODE] }
@@ -143,8 +141,8 @@ class SettingsDataStore @Inject constructor(
         dataStore.edit { it[Keys.SERVICE_CARD_SCALE] = normalizeServiceCardScale(percent) }
     }
 
-    suspend fun setShowDiagnostics(enabled: Boolean) {
-        dataStore.edit { it[Keys.SHOW_PLAYBACK_DIAGNOSTICS] = enabled }
+    suspend fun setPlayerMetricVisible(metric: PlayerMetric, enabled: Boolean) {
+        dataStore.edit { it.setPlayerMetricVisible(metric, enabled) }
     }
 
     suspend fun setLongPressSpeed(speed: Float) {
@@ -167,10 +165,6 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setAutoPictureInPicture(enabled: Boolean) {
         dataStore.edit { it[Keys.AUTO_PIP] = enabled }
-    }
-
-    suspend fun setShowPerformance(enabled: Boolean) {
-        dataStore.edit { it[Keys.SHOW_PERFORMANCE] = enabled }
     }
 
     suspend fun setVideoDecodeMode(mode: VideoDecodeMode) {

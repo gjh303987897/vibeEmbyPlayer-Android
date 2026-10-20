@@ -305,7 +305,11 @@ class PlayerManager @Inject constructor(
                 val loaded = preferencesReady.isCompleted
                 _preferences.value = preferences
                 preferencesReady.complete(Unit)
-                if (previous.showDiagnostics != preferences.showDiagnostics) updateDiagnosticsMonitoring()
+                if (previous.metrics.frameRate != preferences.metrics.frameRate ||
+                    previous.metrics.networkSpeed != preferences.metrics.networkSpeed) {
+                    stopDiagnostics()
+                    updateDiagnosticsMonitoring()
+                }
                 if (loaded && previous.videoDecodeMode != preferences.videoDecodeMode) restartForDecoderChange()
             }
         }
@@ -1039,12 +1043,14 @@ class PlayerManager @Inject constructor(
         diagnosticsJob = scope.launch {
             val sampler = PlaybackDiagnosticSampler()
             while (currentRequest != null) {
+                val metrics = _preferences.value.metrics
                 val prepared = _state.value.isPrepared
-                val fps = if (prepared && player.videoWidth > 0) {
+                val fps = if (metrics.frameRate && prepared && player.videoWidth > 0) {
                     if (_state.value.isPlaying && !_state.value.buffering)
                         runCatching { player.videoOutputFramesPerSecond }.getOrNull() else 0f
                 } else null
-                val bytes = currentRequest?.networkByteCounter?.invoke() ?: httpProxy?.receivedBytes
+                val bytes = if (metrics.networkSpeed)
+                    currentRequest?.networkByteCounter?.invoke() ?: httpProxy?.receivedBytes else null
                 _diagnostics.value = sampler.sample(android.os.SystemClock.elapsedRealtime(), bytes, fps)
                 delay(1_000)
             }

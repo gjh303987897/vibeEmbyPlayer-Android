@@ -17,20 +17,22 @@ data class PlaybackPerformance(val cpuPercent: Float? = null, val gpuPercent: Fl
 /** Samples only while a visible player subscribes; never starts a shell or requests root. */
 @Singleton
 class PlaybackPerformanceMonitor @Inject constructor() {
-    fun samples() = flow {
-        val gpu = File("/sys/class/kgsl/kgsl-3d0/gpubusy")
-        val canReadGpu = gpu.canRead()
-        var cpu = Process.getElapsedCpuTime()
-        var elapsed = SystemClock.elapsedRealtime()
-        val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+    fun samples(cpuEnabled: Boolean, gpuEnabled: Boolean) = flow {
+        if (!cpuEnabled && !gpuEnabled) return@flow
+        val gpu = if (gpuEnabled) File("/sys/class/kgsl/kgsl-3d0/gpubusy") else null
+        val canReadGpu = gpu?.canRead() == true
+        var cpu = if (cpuEnabled) Process.getElapsedCpuTime() else 0L
+        var elapsed = if (cpuEnabled) SystemClock.elapsedRealtime() else 0L
+        val cores = if (cpuEnabled) Runtime.getRuntime().availableProcessors().coerceAtLeast(1) else 1
         while (currentCoroutineContext().isActive) {
             delay(2_000)
-            val nextCpu = Process.getElapsedCpuTime()
-            val nextElapsed = SystemClock.elapsedRealtime()
+            val nextCpu = if (cpuEnabled) Process.getElapsedCpuTime() else 0L
+            val nextElapsed = if (cpuEnabled) SystemClock.elapsedRealtime() else 0L
             val gpuPercent = if (canReadGpu) runCatching {
-                gpu.bufferedReader().use { parseGpuBusy(it.readLine().orEmpty()) }
+                gpu!!.bufferedReader().use { parseGpuBusy(it.readLine().orEmpty()) }
             }.getOrNull() else null
-            emit(PlaybackPerformance(cpuUsage(cpu, nextCpu, elapsed, nextElapsed, cores), gpuPercent))
+            val cpuPercent = if (cpuEnabled) cpuUsage(cpu, nextCpu, elapsed, nextElapsed, cores) else null
+            emit(PlaybackPerformance(cpuPercent, gpuPercent))
             cpu = nextCpu
             elapsed = nextElapsed
         }

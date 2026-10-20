@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -51,6 +52,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.player.LONG_PRESS_SPEEDS
 import com.vibeplayer.app.player.PLAYBACK_SPEEDS
 import com.vibeplayer.app.player.PlayerPreferences
+import com.vibeplayer.app.player.PlayerMetric
 import com.vibeplayer.app.player.VideoDecodeMode
 import com.vibeplayer.app.model.PlayerLayout
 import com.vibeplayer.app.ui.components.bottomEdgeInsets
@@ -229,26 +231,29 @@ fun BoxScope.PlayerSettings(
                                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
                         }
                         page == PlayerSettingsPage.PERFORMANCE -> {
-                            val performanceLabel = stringResource(R.string.player_performance_overlay)
-                            val diagnosticsLabel = stringResource(R.string.player_diagnostics)
-                            ListItem(
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                headlineContent = { Text(performanceLabel) },
-                                supportingContent = { Text(stringResource(R.string.player_performance_overlay_help)) },
-                                trailingContent = { Switch(checked = preferences.showPerformance, onCheckedChange = viewModel::setShowPerformance,
-                                    modifier = Modifier.semantics { contentDescription = performanceLabel }) }
-                            )
-                            Text(stringResource(R.string.player_performance_scope), style = MaterialTheme.typography.bodySmall,
+                            Text(stringResource(R.string.player_metrics_help), style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(16.dp))
-                            ListItem(
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                headlineContent = { Text(diagnosticsLabel) },
-                                supportingContent = { Text(stringResource(R.string.player_diagnostics_help)) },
-                                trailingContent = { Switch(checked = preferences.showDiagnostics, onCheckedChange = viewModel::setShowDiagnostics,
-                                    modifier = Modifier.semantics { contentDescription = diagnosticsLabel }) }
-                            )
-                            Text(stringResource(R.string.player_diagnostics_scope), style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(16.dp))
+                            PlayerMetric.entries.forEach { metric ->
+                                val label = stringResource(when (metric) {
+                                    PlayerMetric.CPU -> R.string.player_metric_cpu
+                                    PlayerMetric.GPU -> R.string.player_metric_gpu
+                                    PlayerMetric.FRAME_RATE -> R.string.player_metric_fps
+                                    PlayerMetric.NETWORK_SPEED -> R.string.player_metric_network
+                                })
+                                ListItem(
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    headlineContent = { Text(label) },
+                                    supportingContent = { Text(stringResource(when (metric) {
+                                        PlayerMetric.CPU -> R.string.player_metric_cpu_help
+                                        PlayerMetric.GPU -> R.string.player_metric_gpu_help
+                                        PlayerMetric.FRAME_RATE -> R.string.player_metric_fps_help
+                                        PlayerMetric.NETWORK_SPEED -> R.string.player_metric_network_help
+                                    })) },
+                                    trailingContent = { Switch(checked = preferences.metrics.isEnabled(metric),
+                                        onCheckedChange = { viewModel.setMetricVisible(metric, it) },
+                                        modifier = Modifier.semantics { contentDescription = label }) }
+                                )
+                            }
                         }
                     }
                 }
@@ -287,16 +292,22 @@ internal fun PlayerPerformanceReadout(
     val diagnostics by viewModel.diagnostics.collectAsStateWithLifecycle()
     val unavailable = stringResource(R.string.player_metric_unavailable)
     val labels = buildList {
-        if (preferences.showPerformance) {
+        if (preferences.metrics.cpu) {
             add("CPU ${performance.cpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}")
+        }
+        if (preferences.metrics.gpu) {
             add("GPU ${performance.gpuPercent?.roundToInt()?.let { "$it%" } ?: unavailable}")
         }
-        if (preferences.showDiagnostics) {
+        if (preferences.metrics.frameRate) {
             add("FPS ${diagnostics.outputFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"}")
+        }
+        if (preferences.metrics.networkSpeed) {
             add("NET ${diagnostics.networkBytesPerSecond?.let(::formatNetworkSpeed) ?: "—"}")
         }
     }
-    val readout = modifier.background(Color.Black.copy(alpha = .75f), RoundedCornerShape(6.dp))
+    if (labels.isEmpty()) return
+    val readout = modifier.testTag("player-performance-readout")
+        .background(Color.Black.copy(alpha = .75f), RoundedCornerShape(6.dp))
         .padding(horizontal = 8.dp, vertical = 4.dp)
     val content: @Composable () -> Unit = {
         labels.forEach { label ->

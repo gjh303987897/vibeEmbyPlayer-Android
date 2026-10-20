@@ -255,9 +255,6 @@
     <string name="player_decode_software">CPU software decoding</string>
     <string name="player_decode_help">Hardware decoding uses the dedicated video decoder and falls back to the CPU if unsupported. Changing this setting reloads the current video while retaining its position and pause state. Live streams reconnect to the live edge.</string>
     <string name="player_current_decoder">Active decoder: %1$s</string>
-    <string name="player_performance_overlay">Show CPU / GPU usage</string>
-    <string name="player_performance_overlay_help">Keep usage visible in the upper right, including while controls are hidden or locked.</string>
-    <string name="player_performance_scope">CPU measures this app as a share of all CPU cores. GPU measures device usage when the driver exposes it to apps; otherwise it shows unavailable. GPU usage does not measure dedicated video-decoder usage. Updates every 2 seconds while this player is visible.</string>
     <string name="player_metric_unavailable">N/A</string>
     <string name="player_settings_save_failed">Could not save the setting. Please try again.</string>
     <string name="iptv_quality_title">Automatic route preference</string>

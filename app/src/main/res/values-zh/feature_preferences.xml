@@ -17,9 +17,6 @@
     <string name="history_retention_help">包含今天。到期的播放历史、链接历史和每日使用统计将一起删除。缩短时间后立即清理，延长时间无法找回已删除的记录。</string>
     <string name="history_retention_custom">自定义</string>
     <string name="history_retention_range">1–3650 天</string>
-    <string name="player_diagnostics">播放诊断</string>
-    <string name="player_diagnostics_help">在右上角显示实际输出帧率和播放网速。</string>
-    <string name="player_diagnostics_scope">FPS 为实际视频输出帧率，NET 为每秒接收的媒体数据量。本地文件的 NET 显示为 —。</string>
     <string name="player_layout">控件布局</string>
     <string name="player_speed">播放速度</string>
     <string name="player_volume_control">音量</string>

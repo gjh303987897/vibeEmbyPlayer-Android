@@ -97,8 +97,12 @@ hit testing and prevents the underlying volume/brightness gestures from receivin
 
 ## Preferences and decoding
 
-`SettingsDataStore` persists hold speeds (1.25x, 1.5x, 2x, 2.5x, 3x, 4x), the performance overlay
-toggle and the video decode preference. Defaults are 2x, hidden and hardware, respectively.
+`SettingsDataStore` persists hold speeds (1.25x, 1.5x, 2x, 2.5x, 3x, 4x), independent
+CPU/GPU/FPS/NET visibility flags and the video decode preference. Defaults are 2x,
+all metrics hidden and hardware, respectively. Existing grouped performance and
+diagnostics settings supply the initial values of their two corresponding flags;
+an individual change overrides only that metric. See
+[Appearance and playback diagnostics](appearance-playback-diagnostics.md).
 The first source preparation waits for persisted preferences, so a saved software preference also
 applies on a cold launch. Settings failures are shown in the panel.
 
@@ -139,9 +143,11 @@ the stream and can race its existing decoder thread.
 
 ## Performance overlay
 
-The overlay stays at the upper right when controls are hidden or locked. Sampling runs on IO
-every two seconds and stops when the player UI has no active lifecycle subscriber or the setting
-is disabled. CPU is process CPU time divided by elapsed time and the available processor count;
+The overlay stays at the upper right when controls are hidden or locked. Only the
+individually enabled items are shown; all-off leaves no empty background. CPU/GPU
+sampling runs on IO every two seconds, reads only the enabled counters and stops
+when the player UI has no active lifecycle subscriber or both are disabled.
+CPU is process CPU time divided by elapsed time and the available processor count;
 100% represents all CPU cores available to this process, not one core or the entire device.
 
 GPU reads the KGSL driver busy/total-time counter only when the application can read it. Devices
@@ -238,6 +244,8 @@ orientation and the temporary USB stay-awake setting are restored after validati
 
 ## References
 
+- Independent CPU/GPU/FPS/NET switch validation on 2026-10-21 is recorded in
+  [appearance-playback-diagnostics.md](appearance-playback-diagnostics.md).
 - [Android media volume](https://developer.android.com/media/platform/output)
 - [Window brightness](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness)
 - [Process CPU time](https://developer.android.com/reference/android/os/Process#getElapsedCpuTime())

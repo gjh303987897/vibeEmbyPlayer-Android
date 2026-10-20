@@ -252,9 +252,6 @@
     <string name="player_decode_software">CPU 软解码</string>
     <string name="player_decode_help">硬解使用设备专用视频解码器，不支持时自动回退 CPU 软解。切换后重新加载当前视频，保留播放位置与暂停状态；直播会重新连接到实时画面。</string>
     <string name="player_current_decoder">当前解码器：%1$s</string>
-    <string name="player_performance_overlay">显示 CPU / GPU 利用率</string>
-    <string name="player_performance_overlay_help">常驻播放器右上角，隐藏控制栏或锁定后仍然显示。</string>
-    <string name="player_performance_scope">CPU 显示本应用占全部 CPU 核心的利用率。GPU 显示设备整体利用率，驱动未向应用开放时显示“不可用”；它不代表专用视频解码器的负载。仅在播放器可见时每 2 秒更新。</string>
     <string name="player_metric_unavailable">不可用</string>
     <string name="player_settings_save_failed">设置保存失败，请重试。</string>
     <string name="iptv_quality_title">自动选线偏好</string>

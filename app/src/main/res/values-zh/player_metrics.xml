@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_metrics_help">各项可独立开启或关闭。开启的项目常驻右上角，隐藏控制栏或锁定后仍然显示。</string>
+    <string name="player_metric_cpu">CPU 占用</string>
+    <string name="player_metric_gpu">GPU 占用</string>
+    <string name="player_metric_fps">实时帧率（FPS）</string>
+    <string name="player_metric_network">当前网速（NET）</string>
+    <string name="player_metric_cpu_help">本应用占全部 CPU 核心的利用率，仅在播放器可见时每 2 秒更新。</string>
+    <string name="player_metric_gpu_help">驱动计数器可读取时显示设备整体 GPU 利用率，否则显示“不可用”；不代表专用视频解码器负载。</string>
+    <string name="player_metric_fps_help">实际视频输出帧率，与源帧率不同。暂停时为 0，准备完成前或纯音频显示 —。</string>
+    <string name="player_metric_network_help">每秒接收的媒体数据量，本地文件显示 —。每秒更新，暂停后仍可能继续缓冲。</string>
+</resources>

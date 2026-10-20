@@ -620,7 +620,7 @@ class PlayerManagerPlaybackTest {
         }
         val app = context.applicationContext as VibePlayerApp
         val shared = app.playerManager
-        val original = runBlocking { app.settingsDataStore.playerPreferences.first().showDiagnostics }
+        val original = runBlocking { app.settingsDataStore.playerPreferences.first().metrics }
         val sample = copyResource(R.raw.video_sample_controls, ".mp4")
         val bytes = sample.readBytes()
         val server = MockWebServer().apply {
@@ -645,8 +645,13 @@ class PlayerManagerPlaybackTest {
             start(InetAddress.getByName("0.0.0.0"), 0)
         }
         try {
-            runBlocking { app.settingsDataStore.setShowDiagnostics(true) }
-            awaitCondition("diagnostics preference must be loaded") { shared.preferences.value.showDiagnostics }
+            runBlocking {
+                app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.FRAME_RATE, true)
+                app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.NETWORK_SPEED, true)
+            }
+            awaitCondition("both diagnostic preferences must be loaded") {
+                shared.preferences.value.metrics.frameRate && shared.preferences.value.metrics.networkSpeed
+            }
             val remote = server.url("/diagnostics.mp4").newBuilder().host("127.0.0.2").build().toString()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val surface = attachSurface(scenario, shared)
@@ -678,6 +683,20 @@ class PlayerManagerPlaybackTest {
                     positive && now - (positiveSince ?: now) >= 2_100L
                 }
                 assertColourBarsVisible(surface)
+                runBlocking { app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.FRAME_RATE, false) }
+                awaitCondition("network-only sampling must continue without FPS") {
+                    !shared.preferences.value.metrics.frameRate && shared.diagnostics.value.outputFps == null &&
+                        shared.diagnostics.value.networkBytesPerSecond != null
+                }
+                runBlocking {
+                    app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.FRAME_RATE, true)
+                    app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.NETWORK_SPEED, false)
+                }
+                awaitCondition("FPS-only sampling must continue without network readings") {
+                    !shared.preferences.value.metrics.networkSpeed && shared.diagnostics.value.networkBytesPerSecond == null &&
+                        (shared.diagnostics.value.outputFps ?: 0f) > 0f
+                }
+                runBlocking { app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.NETWORK_SPEED, true) }
                 callOnMain { shared.pause() }
                 awaitCondition("pausing remote playback must sample zero output FPS") {
                     !shared.state.value.isPlaying && shared.diagnostics.value.outputFps == 0f
@@ -695,7 +714,10 @@ class PlayerManagerPlaybackTest {
                 shared.beginLoading()
                 context.stopService(Intent(context, PlaybackService::class.java))
             }
-            runBlocking { app.settingsDataStore.setShowDiagnostics(original) }
+            runBlocking {
+                app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.FRAME_RATE, original.frameRate)
+                app.settingsDataStore.setPlayerMetricVisible(PlayerMetric.NETWORK_SPEED, original.networkSpeed)
+            }
             server.shutdown()
             sample.delete()
         }
