@@ -35,6 +35,11 @@ class PlayerSettingsViewModel @Inject constructor(
     val diagnostics = manager.diagnostics
     val videoZoom = manager.videoZoom
     val sleepTimer = manager.sleepTimerState
+    val queue = manager.queue.state
+    fun previousItem() = manager.queue.previous()
+    fun nextItem() = manager.queue.next()
+    fun selectQueueItem(index: Int) = manager.queue.select(index)
+    fun setAutoPlayNext(enabled: Boolean) = save { settings.setAutoPlayNext(enabled) }
     val decoder = manager.state.map { it.videoDecodeMode }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(0), null)
     val performance = preferences.map { it.metrics.cpu to it.metrics.gpu }.distinctUntilChanged()

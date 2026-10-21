@@ -62,6 +62,7 @@ import com.vibeplayer.app.model.WebDavItem
 import com.vibeplayer.app.service.TransferService
 import com.vibeplayer.app.ui.components.AppMessageCard
 import com.vibeplayer.app.ui.components.AppSnackbarHost
+import com.vibeplayer.app.ui.components.BrowseSortMenu
 import com.vibeplayer.app.ui.components.showAppSnackbar
 import com.vibeplayer.app.ui.navigation.Routes
 
@@ -121,7 +122,7 @@ fun WebDavBrowseScreen(
         snackbarHost = { AppSnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(uiState.currentDirectoryName) },
+                title = { Text(uiState.currentDirectoryName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(
                         onClick = {
@@ -137,6 +138,7 @@ fun WebDavBrowseScreen(
                     }
                 },
                 actions = {
+                    BrowseSortMenu(uiState.sortOrder, viewModel::setSortOrder)
                     IconButton(onClick = { showNewFolder = true }) {
                         Icon(Icons.Outlined.CreateNewFolder, contentDescription = "New folder")
                     }
@@ -202,6 +204,7 @@ fun WebDavBrowseScreen(
                                 if (item.isDirectory) {
                                     viewModel.navigateTo(item.path)
                                 } else {
+                                    viewModel.preparePlayback(item)
                                     navController.navigate(Routes.webdavPlayer(serverId, item.path))
                                 }
                             },

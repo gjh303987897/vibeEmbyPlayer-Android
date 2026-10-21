@@ -9,6 +9,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.SkipPrevious
+import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,6 +39,7 @@ import java.util.Locale
 internal fun PlayerControls(viewModel: PlayerSettingsViewModel, modifier: Modifier = Modifier, onHeightChanged: (Dp) -> Unit = {}) {
     val state by viewModel.playerState.collectAsStateWithLifecycle()
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
+    val queue by viewModel.queue.collectAsStateWithLifecycle()
     val trendy = preferences.layout == PlayerLayout.TRENDY
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val density = LocalDensity.current
@@ -62,6 +65,10 @@ internal fun PlayerControls(viewModel: PlayerSettingsViewModel, modifier: Modifi
             }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (queue.items.size > 1) IconButton(onClick = viewModel::previousItem, enabled = queue.hasPrevious) {
+                        Icon(Icons.Outlined.SkipPrevious, stringResource(R.string.player_previous_item),
+                            tint = if (queue.hasPrevious) Color.White else Color.Gray)
+                    }
                     SeekButton(-15, enabled = state.isPrepared && state.durationMs > 0) {
                         viewModel.seekTo((state.positionMs - 15_000).coerceAtLeast(0))
                     }
@@ -71,6 +78,10 @@ internal fun PlayerControls(viewModel: PlayerSettingsViewModel, modifier: Modifi
                     }
                     SeekButton(15, enabled = state.isPrepared && state.durationMs > 0) {
                         viewModel.seekTo((state.positionMs + 15_000).coerceAtMost(state.durationMs))
+                    }
+                    if (queue.items.size > 1) IconButton(onClick = viewModel::nextItem, enabled = queue.hasNext) {
+                        Icon(Icons.Outlined.SkipNext, stringResource(R.string.player_next_item),
+                            tint = if (queue.hasNext) Color.White else Color.Gray)
                     }
                 }
                 if (wide) {

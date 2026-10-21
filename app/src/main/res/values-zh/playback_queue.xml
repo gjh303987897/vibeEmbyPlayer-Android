@@ -1,0 +1,10 @@
+<resources>
+    <string name="player_queue">播放队列</string>
+    <string name="player_previous_item">上一集／上一个视频</string>
+    <string name="player_next_item">下一集／下一个视频</string>
+    <string name="player_auto_play_next">自动连播</string>
+    <string name="player_auto_play_next_help">当前视频结束后播放队列中的下一个，到末项停止。休眠定时器优先。</string>
+    <string name="player_queue_empty">暂无播放队列。从剧集或文件夹打开视频后，可按顺序播放。</string>
+    <string name="player_queue_current">当前视频</string>
+    <string name="player_queue_live_help">直播频道支持手动切换；自动连播用于视频队列。</string>
+</resources>

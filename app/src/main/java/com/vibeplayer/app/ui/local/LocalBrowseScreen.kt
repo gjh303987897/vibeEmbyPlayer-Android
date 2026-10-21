@@ -52,6 +52,7 @@ import com.vibeplayer.app.data.local.db.entity.LocalMediaRootEntity
 import com.vibeplayer.app.model.LocalMediaItem
 import com.vibeplayer.app.ui.navigation.Routes
 import com.vibeplayer.app.ui.components.AppMessageCard
+import com.vibeplayer.app.ui.components.BrowseSortMenu
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,7 +93,7 @@ fun LocalBrowseScreen(
         },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(state.directoryName) },
+                title = { Text(state.directoryName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(
                         onClick = {
@@ -105,6 +106,9 @@ fun LocalBrowseScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Go back")
                     }
+                },
+                actions = {
+                    if (state.browsingDirectory) BrowseSortMenu(state.sortOrder, viewModel::setSortOrder)
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -179,7 +183,10 @@ fun LocalBrowseScreen(
                                 item = item,
                                 onOpen = {
                                     if (item.isDirectory) viewModel.navigateInto(item)
-                                    else navController.navigate(Routes.localPlayer(item.uri))
+                                    else {
+                                        viewModel.preparePlayback(item)
+                                        navController.navigate(Routes.localPlayer(item.uri))
+                                    }
                                 }
                             )
                         }

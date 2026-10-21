@@ -20,6 +20,8 @@ import com.vibeplayer.app.model.rankIptvRoutes
 import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.HlsVariant
 import com.vibeplayer.app.player.PlayerManager
+import com.vibeplayer.app.player.PlaybackQueueItem
+import com.vibeplayer.app.player.PlaybackQueueScope
 import com.vibeplayer.app.player.SubtitleTrack
 import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.ui.navigation.Routes
@@ -125,14 +127,21 @@ class IptvPlayerViewModel @Inject constructor(
     }
 
     fun play(serverId: String, encodedUrl: String, encodedName: String) {
-        stopPlayback()
         val url = Routes.decodeIptvUrl(encodedUrl)
         val name = Routes.decodeIptvName(encodedName)?.ifBlank { "IPTV Channel" } ?: "IPTV Channel"
-        playerManager.beginLoading(title = name)
+        startChannel(serverId, url, name, continuingQueue = false)
+    }
+
+    private fun startChannel(serverId: String, url: String?, name: String, continuingQueue: Boolean) {
+        closeCurrent()
+        playerManager.beginLoading(title = name, continuingQueue = continuingQueue)
         if (url.isNullOrBlank()) {
             _uiState.value = PlayerUiState(title = name, error = "Invalid stream address")
             return
         }
+        if (!continuingQueue) playerManager.queue.attach(this, PlaybackQueueScope(PlaybackSource.IPTV, serverId),
+            PlaybackQueueItem(url, name), onSelect = { startChannel(serverId, it.id, it.title, true) },
+            onCompleted = ::onPlaybackEnded, onClosed = ::closeCurrent, autoAdvanceAllowed = false)
         active = true
         server = null
         channel = null
@@ -147,6 +156,10 @@ class IptvPlayerViewModel @Inject constructor(
                 channel = iptvRepository.findChannel(serverId, url, name) ?: IptvChannel(listOf(
                     IptvChannelEntity("history", serverId, name, "", "", url, 0)
                 ))
+                val channels = iptvRepository.observeChannels(serverId).first()
+                currentCoroutineContext().ensureActive()
+                playerManager.queue.update(this@IptvPlayerViewModel,
+                    channels.map { PlaybackQueueItem(it.streamUrl, it.name, it.groupName) })
                 quality = settings.playerPreferences.first().iptvQuality
                 val options = streams.resolve(channel!!, server?.trustSelfSignedCertificate == true)
                 currentCoroutineContext().ensureActive()
@@ -235,7 +248,7 @@ class IptvPlayerViewModel @Inject constructor(
             privatePlayback = server?.privateMode == true,
             hlsVariant = route.variantUrl?.let { HlsVariant(it, route.width, route.height, route.bitrate) },
             playWhenReady = playWhenReady, recreateSurface = replacing,
-            preserveSessionControls = replacing
+            preserveSessionControls = true
         )
     }
 
@@ -253,11 +266,16 @@ class IptvPlayerViewModel @Inject constructor(
         started = false
         wasPlaying = false
         reporterJob?.cancel()
-        playerManager.pause()
     }
 
     fun stopPlayback() {
-        val ownedPlayer = active || started
+        if (!playerManager.queue.owns(this)) return
+        closeCurrent()
+        playerManager.queue.detach(this)
+        playerManager.stop()
+    }
+
+    private fun closeCurrent() {
         active = false
         selectionJob?.cancel()
         refreshJob?.cancel()
@@ -265,7 +283,6 @@ class IptvPlayerViewModel @Inject constructor(
         if (started) flushProgress()
         started = false
         wasPlaying = false
-        if (ownedPlayer) playerManager.stop()
     }
 
     private fun accountWatchTime() {

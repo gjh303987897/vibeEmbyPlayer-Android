@@ -10,6 +10,8 @@ import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
+import com.vibeplayer.app.player.PlaybackQueueItem
+import com.vibeplayer.app.player.PlaybackQueueScope
 import com.vibeplayer.app.player.hls.EncryptedHlsManager
 import com.vibeplayer.app.player.hls.EncryptedHlsPlayback
 import com.vibeplayer.app.ui.player.PlayerUiState
@@ -28,6 +30,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import com.vibeplayer.app.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 @HiltViewModel
 class WebDavPlayerViewModel @Inject constructor(
@@ -55,6 +59,8 @@ class WebDavPlayerViewModel @Inject constructor(
     private var reporterJob: Job? = null
     private var started = false
     private var lastUsagePositionSeconds = 0L
+    private var loadJob: Job? = null
+    private var finishJob: Job? = null
 
     init {
         // The player instance is shared by every source screen, so a new session
@@ -62,6 +68,15 @@ class WebDavPlayerViewModel @Inject constructor(
         // frame - otherwise the incoming item shows the old title, progress and
         // track list while it is still loading.
         playerManager.beginLoading()
+        viewModelScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                if (!unlocked && server?.privateMode == true && playerManager.queue.owns(this@WebDavPlayerViewModel)) {
+                    stopPlayback()
+                    playerManager.beginLoading()
+                    playerManager.failLoading("Service is locked")
+                }
+            }
+        }
         viewModelScope.launch {
             playerManager.state.collect { p ->
                 _uiState.update {
@@ -92,7 +107,6 @@ class WebDavPlayerViewModel @Inject constructor(
     }
 
     fun play(serverId: String, encodedPath: String) {
-        this.serverId = serverId
         val path = com.vibeplayer.app.ui.navigation.Routes.decodeWebDavPath(encodedPath)
         // Reset the shared player state before any (possibly slow) preparation:
         // this also clears the previous source's error, so neither an old
@@ -104,14 +118,29 @@ class WebDavPlayerViewModel @Inject constructor(
             playerManager.failLoading("Invalid server path")
             return
         }
+        playerManager.queue.attach(this, PlaybackQueueScope(PlaybackSource.WEBDAV, serverId),
+            PlaybackQueueItem(path, path.substringAfterLast('/')),
+            onSelect = { loadItem(serverId, it.id) }, onCompleted = ::onPlaybackEnded,
+            onClosed = { loadJob?.cancel(); finishCurrent(false); closeHls() })
+        loadItem(serverId, path)
+    }
+
+    private fun loadItem(serverId: String, path: String) {
+        loadJob?.cancel()
+        finishCurrent(completed = false)
+        closeHls()
+        this.serverId = serverId
         this.path = path
         this.historyTitle = path.substringAfterLast('/')
-        viewModelScope.launch {
+        playerManager.beginLoading(title = historyTitle, continuingQueue = true)
+        loadJob = viewModelScope.launch {
+            finishJob?.join()
             val server = repository.getServer(serverId) ?: run {
                 playerManager.failLoading("Server not found")
                 return@launch
             }
             if (server.privateMode && !privacyManager.privacyMode.value) {
+                playerManager.queue.clear()
                 playerManager.failLoading("Service is locked")
                 return@launch
             }
@@ -129,63 +158,52 @@ class WebDavPlayerViewModel @Inject constructor(
             lastUsagePositionSeconds = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, path)
             val auth = "Basic " + Base64.getEncoder()
                 .encodeToString("${server.username}:$password".toByteArray(Charsets.UTF_8))
+            historyRepository.recordPlayback(PlaybackSource.WEBDAV, server, path, historyTitle, server.name)
+            currentCoroutineContext().ensureActive()
+            started = true
             playerManager.play(
                 url = url,
                 title = historyTitle,
                 subtitle = server.name,
-                startPositionMs = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, path) * 1000,
+                startPositionMs = lastUsagePositionSeconds * 1000,
                 headers = mapOf("Authorization" to auth),
                 trustSelfSignedCertificate = server.trustSelfSignedCertificate,
-                privatePlayback = server.privateMode
+                privatePlayback = server.privateMode,
+                preserveSessionControls = true
             )
-            historyRepository.recordPlayback(
-                source = PlaybackSource.WEBDAV,
-                service = server,
-                replayTarget = path,
-                title = historyTitle,
-                subtitle = server.name,
-                positionSeconds = 0,
-                durationSeconds = 0
-            )
-            started = true
             startReporter(server)
         }
     }
 
-    private fun playEncryptedHls(server: com.vibeplayer.app.model.ServerConfig, webdavPath: String) {
-        viewModelScope.launch {
+    private suspend fun playEncryptedHls(server: com.vibeplayer.app.model.ServerConfig, webdavPath: String) {
             hlsPlayback?.close()
             encryptedHlsManager.prepareWebDav(server, webdavPath).fold(
                 onSuccess = { playback ->
+                    if (!currentCoroutineContext().isActive) playback.close()
+                    currentCoroutineContext().ensureActive()
                     hlsPlayback = playback
                     val title = playback.resolvedSourceName ?: historyTitle
                     lastUsagePositionSeconds = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, webdavPath)
+                    historyRepository.recordPlayback(PlaybackSource.WEBDAV, server, webdavPath, title, server.name)
+                    currentCoroutineContext().ensureActive()
+                    started = true
                     playerManager.play(
                         url = playback.playUrl,
                         title = title,
                         subtitle = server.name,
-                        startPositionMs = historyRepository.resumePositionSeconds(PlaybackSource.WEBDAV, server, webdavPath) * 1000,
+                        startPositionMs = lastUsagePositionSeconds * 1000,
                         privatePlayback = server.privateMode,
                         networkByteCounter = playback.networkByteCounter,
-                        interruptPendingReads = playback::interruptPendingReads
+                        interruptPendingReads = playback::interruptPendingReads,
+                        preserveSessionControls = true
                     )
-                    historyRepository.recordPlayback(
-                        source = PlaybackSource.WEBDAV,
-                        service = server,
-                        replayTarget = webdavPath,
-                        title = title,
-                        subtitle = server.name,
-                        positionSeconds = 0,
-                        durationSeconds = 0
-                    )
-                    started = true
                     startReporter(server)
                 },
                 onFailure = { e ->
+                    currentCoroutineContext().ensureActive()
                     playerManager.failLoading(e.message ?: "Encrypted playback failed")
                 }
             )
-        }
     }
 
     private fun isEncryptedHls(filePath: String): Boolean =
@@ -209,27 +227,36 @@ class WebDavPlayerViewModel @Inject constructor(
     fun seekTo(positionMs: Long) = playerManager.seekTo(positionMs)
 
     fun stopPlayback() {
+        if (!playerManager.queue.owns(this)) return
+        loadJob?.cancel()
+        finishCurrent(completed = false)
+        playerManager.queue.detach(this)
+        playerManager.stop()
+        closeHls()
+    }
+
+    private fun finishCurrent(completed: Boolean) {
         stopReporter()
+        if (!started) return
+        started = false
         val pos = playerManager.state.value.positionMs / 1000
         val dur = playerManager.state.value.durationMs / 1000
         val watchedSeconds = (pos - lastUsagePositionSeconds).coerceAtLeast(0L)
-        playerManager.stop()
-        if (started) {
-            val srv = server
-            started = false
-            if (srv != null) appScope.launch { withContext(NonCancellable) {
-                    historyRepository.updateProgress(
-                        source = PlaybackSource.WEBDAV,
-                        service = srv,
-                        replayTarget = path,
-                        positionSeconds = pos,
-                        durationSeconds = dur
-                    )
-                    historyRepository.addDailyUsage(srv, watchedSeconds, playerManager.drainDownloadedBytes())
+        val bytes = playerManager.drainDownloadedBytes()
+        val srv = server ?: return
+        val target = path
+        val previous = finishJob
+        finishJob = appScope.launch {
+            withContext(NonCancellable) {
+                previous?.join()
+                if (completed) {
+                    historyRepository.completePlayback(PlaybackSource.WEBDAV, srv, target, dur)
+                } else {
+                    historyRepository.updateProgress(PlaybackSource.WEBDAV, srv, target, pos, dur)
                 }
+                historyRepository.addDailyUsage(srv, watchedSeconds, bytes)
             }
         }
-        closeHls()
     }
 
     private fun closeHls() {
@@ -238,22 +265,7 @@ class WebDavPlayerViewModel @Inject constructor(
     }
 
     fun onPlaybackEnded() {
-        stopReporter()
-        if (started) {
-            val srv = server
-            if (srv != null) {
-                viewModelScope.launch {
-                    historyRepository.completePlayback(
-                        source = PlaybackSource.WEBDAV,
-                        service = srv,
-                        replayTarget = path,
-                        durationSeconds = playerManager.state.value.durationMs / 1000
-                    )
-                }
-            }
-            started = false
-        }
-        playerManager.pause()
+        finishCurrent(completed = true)
     }
 
     private fun startReporter(server: com.vibeplayer.app.model.ServerConfig) {

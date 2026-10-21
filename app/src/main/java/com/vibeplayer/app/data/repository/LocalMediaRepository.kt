@@ -109,7 +109,7 @@ class LocalMediaRepository @Inject constructor(
                 if (!isDirectory && !LocalPlaybackService.isBrowsableMediaFile(name)) continue
                 val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
                 results += if (isDirectory) {
-                    LocalMediaItem(name = name, uri = documentUri.toString(), isDirectory = true)
+                    LocalMediaItem(name = name, uri = documentUri.toString(), isDirectory = true, lastModified = modified)
                 } else {
                     LocalMediaItem(
                         name = name,

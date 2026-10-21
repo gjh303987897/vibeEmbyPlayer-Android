@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SleepTimerTest {
+    @Test fun countdownKeepsItsOriginalDeadlineAcrossQueuedVideos() {
+        var pauses = 0
+        val timer = SleepTimer { pauses++ }
+        timer.start(1, 0)
+        timer.tick(20_000)
+        timer.onVideoCompleted(continuingQueue = true)
+        assertEquals(SleepTimerMode.COUNTDOWN, timer.state.value.mode)
+        assertEquals(40_000L, timer.state.value.remainingMs)
+        timer.tick(60_000)
+        assertEquals(1, pauses)
+        assertTrue(timer.state.value.expired)
+    }
+
+    @Test fun stopAfterCurrentVideoTakesPriorityOverContinuingQueue() {
+        val timer = SleepTimer {}
+        timer.afterVideo()
+        timer.onVideoCompleted(continuingQueue = true)
+        assertTrue(timer.state.value.expired)
+    }
+
     @Test fun elapsedDeadlineExpiresOnceRegardlessOfTheMediaPositionOrWallClock() {
         var pauses = 0
         val timer = SleepTimer { pauses++ }

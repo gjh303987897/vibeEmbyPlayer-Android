@@ -63,14 +63,6 @@ fun PlayerScreen(
     LaunchedEffect(serverId, itemId) { viewModel.play(serverId, itemId) }
     DisposableEffect(viewModel) { onDispose { viewModel.stopPlayback() } }
 
-    // Detect natural end of playback to report it as complete.
-    LaunchedEffect(state) {
-        val ended = state.durationMs > 0 && state.positionMs >= state.durationMs - 500
-        if (ended && state.isPrepared) {
-            viewModel.onPlaybackEnded()
-        }
-    }
-
     Box(modifier = Modifier
         .fillMaxSize()
         .background(Color.Black)

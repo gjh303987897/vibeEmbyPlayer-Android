@@ -1,0 +1,10 @@
+<resources>
+    <string name="player_queue">Playback queue</string>
+    <string name="player_previous_item">Previous episode / video</string>
+    <string name="player_next_item">Next episode / video</string>
+    <string name="player_auto_play_next">Autoplay next video</string>
+    <string name="player_auto_play_next_help">Play the next queued video after this one ends. Stop at the end of the queue. Sleep timer takes priority.</string>
+    <string name="player_queue_empty">No playback queue. Open a video from a season or folder to play its videos in order.</string>
+    <string name="player_queue_current">Current video</string>
+    <string name="player_queue_live_help">Live TV channels can be switched manually. Autoplay is used for video queues.</string>
+</resources>

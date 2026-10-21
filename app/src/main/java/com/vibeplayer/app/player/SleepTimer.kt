@@ -35,10 +35,10 @@ internal class SleepTimer(private val onExpired: () -> Unit) {
         if (remaining == 0L) expire() else _state.value = _state.value.copy(remainingMs = remaining)
     }
 
-    fun onVideoCompleted() {
+    fun onVideoCompleted(continuingQueue: Boolean = false) {
         when (_state.value.mode) {
             SleepTimerMode.AFTER_VIDEO -> expire()
-            SleepTimerMode.COUNTDOWN -> cancel()
+            SleepTimerMode.COUNTDOWN -> if (!continuingQueue) cancel()
             SleepTimerMode.OFF -> Unit
         }
     }

@@ -14,6 +14,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,6 +23,9 @@ import com.vibeplayer.app.VibePlayerApp
 import com.vibeplayer.app.service.PlaybackService
 import com.vibeplayer.app.test.R
 import com.vibeplayer.app.ui.player.IjkPlayerView
+import com.vibeplayer.app.ui.local.LocalPlayerViewModel
+import com.vibeplayer.app.ui.navigation.Routes
+import com.vibeplayer.app.model.PlaybackSource
 import java.io.File
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
@@ -58,6 +62,106 @@ import tv.danmaku.ijk.media.player.misc.ITrackInfo
 class PlayerManagerPlaybackTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private var surfaceObserver: Job? = null
+
+    @Test fun localQueueUsesNativeEofAndHonoursAutoplayAndSleepTimer() {
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as VibePlayerApp
+        val manager = app.playerManager
+        val originalAuto = runBlocking { app.settingsDataStore.playerPreferences.first().autoPlayNext }
+        val samples = (1..3).map { copyResource(R.raw.video_sample_controls, ".mp4") }
+        var viewModel: LocalPlayerViewModel? = null
+        try {
+            runBlocking { app.settingsDataStore.setAutoPlayNext(true) }
+            awaitCondition("autoplay preference must load") { manager.preferences.value.autoPlayNext }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val surface = attachSurface(scenario, manager)
+                scenario.onActivity { activity ->
+                    val localPlayer = ViewModelProvider(activity)[LocalPlayerViewModel::class.java]
+                    viewModel = localPlayer
+                    val entries = samples.mapIndexed { index, file -> PlaybackQueueItem(file.absolutePath, "Queue ${index + 1}.mp4") }
+                    manager.queue.stage(PlaybackQueueScope(PlaybackSource.LOCAL), entries, entries[0].id)
+                    localPlayer.play(Routes.localPlayer(entries[0].id).substringAfterLast('/'))
+                }
+                awaitCondition("first queued local video must prepare") {
+                    manager.state.value.isPrepared && manager.state.value.title == "Queue 1.mp4"
+                }
+                callOnMain {
+                    manager.pause()
+                    manager.setSleepTimer(15)
+                    manager.seekTo(manager.state.value.durationMs - 350)
+                }
+                SystemClock.sleep(1_000)
+                callOnMain { assertEquals("paused seek near EOF must not advance", 0, manager.queue.state.value.index) }
+                callOnMain { manager.play() }
+                awaitCondition("actual native EOF must advance into the second video") {
+                    manager.queue.state.value.index == 1 && manager.state.value.isPrepared &&
+                        manager.state.value.title == "Queue 2.mp4" && manager.state.value.positionMs > 500
+                }
+                callOnMain {
+                    assertEquals(SleepTimerMode.COUNTDOWN, manager.sleepTimerState.value.mode)
+                    assertTrue(manager.sleepTimerState.value.remainingMs in 1..900_000L)
+                }
+                awaitColourBarsVisible(surface)
+                callOnMain {
+                    manager.setSleepAfterVideo()
+                    manager.seekTo(manager.state.value.durationMs - 350)
+                }
+                awaitCondition("stop-after-video must expire before autoplay") { manager.sleepTimerState.value.expired }
+                callOnMain {
+                    assertEquals(1, manager.queue.state.value.index)
+                    assertFalse(manager.state.value.isPlaying)
+                    assertTrue(manager.queue.state.value.hasNext)
+                    manager.queue.previous()
+                }
+                awaitCondition("manual previous must remain available") {
+                    manager.state.value.isPrepared && manager.state.value.title == "Queue 1.mp4"
+                }
+                runBlocking { app.settingsDataStore.setAutoPlayNext(false) }
+                awaitCondition("autoplay off must reach manager") { !manager.preferences.value.autoPlayNext }
+                callOnMain {
+                    manager.seekTo(manager.state.value.durationMs - 350)
+                    manager.play()
+                }
+                try {
+                    awaitCondition("disabled autoplay must leave completed video paused") {
+                        manager.state.value.positionMs >= manager.state.value.durationMs - 100 && !manager.state.value.isPlaying
+                    }
+                } finally {
+                    android.util.Log.i("QueueDeviceTest", "EOF position=${manager.state.value.positionMs}, duration=${manager.state.value.durationMs}, playing=${manager.state.value.isPlaying}, prepared=${manager.state.value.isPrepared}, queue=${manager.queue.state.value.index}")
+                }
+                callOnMain {
+                    assertEquals(0, manager.queue.state.value.index)
+                    manager.queue.next()
+                    manager.queue.previous()
+                    manager.queue.next()
+                }
+                awaitCondition("rapid selections must finish on the latest video") {
+                    manager.queue.state.value.index == 1 && manager.state.value.isPrepared &&
+                        manager.state.value.title == "Queue 2.mp4"
+                }
+                callOnMain {
+                    manager.queue.next()
+                    manager.stop()
+                }
+                SystemClock.sleep(1_000)
+                callOnMain {
+                    assertTrue("stop must detach queue and cancel source preparation", manager.queue.state.value.items.isEmpty())
+                    assertFalse(manager.state.value.isPrepared)
+                    assertFalse(manager.state.value.isPlaying)
+                }
+            }
+        } finally {
+            callOnMain {
+                viewModel?.stopPlayback()
+                surfaceObserver?.cancel()
+                manager.queue.clear()
+                manager.stop()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            runBlocking { app.settingsDataStore.setAutoPlayNext(originalAuto) }
+            samples.forEach { it.delete() }
+        }
+    }
 
     @Test fun sameVideoReloadKeepsSleepDeadlineAndZoomAndNewVideoClearsThem() {
         val context = instrumentation.targetContext

@@ -68,11 +68,6 @@ fun IptvPlayerScreen(
     LaunchedEffect(serverId, encodedUrl, encodedName) { viewModel.play(serverId, encodedUrl, encodedName) }
     DisposableEffect(viewModel) { onDispose { viewModel.stopPlayback() } }
 
-    LaunchedEffect(state) {
-        val ended = state.durationMs > 0 && state.positionMs >= state.durationMs - 500
-        if (ended && state.isPrepared) viewModel.onPlaybackEnded()
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()

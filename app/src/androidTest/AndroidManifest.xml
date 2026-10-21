@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Synthetic, read-only metadata; never exposes device files. Test APK only. -->
+        <provider
+            android:name="com.vibeplayer.app.browse.SortFixtureProvider"
+            android:authorities="${applicationId}.sort-fixture"
+            android:exported="true" />
+    </application>
+</manifest>

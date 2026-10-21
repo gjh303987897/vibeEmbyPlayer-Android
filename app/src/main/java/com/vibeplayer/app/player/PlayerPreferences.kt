@@ -24,6 +24,7 @@ data class PlayerMetricVisibility(
 data class PlayerPreferences(
     val longPressSpeed: Float = 2f,
     val metrics: PlayerMetricVisibility = PlayerMetricVisibility(),
+    val autoPlayNext: Boolean = true,
     val layout: PlayerLayout = PlayerLayout.TRENDY,
     val videoDecodeMode: VideoDecodeMode = VideoDecodeMode.HARDWARE,
     val iptvQuality: IptvQualityPreference = IptvQualityPreference.HIGHEST,

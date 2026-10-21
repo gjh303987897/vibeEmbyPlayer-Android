@@ -18,6 +18,8 @@ import com.vibeplayer.app.player.VideoDecodeMode
 import com.vibeplayer.app.player.SubtitleAppearance
 import com.vibeplayer.app.player.VideoScaleMode
 import com.vibeplayer.app.model.IptvQualityPreference
+import com.vibeplayer.app.model.BrowseSortOrder
+import com.vibeplayer.app.model.BrowseSource
 import com.vibeplayer.app.model.AppearancePreferences
 import com.vibeplayer.app.model.HomeLayout
 import com.vibeplayer.app.model.PlayerLayout
@@ -30,6 +32,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * Lightweight app preferences backed by DataStore.
@@ -57,6 +60,7 @@ class SettingsDataStore @Inject constructor(
         val PAGE_TRANSITIONS = booleanPreferencesKey("page_transitions")
         val PREFERRED_TEXT_LANGUAGE = stringPreferencesKey("preferred_text_language")
         val LONG_PRESS_SPEED = floatPreferencesKey("player_long_press_speed")
+        val AUTO_PLAY_NEXT = booleanPreferencesKey("player_auto_play_next")
         val VIDEO_DECODE_MODE = stringPreferencesKey("player_video_decode_mode")
         val IPTV_QUALITY = stringPreferencesKey("iptv_quality_preference")
         val HISTORY_RETENTION_DAYS = intPreferencesKey("history_retention_days")
@@ -69,6 +73,13 @@ class SettingsDataStore @Inject constructor(
         val SUBTITLE_BACKGROUND = intPreferencesKey("subtitle_background_opacity_percent")
         val VIDEO_SCALE_MODE = stringPreferencesKey("player_video_scale_mode")
         val AUTO_PIP = booleanPreferencesKey("player_auto_picture_in_picture")
+    }
+
+    fun browseSortOrder(source: BrowseSource): Flow<BrowseSortOrder> = dataStore.data
+        .map { readBrowseSortOrder(it, source) }.distinctUntilChanged()
+
+    suspend fun setBrowseSortOrder(source: BrowseSource, order: BrowseSortOrder) {
+        dataStore.edit { it.setBrowseSortOrder(source, order) }
     }
 
     val themeMode: Flow<String?> = dataStore.data
@@ -103,6 +114,7 @@ class SettingsDataStore @Inject constructor(
         PlayerPreferences(
             longPressSpeed = preferences[Keys.LONG_PRESS_SPEED]?.takeIf { it in LONG_PRESS_SPEEDS } ?: 2f,
             metrics = readPlayerMetricVisibility(preferences),
+            autoPlayNext = preferences[Keys.AUTO_PLAY_NEXT] ?: true,
             layout = PlayerLayout.entries.firstOrNull { it.name == preferences[Keys.PLAYER_LAYOUT] }
                 ?: PlayerLayout.TRENDY,
             videoDecodeMode = VideoDecodeMode.entries.firstOrNull { it.name == preferences[Keys.VIDEO_DECODE_MODE] }
@@ -143,6 +155,10 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setPlayerMetricVisible(metric: PlayerMetric, enabled: Boolean) {
         dataStore.edit { it.setPlayerMetricVisible(metric, enabled) }
+    }
+
+    suspend fun setAutoPlayNext(enabled: Boolean) {
+        dataStore.edit { it[Keys.AUTO_PLAY_NEXT] = enabled }
     }
 
     suspend fun setLongPressSpeed(speed: Float) {

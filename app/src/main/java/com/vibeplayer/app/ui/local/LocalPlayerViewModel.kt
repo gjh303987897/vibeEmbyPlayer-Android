@@ -12,6 +12,8 @@ import com.vibeplayer.app.domain.local.LocalPlaybackService
 import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.player.AudioTrack
 import com.vibeplayer.app.player.PlayerManager
+import com.vibeplayer.app.player.PlaybackQueueItem
+import com.vibeplayer.app.player.PlaybackQueueScope
 import com.vibeplayer.app.player.hls.EncryptedHlsManager
 import com.vibeplayer.app.player.hls.EncryptedHlsPlayback
 import com.vibeplayer.app.ui.navigation.Routes
@@ -35,6 +37,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
 import com.vibeplayer.app.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Plays a local media file (SAF content URI) and records it into the unified
@@ -63,6 +67,8 @@ class LocalPlayerViewModel @Inject constructor(
     private var started = false
     private var lastUsagePositionSeconds = 0L
     private var hlsPlayback: EncryptedHlsPlayback? = null
+    private var loadJob: Job? = null
+    private var finishJob: Job? = null
 
     init {
         // The player instance is shared by every source screen, so a new session
@@ -108,13 +114,25 @@ class LocalPlayerViewModel @Inject constructor(
             _uiState.update { it.copy(error = context.getString(R.string.player_invalid_url)) }
             return
         }
+        playerManager.queue.attach(this, PlaybackQueueScope(PlaybackSource.LOCAL), PlaybackQueueItem(uri, name),
+            onSelect = { loadItem(it.id, it.title) }, onCompleted = ::onPlaybackEnded,
+            onClosed = { loadJob?.cancel(); finishCurrent(false); closeHls() })
+        loadItem(uri, playerManager.queue.state.value.items[playerManager.queue.state.value.index].title)
+    }
+
+    private fun loadItem(uri: String, name: String) {
+        loadJob?.cancel()
+        finishCurrent(completed = false)
+        closeHls()
         this.contentUri = uri
         this.recordTitle = name
-        if (LocalPlaybackService.isEncryptedHlsManifest(name)) {
-            playEncryptedHls(uri, name)
-            return
-        }
-        viewModelScope.launch {
+        playerManager.beginLoading(title = name, subtitle = "Local", continuingQueue = true)
+        loadJob = viewModelScope.launch {
+            finishJob?.join()
+            if (LocalPlaybackService.isEncryptedHlsManifest(name)) {
+                playEncryptedHls(uri, name)
+                return@launch
+            }
             // Pre-flight the SAF grant. A tree picked earlier can lose its persisted
             // such a URI to IJKPlayer it would sit in buffering and the screen would look frozen;
             // check it and say what is wrong.
@@ -125,14 +143,11 @@ class LocalPlayerViewModel @Inject constructor(
             }
             val resumeMs = historyRepository.resumePositionSeconds(PlaybackSource.LOCAL, null, uri) * 1000
             lastUsagePositionSeconds = resumeMs / 1000
-            playerManager.play(url = uri, title = name, subtitle = "Local", startPositionMs = resumeMs)
-            historyRepository.recordPlayback(
-                source = PlaybackSource.LOCAL,
-                service = null,
-                replayTarget = uri,
-                title = name
-            )
+            historyRepository.recordPlayback(PlaybackSource.LOCAL, null, uri, name)
+            currentCoroutineContext().ensureActive()
             started = true
+            playerManager.play(url = uri, title = name, subtitle = "Local", startPositionMs = resumeMs,
+                preserveSessionControls = true)
             startReporter()
         }
     }
@@ -182,7 +197,7 @@ class LocalPlayerViewModel @Inject constructor(
         true
     }.getOrDefault(false)
 
-    private fun playEncryptedHls(documentUri: String, displayName: String) {
+    private suspend fun playEncryptedHls(documentUri: String, displayName: String) {
         val docUri = Uri.parse(documentUri)
         val treeUri = SafIds.treeUriOf(docUri)
         val docId = SafIds.documentIdOf(docUri)
@@ -190,34 +205,32 @@ class LocalPlayerViewModel @Inject constructor(
             _uiState.update { it.copy(error = context.getString(R.string.local_unsupported_location)) }
             return
         }
-        viewModelScope.launch {
             hlsPlayback?.close()
-            val containerLength = runCatching {
+            val containerLength = withContext(Dispatchers.IO) { runCatching {
                 context.contentResolver.openAssetFileDescriptor(docUri, "r")?.use { it.length }
-            }.getOrNull() ?: -1L
+            }.getOrNull() ?: -1L }
             encryptedHlsManager.prepareLocal(treeUri, docId, containerLength).fold(
                 onSuccess = { playback ->
+                    if (!currentCoroutineContext().isActive) playback.close()
+                    currentCoroutineContext().ensureActive()
                     hlsPlayback = playback
                     val title = playback.resolvedSourceName ?: displayName
                     val resumeMs = historyRepository.resumePositionSeconds(PlaybackSource.LOCAL, null, documentUri) * 1000
                     lastUsagePositionSeconds = resumeMs / 1000
-                    playerManager.play(url = playback.playUrl, title = title, subtitle = "Local", startPositionMs = resumeMs)
-                    historyRepository.recordPlayback(
-                        source = PlaybackSource.LOCAL,
-                        service = null,
-                        replayTarget = documentUri,
-                        title = title
-                    )
+                    historyRepository.recordPlayback(PlaybackSource.LOCAL, null, documentUri, title)
+                    currentCoroutineContext().ensureActive()
                     started = true
+                    playerManager.play(url = playback.playUrl, title = title, subtitle = "Local", startPositionMs = resumeMs,
+                        preserveSessionControls = true, interruptPendingReads = playback::interruptPendingReads)
                     startReporter()
                 },
                 onFailure = { e ->
+                    currentCoroutineContext().ensureActive()
                     _uiState.update {
                         it.copy(error = e.message ?: context.getString(R.string.player_load_failed))
                     }
                 }
             )
-        }
     }
 
     fun togglePlayPause() = playerManager.togglePlayPause()
@@ -237,42 +250,39 @@ class LocalPlayerViewModel @Inject constructor(
     fun seekTo(positionMs: Long) = playerManager.seekTo(positionMs)
 
     fun onPlaybackEnded() {
-        stopReporter()
-        if (started) {
-            val dur = playerManager.state.value.durationMs / 1000
-            viewModelScope.launch {
-                historyRepository.completePlayback(
-                    source = PlaybackSource.LOCAL,
-                    service = null,
-                    replayTarget = contentUri,
-                    durationSeconds = dur
-                )
-            }
-            started = false
-        }
-        playerManager.pause()
+        finishCurrent(completed = true)
     }
 
     fun stopPlayback() {
+        if (!playerManager.queue.owns(this)) return
+        loadJob?.cancel()
+        finishCurrent(completed = false)
+        playerManager.queue.detach(this)
+        playerManager.stop()
+        closeHls()
+    }
+
+    private fun finishCurrent(completed: Boolean) {
         stopReporter()
+        if (!started) return
+        started = false
         val pos = playerManager.state.value.positionMs / 1000
         val dur = playerManager.state.value.durationMs / 1000
         val watchedSeconds = (pos - lastUsagePositionSeconds).coerceAtLeast(0L)
-        playerManager.stop()
-        if (started) {
-            started = false
-            appScope.launch { withContext(NonCancellable) {
-                historyRepository.updateProgress(
-                    source = PlaybackSource.LOCAL,
-                    service = null,
-                    replayTarget = contentUri,
-                    positionSeconds = pos,
-                    durationSeconds = dur
-                )
-                historyRepository.addDailyUsage(null, watchedSeconds, playerManager.drainDownloadedBytes())
-            } }
+        val target = contentUri
+        val bytes = playerManager.drainDownloadedBytes()
+        val previous = finishJob
+        finishJob = appScope.launch {
+            withContext(NonCancellable) {
+                previous?.join()
+                if (completed) {
+                    historyRepository.completePlayback(PlaybackSource.LOCAL, null, target, dur)
+                } else {
+                    historyRepository.updateProgress(PlaybackSource.LOCAL, null, target, pos, dur)
+                }
+                historyRepository.addDailyUsage(null, watchedSeconds, bytes)
+            }
         }
-        closeHls()
     }
 
     private fun closeHls() {

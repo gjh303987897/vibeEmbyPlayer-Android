@@ -1,0 +1,10 @@
+<resources>
+    <string name="browse_sort">排序方式</string>
+    <string name="browse_sort_name_asc">名称 A–Z</string>
+    <string name="browse_sort_name_desc">名称 Z–A</string>
+    <string name="browse_sort_size_asc">大小：从小到大</string>
+    <string name="browse_sort_size_desc">大小：从大到小</string>
+    <string name="browse_sort_modified_newest">修改时间：最新优先</string>
+    <string name="browse_sort_modified_oldest">修改时间：最早优先</string>
+    <string name="browse_sort_save_failed">排序方式保存失败，请重试。</string>
+</resources>

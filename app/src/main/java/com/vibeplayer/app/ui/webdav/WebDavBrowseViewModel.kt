@@ -9,23 +9,35 @@ import androidx.lifecycle.viewModelScope
 import com.vibeplayer.app.data.repository.MediaServerRepository
 import com.vibeplayer.app.data.repository.TransferRepository
 import com.vibeplayer.app.data.repository.WebDavRepository
+import com.vibeplayer.app.data.local.datastore.SettingsDataStore
+import com.vibeplayer.app.domain.browse.sortWebDavItems
+import com.vibeplayer.app.model.BrowseSortOrder
+import com.vibeplayer.app.model.BrowseSource
 import com.vibeplayer.app.model.ServerConfig
 import com.vibeplayer.app.model.MessageTone
 import com.vibeplayer.app.security.PrivacyManager
 import com.vibeplayer.app.model.WebDavItem
+import com.vibeplayer.app.model.PlaybackSource
+import com.vibeplayer.app.player.PlaybackQueue
+import com.vibeplayer.app.player.PlaybackQueueItem
+import com.vibeplayer.app.player.PlaybackQueueScope
 import com.vibeplayer.app.player.hls.EncryptedHlsManager
 import com.vibeplayer.app.player.hls.EncryptedHlsMetadata
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -36,6 +48,7 @@ data class WebDavUiState(
     val server: ServerConfig? = null,
     val path: String = "",
     val items: List<WebDavItem> = emptyList(),
+    val sortOrder: BrowseSortOrder = BrowseSortOrder.NAME_ASC,
     val loading: Boolean = false,
     val error: String? = null,
     val message: String? = null,
@@ -57,17 +70,43 @@ data class WebDavUiState(
 }
 
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class WebDavBrowseViewModel @Inject constructor(
     private val repository: MediaServerRepository,
     private val webDavRepository: WebDavRepository,
     private val transferRepository: TransferRepository,
     private val encryptedHlsManager: EncryptedHlsManager,
     @ApplicationContext private val appContext: Context,
-    private val privacyManager: PrivacyManager
+    private val privacyManager: PrivacyManager,
+    private val playbackQueue: PlaybackQueue,
+    private val settings: SettingsDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WebDavUiState())
-    val uiState: StateFlow<WebDavUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<WebDavUiState> = combine(_uiState, settings.browseSortOrder(BrowseSource.WEBDAV)) { state, order ->
+        state to order
+    }.mapLatest { (state, order) ->
+        if (state.items.isEmpty()) state.copy(sortOrder = order)
+        else withContext(Dispatchers.Default) { state.copy(items = sortWebDavItems(state.items, order), sortOrder = order) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, WebDavUiState())
+
+    fun setSortOrder(order: BrowseSortOrder) {
+        viewModelScope.launch {
+            val error = appContext.getString(R.string.browse_sort_save_failed)
+            try {
+                settings.setBrowseSortOrder(BrowseSource.WEBDAV, order)
+                _uiState.update { if (it.error == error) it.copy(error = null) else it }
+            } catch (_: java.io.IOException) { _uiState.update { it.copy(error = error) } }
+        }
+    }
+
+    fun preparePlayback(item: WebDavItem) {
+        val state = uiState.value
+        val server = state.server ?: return
+        val videos = state.items.filter { !it.isDirectory && it.isVideo }
+        playbackQueue.stage(PlaybackQueueScope(PlaybackSource.WEBDAV, server.id),
+            videos.map { PlaybackQueueItem(it.path, it.sourceFileName ?: it.name, server.name) }, item.path)
+    }
     private var browseJob: Job? = null
     private var metadataJob: Job? = null
     private var browseRequestId = 0L

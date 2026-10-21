@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.AltRoute
+import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,7 +60,7 @@ import com.vibeplayer.app.ui.components.bottomEdgeInsets
 import com.vibeplayer.app.ui.components.topEdgeInsets
 import kotlin.math.roundToInt
 
-private enum class PlayerSettingsPage { ROOT, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING, VIDEO_SCALE, SLEEP_TIMER, SLEEP_CUSTOM, PICTURE_IN_PICTURE, LAYOUT, DECODE, PERFORMANCE, VIDEO_INFO }
+private enum class PlayerSettingsPage { ROOT, QUEUE, HOLD_SPEED, SOURCE, SUBTITLES, PLAYBACK_SPEED, SUBTITLE_APPEARANCE, SUBTITLE_TIMING, VIDEO_SCALE, SLEEP_TIMER, SLEEP_CUSTOM, PICTURE_IN_PICTURE, LAYOUT, DECODE, PERFORMANCE, VIDEO_INFO }
 
 /** Shared chrome for every source; performance remains visible when controls are hidden or locked. */
 @Composable
@@ -98,6 +99,7 @@ fun BoxScope.PlayerSettings(
             val playerState by viewModel.playerState.collectAsStateWithLifecycle()
             val zoom by viewModel.videoZoom.collectAsStateWithLifecycle()
             val sleepTimer by viewModel.sleepTimer.collectAsStateWithLifecycle()
+            val queue by viewModel.queue.collectAsStateWithLifecycle()
             val saveFailed by viewModel.saveFailed.collectAsStateWithLifecycle()
             PlayerSettingsPopup(onDismiss = { expanded = false; page = PlayerSettingsPage.ROOT }) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -126,16 +128,23 @@ fun BoxScope.PlayerSettings(
                         PlayerSettingsPage.PERFORMANCE -> R.string.player_settings_performance
                         PlayerSettingsPage.VIDEO_INFO -> R.string.video_info_title
                         PlayerSettingsPage.ROOT -> R.string.player_settings
+                        PlayerSettingsPage.QUEUE -> R.string.player_queue
                     }),
                         style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
                 }
                 val pageScroll = key(page) { rememberScrollState() }
                 Column(Modifier.fillMaxWidth().weight(1f, fill = false)
-                    .then(if (page == PlayerSettingsPage.SOURCE) Modifier else Modifier.verticalScroll(pageScroll))
+                    .then(if (page == PlayerSettingsPage.SOURCE || page == PlayerSettingsPage.QUEUE) Modifier else Modifier.verticalScroll(pageScroll))
                     .padding(bottom = 8.dp)) {
                     if (saveFailed) Text(stringResource(R.string.player_settings_save_failed),
                         color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                     when {
+                        page == PlayerSettingsPage.QUEUE -> PlaybackQueueSettings(queue, preferences.autoPlayNext,
+                            viewModel::setAutoPlayNext) { index ->
+                            viewModel.selectQueueItem(index)
+                            expanded = false
+                            page = PlayerSettingsPage.ROOT
+                        }
                         page == PlayerSettingsPage.VIDEO_INFO -> VideoInfoSettings(playerState.mediaInfo)
                         page == PlayerSettingsPage.SOURCE && sourceSettings != null -> sourceSettings()
                         page == PlayerSettingsPage.SUBTITLES -> {
@@ -181,6 +190,10 @@ fun BoxScope.PlayerSettings(
                             SpeedChoices(LONG_PRESS_SPEEDS, preferences.longPressSpeed, viewModel::setLongPressSpeed)
                         }
                         page == PlayerSettingsPage.ROOT -> {
+                            PlayerSettingMenuRow(Icons.AutoMirrored.Outlined.PlaylistPlay, stringResource(R.string.player_queue),
+                                if (queue.items.isNotEmpty()) "${queue.index + 1} / ${queue.items.size}" else null) {
+                                page = PlayerSettingsPage.QUEUE
+                            }
                             PlayerSettingMenuRow(Icons.Outlined.Subtitles, stringResource(R.string.subtitle_title),
                                 playerState.subtitleTracks.firstOrNull { it.key == playerState.selectedSubtitleKey }?.label
                                     ?: stringResource(R.string.subtitle_off)) { page = PlayerSettingsPage.SUBTITLES }

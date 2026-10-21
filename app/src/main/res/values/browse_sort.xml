@@ -1,0 +1,10 @@
+<resources>
+    <string name="browse_sort">Sort order</string>
+    <string name="browse_sort_name_asc">Name: A–Z</string>
+    <string name="browse_sort_name_desc">Name: Z–A</string>
+    <string name="browse_sort_size_asc">Size: smallest first</string>
+    <string name="browse_sort_size_desc">Size: largest first</string>
+    <string name="browse_sort_modified_newest">Modified: newest first</string>
+    <string name="browse_sort_modified_oldest">Modified: oldest first</string>
+    <string name="browse_sort_save_failed">Unable to save the sort order. Please try again.</string>
+</resources>

@@ -91,7 +91,8 @@ private data class DecoderRestore(
 class PlayerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val clientFactory: OkHttpClientFactory,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    val queue: PlaybackQueue
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val volumeController = PlaybackVolumeController(context)
@@ -113,6 +114,7 @@ class PlayerManager @Inject constructor(
     private val preferencesReady = CompletableDeferred<Unit>()
     private var preparationJob: Job? = null
     private var currentRequest: PlaybackRequest? = null
+    private var completionDelivered = false
     private var decoderRestore: DecoderRestore? = null
     private var playWhenPrepared = true
     val playWhenReady: Boolean get() = playWhenPrepared
@@ -355,14 +357,21 @@ class PlayerManager @Inject constructor(
             }
         }
         player.setOnCompletionListener {
+            if (currentRequest == null || !_state.value.isPrepared || completionDelivered) return@setOnCompletionListener
+            completionDelivered = true
+            Log.i("PlayerManager", "Native EOF (position=${_state.value.positionMs}, duration=${_state.value.durationMs}, queue=${queue.state.value.index}, autoplay=${_preferences.value.autoPlayNext})")
             audioFocus.abandon()
             stopPositionTicker()
             acceptNativeSubtitles = false
             clearVisibleSubtitles()
             updateDerived(isPlaying = false)
             _state.update { it.copy(buffering = false, isPrepared = true, subtitleText = null) }
-            sleepTimer.onVideoCompleted()
-            sleepTimerJob?.cancel()
+            sleepTimer.tick(android.os.SystemClock.elapsedRealtime())
+            val advance = playWhenPrepared && _preferences.value.autoPlayNext &&
+                queue.state.value.autoAdvanceAllowed && queue.state.value.hasNext
+            sleepTimer.onVideoCompleted(continuingQueue = advance)
+            if (sleepTimerState.value.mode != SleepTimerMode.COUNTDOWN) sleepTimerJob?.cancel()
+            queue.completed(autoAdvance = advance && !sleepTimerState.value.expired)
         }
         player.setOnBufferingUpdateListener { _, percent ->
             _state.update { it.copy(buffering = !sleepTimerState.value.expired && (encryptedSeekInFlight != null ||
@@ -480,8 +489,12 @@ class PlayerManager @Inject constructor(
 
     fun failLoading(message: String) = _state.update { it.copy(error = message, buffering = false) }
 
-    fun beginLoading(title: String? = null, subtitle: String? = null) {
-        cancelSleepTimer()
+    fun beginLoading(title: String? = null, subtitle: String? = null, continuingQueue: Boolean = false) {
+        if (!continuingQueue) {
+            cancelSleepTimer()
+            queue.clear()
+        }
+        completionDelivered = false
         _videoZoom.value = 1f
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
@@ -527,6 +540,7 @@ class PlayerManager @Inject constructor(
         interruptPendingReads: (() -> Unit)? = null,
         preserveSessionControls: Boolean = preserveManualSubtitles
     ) {
+        completionDelivered = false
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
         videoSurfaceLost = false
@@ -651,6 +665,11 @@ class PlayerManager @Inject constructor(
 
     fun play() {
         sleepTimer.acknowledgeExpiration()
+        if (completionDelivered) {
+            if (queue.replay()) return
+            completionDelivered = false
+            seekTo(0)
+        }
         cancelPausedSurfaceFrame(pause = true)
         pausedSeekPosition = null
         playWhenPrepared = true
@@ -692,7 +711,10 @@ class PlayerManager @Inject constructor(
         updateDerived(isPlaying = false)
     }
 
-    fun stop() = stop(preserveSleepTimer = false)
+    fun stop() {
+        queue.clear()
+        stop(preserveSleepTimer = false)
+    }
 
     private fun stop(preserveSleepTimer: Boolean) {
         if (!preserveSleepTimer) cancelSleepTimer()
@@ -721,6 +743,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun seekTo(positionMs: Long) {
+        completionDelivered = false
         clearVisibleSubtitles()
         if (!_state.value.isPrepared) return
         subtitleSeekPending = true
@@ -1070,10 +1093,13 @@ class PlayerManager @Inject constructor(
             encryptedSeekTarget = null
         }
         val refreshingPosition = pausedSurfaceFramePosition
-        val position = encryptedSeekTarget ?: refreshingPosition
+        val duration = runCatching { player.duration }.getOrDefault(_state.value.durationMs).coerceAtLeast(0L)
+        // IJK's final clock can stop at the last packet, before the container's
+        // reported duration. Actual EOF must leave the completed seekbar at 100%.
+        val position = if (completionDelivered && duration > 0) duration
+            else encryptedSeekTarget ?: refreshingPosition
             ?: pausedSeekPosition
             ?: runCatching { player.currentPosition }.getOrDefault(_state.value.positionMs).coerceAtLeast(0L)
-        val duration = runCatching { player.duration }.getOrDefault(_state.value.durationMs).coerceAtLeast(0L)
         val totalBytes = runCatching { player.getTrafficStatisticByteCount() }.getOrDefault(0L).coerceAtLeast(0L)
         if (totalBytes >= lastNativeDownloadedBytes) {
             downloadedBytes.addAndGet(totalBytes - lastNativeDownloadedBytes)
@@ -1087,6 +1113,7 @@ class PlayerManager @Inject constructor(
         _state.update { it.copy(isPlaying = isPlaying && playWhenPrepared && refreshingPosition == null, positionMs = position, durationMs = duration,
             volume = volumeController.volume, videoDecodeMode = decoder) }
     }
+
 
     private fun parseSubtitle(bytes: ByteArray, mimeType: String): List<SubtitleCue> {
         if (bytes.isEmpty()) return emptyList()
@@ -1118,6 +1145,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun release() {
+        queue.clear()
         cancelSleepTimer()
         softwareOutputHolder = null
         encryptedSeekTarget = null

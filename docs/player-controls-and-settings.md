@@ -244,6 +244,8 @@ orientation and the temporary USB stay-awake setting are restored after validati
 
 ## References
 
+- [Playback queue and autoplay](playback-queue.md) describes source ordering,
+  previous/next controls, native completion and sleep-timer precedence.
 - Independent CPU/GPU/FPS/NET switch validation on 2026-10-21 is recorded in
   [appearance-playback-diagnostics.md](appearance-playback-diagnostics.md).
 - [Android media volume](https://developer.android.com/media/platform/output)

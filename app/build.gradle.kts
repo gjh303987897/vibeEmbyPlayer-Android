@@ -127,6 +127,16 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// The androidTest-only metadata provider runs in its own APK process, where
+// dependencies shared with the app (Kotlin stdlib) are intentionally not packaged.
+// Its implementation uses framework/JDK APIs only; omit generated parameter checks
+// in test bytecode so the provider can run without Intrinsics. App checks are unchanged.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    if (name.endsWith("AndroidTestKotlin")) {
+        compilerOptions.freeCompilerArgs.add("-Xno-param-assertions")
+    }
+}
+
 dependencies {
     // AndroidX core & lifecycle
     implementation(libs.androidx.core.ktx)
