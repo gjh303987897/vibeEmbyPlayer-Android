@@ -4,8 +4,10 @@ import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -33,6 +35,7 @@ import com.vibeplayer.app.R
 import com.vibeplayer.app.model.PlayerLayout
 import com.vibeplayer.app.player.PLAYBACK_SPEEDS
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /** Every source uses the same layout and commands, including manual subtitle selection. */
 @Composable
@@ -100,11 +103,6 @@ internal fun PlayerControls(viewModel: PlayerSettingsViewModel, modifier: Modifi
                 SubtitleSelector(state.subtitleTracks, state.selectedSubtitleKey, viewModel::selectSubtitle, compact = true)
                 VolumeMenu(state.volume, viewModel::setVolume)
             }
-            if (trendy && !landscape) Row(Modifier.fillMaxWidth().padding(start = 56.dp, end = 104.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.AutoMirrored.Outlined.VolumeUp, null, tint = Color.White)
-                Slider(value = state.volume, onValueChange = viewModel::setVolume,
-                    modifier = Modifier.weight(1f).padding(start = 8.dp))
-            }
         }
     }
 }
@@ -169,12 +167,24 @@ private fun SpeedMenu(speed: Float, onSelect: (Float) -> Unit) {
 private fun VolumeMenu(volume: Float, onChange: (Float) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     PipAutoEntryBlocker(expanded)
+    val label = stringResource(R.string.player_volume_control)
     Box {
         IconButton(onClick = { expanded = true }) {
-            Icon(Icons.AutoMirrored.Outlined.VolumeUp, stringResource(R.string.player_volume_control), tint = Color.White)
+            Icon(Icons.AutoMirrored.Outlined.VolumeUp, label, tint = Color.White)
         }
-        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            Slider(volume, onValueChange = onChange, modifier = Modifier.width(200.dp).padding(horizontal = 16.dp))
+        if (expanded) PlayerSettingsPopup(onDismiss = { expanded = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Text("${(volume * 100).roundToInt()}%", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                HorizontalDivider()
+                Slider(volume, onValueChange = onChange,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                        .semantics { contentDescription = label })
+            }
         }
     }
 }

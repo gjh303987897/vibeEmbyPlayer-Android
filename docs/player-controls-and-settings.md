@@ -59,8 +59,8 @@ combined elapsed/total label appears below the bar at the left and previews the
 pending seek position while dragging. Live media without a duration stays disabled;
 no estimated buffered range is drawn. The former 1000-dp panel width cap is removed
 so wide-screen progress reaches the safe edges too.
-The transport row keeps play/pause physically centred. The quick actions and
-portrait volume slider reserve 104 dp at the right for the two dock actions;
+The transport row keeps play/pause physically centred. The quick actions
+reserve 104 dp at the right for the two dock actions;
 quick actions use a separate row on narrow screens. Title, screen lock, gestures,
 PiP integration, video output and playback commands retain their existing behavior.
 
@@ -74,7 +74,15 @@ and shifting controls.
 
 ## Volume and screen lock
 
-Vertical gestures on the right and the volume slider control Android `STREAM_MUSIC` through
+The volume button is the only visible volume entry in the bottom controls. The
+redundant persistent volume slider in the portrait trendy layout is removed.
+Its popup reuses `PlayerSettingsPopup`: the same 20-dp rounded corners, translucent
+dark surface, readable white/secondary text, safe window bounds and outside/Back
+dismissal as Settings. A title and current volume percentage sit above the
+slider; its content scrolls if the available height is small. Both layouts and
+all media sources use this shared button and popup.
+
+Vertical gestures on the right and the popup volume slider control Android `STREAM_MUSIC` through
 `PlaybackVolumeController`. The displayed fraction comes from the actual stream index, including
 quantization and fixed-volume devices. `MODIFY_AUDIO_SETTINGS` is a normal manifest permission.
 Native IJK volume stays at unity except for audio-focus ducking, avoiding two independent volume
