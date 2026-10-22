@@ -572,6 +572,249 @@ class PlayerManagerPlaybackTest {
         }
     }
 
+    @Test
+    fun webDavTsslSeeksWaitForBothOutputsAndKeepAudioVideoClocksAligned() {
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as VibePlayerApp
+        val shared = app.playerManager
+        val originalMode = runBlocking { app.settingsDataStore.playerPreferences.first().videoDecodeMode }
+        val clockReport = File(context.getExternalFilesDir(null), "tssl-seek-clocks.txt")
+        clockReport.writeText("Synthetic TSSL seek clock samples (seconds)\n")
+        // IJK exposes A-V difference natively but its pinned Java wrapper has no public getter.
+        // Reflection stays in instrumentation; production uses actual seek-rendering events.
+        val property = IjkMediaPlayer::class.java.getDeclaredMethod("_getPropertyFloat",
+            Int::class.javaPrimitiveType, Float::class.javaPrimitiveType).apply { isAccessible = true }
+        val infoField = tv.danmaku.ijk.media.player.AbstractMediaPlayer::class.java
+            .getDeclaredField("mOnInfoListener").apply { isAccessible = true }
+        try {
+            for (mode in VideoDecodeMode.entries) {
+                callOnMain { shared.stop() }
+                runBlocking { app.settingsDataStore.setVideoDecodeMode(mode) }
+                awaitCondition("decoder preference must load") { shared.preferences.value.videoDecodeMode == mode }
+                WebDavTsslSeekFixture(context, instrumentation.context).use { fixture ->
+                    ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                        val surface = attachSurface(scenario, shared)
+                        val playback = fixture.prepare()
+                        callOnMain {
+                            shared.play(playback.playUrl, "Synthetic TSSL A/V seek", null,
+                                networkByteCounter = playback.networkByteCounter,
+                                interruptPendingReads = playback::interruptPendingReads)
+                        }
+                        awaitCondition("TSSL audio/video must start") {
+                            shared.state.value.isPlaying && shared.state.value.positionMs > 200 &&
+                                shared.state.value.audioTracks.isNotEmpty()
+                        }
+                        var audioRendered = false
+                        var videoRendered = false
+                        var observingSeek = false
+                        var exposedBeforeReady = false
+                        val originalInfo = callOnMain { infoField.get(shared.player) as tv.danmaku.ijk.media.player.IMediaPlayer.OnInfoListener }
+                        var stateObserver: Job? = null
+                        callOnMain {
+                            shared.player.setOnInfoListener { player, what, extra ->
+                                if (what == tv.danmaku.ijk.media.player.IMediaPlayer.MEDIA_INFO_AUDIO_SEEK_RENDERING_START) audioRendered = true
+                                if (what == tv.danmaku.ijk.media.player.IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START) videoRendered = true
+                                originalInfo.onInfo(player, what, extra)
+                            }
+                            scenario.onActivity { activity ->
+                                stateObserver = activity.lifecycleScope.launch {
+                                    shared.state.collect { state ->
+                                        if (observingSeek && state.isPlaying && (!audioRendered || !videoRendered)) exposedBeforeReady = true
+                                    }
+                                }
+                            }
+                        }
+                        fun beginProbe() {
+                            audioRendered = false
+                            videoRendered = false
+                            exposedBeforeReady = false
+                            observingSeek = true
+                        }
+                        fun awaitOutputAndCheckClocks(target: Long) {
+                            awaitCondition("$mode seek must render audio AND video at $target") {
+                                assertNull(shared.state.value.error)
+                                audioRendered && videoRendered && shared.state.value.isPlaying &&
+                                    !shared.state.value.buffering && shared.player.currentPosition in (target - 1000)..(target + 4000)
+                            }
+                            SystemClock.sleep(500)
+                            val clockDeadline = SystemClock.elapsedRealtime() + 1_000
+                            while (SystemClock.elapsedRealtime() < clockDeadline) {
+                                val difference = callOnMain { property.invoke(shared.player, 10005, Float.NaN) as Float }
+                                if (difference.isFinite() && kotlin.math.abs(difference) <= .25f) break
+                                SystemClock.sleep(50)
+                            }
+                            val differences = (1..12).map {
+                                val difference = callOnMain { property.invoke(shared.player, 10005, Float.NaN) as Float }
+                                SystemClock.sleep(100)
+                                difference
+                            }
+                            println("TSSL $mode seek=$target, A-V differences=$differences")
+                            clockReport.appendText("$mode targetMs=$target A-V=$differences\n")
+                            assertTrue("$mode seek must keep both output clocks within 250ms: $differences",
+                                differences.all { it.isFinite() && kotlin.math.abs(it) <= .25f })
+                            callOnMain {
+                                assertFalse("playback must not be exposed before both outputs are ready", exposedBeforeReady)
+                                observingSeek = false
+                            }
+                        }
+                        try {
+                            for (target in listOf(23_750L, 12_250L, 18_500L)) {
+                                callOnMain { beginProbe(); shared.seekTo(target) }
+                                awaitOutputAndCheckClocks(target)
+                            }
+                            callOnMain {
+                                shared.pause()
+                                beginProbe()
+                                shared.seekTo(4_000)
+                                shared.seekTo(22_000)
+                            }
+                            awaitCondition("paused rapid seeks must retain latest target") {
+                                !shared.state.value.isPlaying && !shared.state.value.buffering &&
+                                    shared.state.value.positionMs == 22_000L
+                            }
+                            callOnMain { assertFalse(shared.playWhenReady); shared.play() }
+                            awaitOutputAndCheckClocks(22_000)
+                            assertBlueFrameVisible(surface)
+                            callOnMain { shared.seekTo(18_000); shared.stop() }
+                            SystemClock.sleep(250)
+                            callOnMain { assertFalse(shared.state.value.isPlaying); assertFalse(shared.state.value.isPrepared) }
+                        } finally {
+                            callOnMain {
+                                stateObserver?.cancel()
+                                shared.player.setOnInfoListener(originalInfo)
+                                shared.stop()
+                                surfaceObserver?.cancel()
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            callOnMain { shared.stop(); context.stopService(Intent(context, PlaybackService::class.java)) }
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(originalMode) }
+        }
+    }
+
+    /** Opt-in only: an explicitly selected user source; no accounts or keys leave the app. */
+    @Test
+    fun originalTsslLoopbackSeekClockProbe() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val port = arguments.getString("originalTsslPort")?.toIntOrNull()
+        val serviceName = arguments.getString("originalTsslService")
+        val path = arguments.getString("originalTsslPath")
+        val configuredSource = serviceName != null && path?.endsWith(".m3u8sp", ignoreCase = true) == true
+        assumeTrue("requires an explicitly selected TSSL source", configuredSource || (port != null && port in 1..65535))
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as VibePlayerApp
+        val shared = app.playerManager
+        val originalMode = runBlocking { app.settingsDataStore.playerPreferences.first().videoDecodeMode }
+        val report = File(context.getExternalFilesDir(null), "original-tssl-seek-clocks.txt")
+        val property = IjkMediaPlayer::class.java.getDeclaredMethod("_getPropertyFloat",
+            Int::class.javaPrimitiveType, Float::class.javaPrimitiveType).apply { isAccessible = true }
+        report.writeText(if (configuredSource) "Configured WebDAV TSSL output-clock probe.\n"
+            else "Original TSSL loopback output-clock probe; upstream cancellation is not exercised.\n")
+        var configuredPlayback: com.vibeplayer.app.player.hls.EncryptedHlsPlayback? = null
+        fun record(line: String) = synchronized(report) { report.appendText(line + "\n") }
+        val infoField = tv.danmaku.ijk.media.player.AbstractMediaPlayer::class.java
+            .getDeclaredField("mOnInfoListener").apply { isAccessible = true }
+        val originalInfo = callOnMain { infoField.get(shared.player) as tv.danmaku.ijk.media.player.IMediaPlayer.OnInfoListener }
+        callOnMain {
+            shared.player.setOnInfoListener { player, what, extra ->
+                record("info=$what extra=$extra nativeMs=${shared.player.currentPosition}")
+                originalInfo.onInfo(player, what, extra)
+            }
+        }
+        fun awaitOriginal(message: String, condition: () -> Boolean) {
+            val deadline = SystemClock.elapsedRealtime() + 90_000
+            var nextSample = 0L
+            do {
+                if (callOnMain { assertNull(shared.state.value.error); condition() }) return
+                if (SystemClock.elapsedRealtime() >= nextSample) {
+                    record(callOnMain {
+                        "waiting: nativeMs=${shared.player.currentPosition}, nativePlaying=${shared.player.isPlaying}, " +
+                            "intent=${shared.playWhenReady}, statePlaying=${shared.state.value.isPlaying}, " +
+                            "buffering=${shared.state.value.buffering}, avdiff=${property.invoke(shared.player, 10005, Float.NaN)}, " +
+                            "audioCacheMs=${shared.player.audioCachedDuration}, videoCacheMs=${shared.player.videoCachedDuration}, " +
+                            "audioPackets=${shared.player.audioCachedPackets}, videoPackets=${shared.player.videoCachedPackets}"
+                    })
+                    nextSample = SystemClock.elapsedRealtime() + 2_000
+                }
+                SystemClock.sleep(100)
+            } while (SystemClock.elapsedRealtime() < deadline)
+            assertTrue(message, callOnMain(condition))
+        }
+        try {
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(VideoDecodeMode.HARDWARE) }
+            awaitCondition("hardware preference must load") { shared.preferences.value.videoDecodeMode == VideoDecodeMode.HARDWARE }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                attachSurface(scenario, shared)
+                if (configuredSource) {
+                    lateinit var viewModel: com.vibeplayer.app.ui.webdav.WebDavPlayerViewModel
+                    scenario.onActivity { viewModel = ViewModelProvider(it)[com.vibeplayer.app.ui.webdav.WebDavPlayerViewModel::class.java] }
+                    // Use this app's existing injected dependencies; never read another app's
+                    // storage or serialize credentials. Reflection is confined to this opt-in probe.
+                    fun dependency(name: String): Any = viewModel.javaClass.getDeclaredField(name)
+                        .apply { isAccessible = true }.get(viewModel)
+                    val repository = dependency("repository") as com.vibeplayer.app.data.repository.MediaServerRepository
+                    val encryptedHls = dependency("encryptedHlsManager") as com.vibeplayer.app.player.hls.EncryptedHlsManager
+                    val server = runBlocking {
+                        repository.observeVisibleServices(app.privacyManager.privacyMode.value).first()
+                            .single { it.name == serviceName && it.serviceType == com.vibeplayer.app.model.ServiceType.WEBDAV }
+                    }
+                    configuredPlayback = runBlocking { encryptedHls.prepareWebDav(server, requireNotNull(path)).getOrThrow() }
+                }
+                callOnMain {
+                    // The original app owns the WebDAV reads. This probe exercises the fixed
+                    // native render gate only when a port, rather than a configured source, is used.
+                    val playback = configuredPlayback
+                    shared.play(playback?.playUrl ?: "http://127.0.0.1:$port/index.m3u8", "Original TSSL seek probe", null,
+                        networkByteCounter = playback?.networkByteCounter,
+                        interruptPendingReads = if (playback != null) playback::interruptPendingReads else ({}))
+                }
+                awaitOriginal("original audio/video must start") {
+                    shared.state.value.isPlaying && shared.state.value.positionMs > 500 &&
+                        shared.state.value.audioTracks.isNotEmpty()
+                }
+                report.appendText(callOnMain {
+                    "durationMs=${shared.state.value.durationMs}, width=${shared.player.videoWidth}, height=${shared.player.videoHeight}\n"
+                })
+                for (target in listOf(24_000L, 90_000L, 150_000L, 30_000L)) {
+                    val started = SystemClock.elapsedRealtime()
+                    callOnMain { shared.seekTo(target) }
+                    awaitOriginal("original seek must restore both outputs at $target") {
+                        shared.state.value.isPlaying && !shared.state.value.buffering &&
+                            shared.player.currentPosition in (target - 1_000)..(target + 8_000)
+                    }
+                    val recoveryMs = SystemClock.elapsedRealtime() - started
+                    SystemClock.sleep(500)
+                    val settleDeadline = SystemClock.elapsedRealtime() + 1_000
+                    while (SystemClock.elapsedRealtime() < settleDeadline) {
+                        val difference = callOnMain { property.invoke(shared.player, 10005, Float.NaN) as Float }
+                        if (difference.isFinite() && kotlin.math.abs(difference) <= .25f) break
+                        SystemClock.sleep(50)
+                    }
+                    val differences = (1..30).map {
+                        val difference = callOnMain { property.invoke(shared.player, 10005, Float.NaN) as Float }
+                        SystemClock.sleep(100)
+                        difference
+                    }
+                    report.appendText("targetMs=$target recoveryMs=$recoveryMs A-V=$differences\n")
+                    assertTrue("original seek must keep A/V within 250ms: $differences",
+                        differences.all { it.isFinite() && kotlin.math.abs(it) <= .25f })
+                }
+            }
+        } finally {
+            callOnMain {
+                shared.player.setOnInfoListener(originalInfo)
+                shared.stop()
+                surfaceObserver?.cancel()
+                context.stopService(Intent(context, PlaybackService::class.java))
+            }
+            configuredPlayback?.close()
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(originalMode) }
+        }
+    }
+
     private fun assertBlueFrameVisible(view: IjkPlayerView) {
         val bitmap = Bitmap.createBitmap(32, 18, Bitmap.Config.ARGB_8888)
         val copied = CountDownLatch(1)

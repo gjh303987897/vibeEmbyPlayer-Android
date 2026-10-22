@@ -25,7 +25,26 @@ Qt 使用 `QByteArray::toHex()` 写入每个成员的 `sha256`，因此该字段
 
 播放器进入页面就显示加载状态，覆盖 WebDAV 身份读取、容器索引、manifest 和本机 TSSL 匹配阶段；准备失败时结束加载并显示错误。
 
-WebDAV 加密播放的 seek 会立即暂停并静音旧输出，保留目标进度，先向 IJK 提交 seek，再关闭旧环回响应并取消对应的 OkHttp 请求（包括正在读取的响应体），使 demuxer 无需等旧分片下载完成。连续拖动合并到最后一个目标；只有当前目标完成后才按用户最新的播放/暂停意图恢复。取消请求不会跳过 SHA-256、ETag、Content-Range 或 AES-GCM 校验。停止代理也会关闭已接收的连接并取消其远程读取。
+WebDAV 加密播放的 seek 会立即静音旧输出并保留目标进度，先向 IJK 提交 seek，再关闭旧环回响应并取消对应的 OkHttp 请求（包括正在读取的响应体），使 demuxer 无需等旧分片下载完成。播放中的 seek 不再额外暂停原生管线，避免进入 IJK 的暂停单帧定位路径；用户原本暂停时仍保留暂停意图。连续拖动合并到最后一个目标；只有当前目标完成后才按用户最新的播放/暂停意图恢复。取消请求不会跳过 SHA-256、ETag、Content-Range 或 AES-GCM 校验。停止代理也会关闭已接收的连接并取消其远程读取。
+
+### Seek 后的音视频恢复
+
+IJK 的 `OnSeekComplete` 只表示解封装器完成定位，不能作为声音和画面已经恢复的依据。
+TSSL seek 现在分别等待当前音轨的 `MEDIA_INFO_AUDIO_SEEK_RENDERING_START` 和视频的
+`MEDIA_INFO_VIDEO_SEEK_RENDERING_START`。两路实际输出都就绪后才恢复音量、结束加载并
+向界面报告播放中；在此之前保留目标进度，让 IJK 在静音状态下完成输出恢复。无音轨的视频
+或纯音频不会等待不存在的流。定位确认之前的旧输出事件不能放行新目标。
+
+暂停时不为了等待音频而自动播放；定位完成后保持暂停，用户恢复播放时再等待所需输出。
+连续 seek 为新目标重新建立就绪条件；停止、播放完成、切换来源和播放器 reset/release 都会
+清除旧条件。等待期间更换音轨会重新定位，避免继续等待旧音轨的队列事件。
+
+`SeekRenderGateTest` 覆盖音频晚到、视频晚到、定位前旧事件、缺失流和目标替换。
+`PlayerManagerPlaybackTest.webDavTsslSeeksWaitForBothOutputsAndKeepAudioVideoClocksAligned`
+在独立验证包内播放合成 H.264 + AC-3 `.m3u8sp`，通过生产监听器验证两路 seek 输出，
+并读取 IJK 已有的 A-V 差值属性进行数值检查（反射仅在测试代码使用）。硬解、软解均覆盖
+非分片边界的前后跳转、连续拖动和暂停恢复。设备输出有最多 1.5 秒的时钟收敛窗口，随后
+连续 12 个 100ms 样本必须为有限值且绝对差不超过 250ms；此检查不能替代特定媒体的实际听感。
 
 环回解密代理（`EncryptedHlsServer`）使用弹性线程池 + 连接槽上限，读完请求行后把读超时提高到 120 秒，避免播放器的空闲 keep-alive 连接占死固定线程池而让真实分片请求超时（表现为「进去没有画面，随后报错」）。
 
@@ -58,3 +77,37 @@ Android 打包器不执行 FFmpeg 转码，因此输入仍须是现成 HLS 文�
 `EncryptedHlsCancellationTest` 和 `WebDavRangeCancellationTest` 覆盖取消旧读取、关闭连接、取消响应体与后续请求可用性。`PlayerManagerPlaybackTest.webDavTsslSeekInterruptsSlowOldSegmentAndKeepsLatestPausedTarget` 使用合成 TSSL v4 容器和严格 Range 服务，将旧分片延迟 8 秒，检查 seek 耗时、目标画面和连续拖动后的暂停状态。测试素材 `video_sample_seek.zip` 为 FFmpeg 生成的 30 秒 H.264 + AC-3 HLS，0–10 秒红色、10–20 秒绿色、20–30 秒蓝色，每 2 秒一个分片，不包含用户媒体或凭据。
 
 2026-10-18：95 项 JVM 测试、debug APK/AndroidTest 构建与 lint 通过（0 error，3 项既有 warning）；华为 TAS-AL00 / Android 12 上，上述 WebDAV TSSL seek 测试通过，实际目标画面在 4 秒上限内出现，并通过软解/硬解的暂停 Surface 恢复与字幕会话回归，共 2 项实机测试。
+
+2026-10-22 音视频恢复回归：华为 TAS-AL00 / Android 12（API 31）在独立 `.regression`
+验证包上通过慢分片中断测试及新增的硬解/软解时钟测试，共 2 项，最终耗时 25.24 秒。
+前后跳转目标为 23.75、12.25、18.5 秒，另覆盖暂停后连续跳转到 4 / 22 秒再恢复，
+以及 seek 后立即停止。两路输出未就绪前，播放器不得报告播放中。两种解码器共 96 个
+时钟样本的最大绝对差为 238.755ms，收敛后的差值约为 9–66ms。
+
+修复前保留的独立验证包在同一测试中触发「两路输出尚未就绪就报告播放中」断言；恢复修复版
+后通过。该对照验证的是恢复时序，使用的仍是生成样本，尚未核对用户原始出错文件的听感。
+结果保存在忽略的构建目录 `build/tssl-av-seek/`，包括 `before-fix-device-results.log`、
+`final-device-results.log` 和 `final-clock-samples.txt`。最终正常包名下的 debug APK、
+AndroidTest APK、148 项 JVM 测试和 lint 均通过（0 error，3 项既有 warning）。
+
+原片可选诊断 `originalTsslLoopbackSeekClockProbe` 默认跳过。通过
+`originalTsslService` 和 `originalTsslPath` 参数显式指定验证包中用户已配置的 WebDAV 服务及
+`.m3u8sp` 路径时，使用应用已有 Repository 和 EncryptedHlsManager，覆盖完整范围读取、
+解密、中断旧请求与原生输出恢复；测试不导出账号或 TSSL 密钥。时钟报告仅记录输出事件、
+缓存统计、恢复耗时与 A-V 差值。只提供 `originalTsslPort` 时则仅能检查已有本机入口，
+无法调用持有入口的旧应用的读取取消回调，且入口会受旧应用生命周期影响，不能作为完整链路验证。
+
+用户指定的约 180 秒 4K H.264 + AAC 原片已在完整链路中复现：首次从头播放正常，但定位到
+24 秒后只出现视频 seek 输出事件，音频 seek 输出未到达，A-V 差值变为 NaN。基于该结果，
+进一步移除了播放中 seek 之前额外发送的原生 pause，仍保持静音及双路输出就绪条件。
+该原片在用户重新配置的独立验证包上通过完整链路复测（硬解，137.892 秒）：定位到 24、90、
+150 秒以及退回 30 秒均恢复两路输出，连续采集的 120 个 A-V 差值样本最大绝对值为
+41.988ms，各次稳定值约为 0、25、15、34ms。此为播放器输出时钟检查，不替代实际听感确认。
+每次恢复仍需 25.9–27.2 秒，本次没有解决原片的这段加载等待，不能描述为即时 seek。
+
+最终候选版本再次通过合成慢分片中断、连续拖动、暂停恢复及硬解/软解同步回归，2 项实机测试
+耗时 25.049 秒；正常包名下的 debug APK、AndroidTest APK、148 项 JVM 测试和 lint 均通过
+（0 error，3 项既有 warning）。原片失败/通过对照、时钟样本及本地检查结果保存在忽略目录
+`build/tssl-original-seek/`，主要文件为 `configured-device-results.log`、
+`active-seek-device-results.log`、`active-seek-clocks.txt`、`active-seek-regressions.log`
+及 `local-check.log`。测试过程中没有从旧应用复制账号或 TSSL 密钥；验证包配置由用户在手机上完成。

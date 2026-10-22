@@ -131,6 +131,8 @@ class PlayerManager @Inject constructor(
     private var pausedSeekPosition: Long? = null
     private var encryptedSeekTarget: Long? = null
     private var encryptedSeekInFlight: Long? = null
+    private var encryptedSeekRenderGate: SeekRenderGate? = null
+    private var encryptedSeekRefreshPending = false
     private var nativeFrameRendered = false
     private var pausedSurfaceFrameJob: Job? = null
 
@@ -215,6 +217,7 @@ class PlayerManager @Inject constructor(
     private fun resetPlayer() {
         encryptedSeekTarget = null
         encryptedSeekInFlight = null
+        encryptedSeekRenderGate = null
         nativeFrameRendered = false
         audioFocus.abandon()
         acceptNativeSubtitles = false
@@ -293,7 +296,7 @@ class PlayerManager @Inject constructor(
         onPauseForLoss = { pauseForFocusLoss() },
         onResumeAfterGain = { play() },
         onDuckingChanged = { multiplier ->
-            val output = if (pausedSurfaceFramePosition == null && encryptedSeekInFlight == null) multiplier else 0f
+            val output = if (pausedSurfaceFramePosition == null && encryptedSeekRenderGate == null) multiplier else 0f
             runCatching { player.setVolume(output, output) }
         }
     )
@@ -359,6 +362,9 @@ class PlayerManager @Inject constructor(
         player.setOnCompletionListener {
             if (currentRequest == null || !_state.value.isPrepared || completionDelivered) return@setOnCompletionListener
             completionDelivered = true
+            encryptedSeekInFlight = null
+            encryptedSeekTarget = null
+            encryptedSeekRenderGate = null
             Log.i("PlayerManager", "Native EOF (position=${_state.value.positionMs}, duration=${_state.value.durationMs}, queue=${queue.state.value.index}, autoplay=${_preferences.value.autoPlayNext})")
             audioFocus.abandon()
             stopPositionTicker()
@@ -375,9 +381,18 @@ class PlayerManager @Inject constructor(
         }
         player.setOnBufferingUpdateListener { _, percent ->
             _state.update { it.copy(buffering = !sleepTimerState.value.expired && (encryptedSeekInFlight != null ||
+                (playWhenPrepared && encryptedSeekRenderGate != null) ||
                 (percent < 100 && !it.isPlaying && (playWhenPrepared || subtitleSeekPending)))) }
         }
         player.setOnInfoListener { _, what, _ ->
+            if (encryptedSeekInFlight == null) {
+                when (what) {
+                    IMediaPlayer.MEDIA_INFO_AUDIO_SEEK_RENDERING_START -> encryptedSeekRenderGate?.audioRendered()
+                    IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START -> encryptedSeekRenderGate?.videoRendered()
+                }
+                if (what == IMediaPlayer.MEDIA_INFO_AUDIO_SEEK_RENDERING_START ||
+                    what == IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START) finishEncryptedSeekIfReady()
+            }
             if (pausedSurfaceFramePosition != null &&
                 (what == IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START ||
                     (what == IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START && player.duration <= 0))) {
@@ -390,7 +405,8 @@ class PlayerManager @Inject constructor(
                 IMediaPlayer.MEDIA_INFO_BUFFERING_END,
                 IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START,
                 IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update {
-                    it.copy(buffering = !sleepTimerState.value.expired && encryptedSeekInFlight != null)
+                    it.copy(buffering = !sleepTimerState.value.expired && (encryptedSeekInFlight != null ||
+                        (playWhenPrepared && encryptedSeekRenderGate != null)))
                 }
             }
             if (what == IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START || what == IMediaPlayer.MEDIA_INFO_METADATA_UPDATE) {
@@ -419,16 +435,18 @@ class PlayerManager @Inject constructor(
         player.setOnSeekCompleteListener {
             if (encryptedSeekInFlight != null) {
                 val target = encryptedSeekTarget
-                if (target != null && target != encryptedSeekInFlight) {
+                if (target != null && (target != encryptedSeekInFlight || encryptedSeekRefreshPending)) {
                     seekEncryptedStream(target)
                     return@setOnSeekCompleteListener
                 }
                 encryptedSeekInFlight = null
+                encryptedSeekRenderGate?.demuxCompleted()
+                Log.d("PlayerManager", "Encrypted seek demux complete (targetMs=$target)")
                 if (playWhenPrepared) play() else {
                     pausedSeekPosition = target
-                    encryptedSeekTarget = null
                     _state.update { it.copy(buffering = false) }
                 }
+                finishEncryptedSeekIfReady()
             }
             subtitleSeekPending = false
             updateDerived()
@@ -682,7 +700,9 @@ class PlayerManager @Inject constructor(
         if (!audioFocus.request()) return
         try {
             acceptNativeSubtitles = true
-            player.setVolume(audioFocus.volumeMultiplier, audioFocus.volumeMultiplier)
+            val output = if (encryptedSeekRenderGate == null) audioFocus.volumeMultiplier else 0f
+            player.setVolume(output, output)
+            if (encryptedSeekRenderGate != null) _state.update { it.copy(buffering = true) }
             player.start()
             startPositionTicker()
             updateDerived()
@@ -700,6 +720,10 @@ class PlayerManager @Inject constructor(
     private fun pauseForFocusLoss() {
         cancelPausedSurfaceFrame(pause = true)
         playWhenPrepared = false
+        if (encryptedSeekRenderGate != null && encryptedSeekInFlight == null) {
+            pausedSeekPosition = encryptedSeekTarget
+            _state.update { it.copy(buffering = false) }
+        }
         decoderRestore = decoderRestore?.copy(playWhenReady = false)
         if (!_state.value.isPrepared) {
             // During a decoder reload the native player has no restored position yet.
@@ -720,6 +744,7 @@ class PlayerManager @Inject constructor(
         if (!preserveSleepTimer) cancelSleepTimer()
         encryptedSeekTarget = null
         encryptedSeekInFlight = null
+        encryptedSeekRenderGate = null
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
         videoSurfaceLost = false
@@ -756,8 +781,11 @@ class PlayerManager @Inject constructor(
             if (currentRequest?.interruptPendingReads != null && pausedSurfaceFramePosition == null) {
                 encryptedSeekTarget = position
                 // Old queues cannot be flushed until the demuxer's remote read returns.
+                // Keep an active pipeline running muted. Forcing a native pause here
+                // makes IJK seek through its single-frame step path, which can leave
+                // AudioTrack paused after the new video frame has already rendered.
+                // A user-paused pipeline remains paused without an extra pause command.
                 player.setVolume(0f, 0f)
-                player.pause()
                 _state.update { it.copy(positionMs = position, buffering = true, isPlaying = false) }
                 if (encryptedSeekInFlight == null) seekEncryptedStream(position)
                 else currentRequest?.interruptPendingReads?.invoke()
@@ -768,9 +796,13 @@ class PlayerManager @Inject constructor(
         } catch (error: Exception) {
             encryptedSeekInFlight = null
             encryptedSeekTarget = null
+            encryptedSeekRenderGate = null
             pausedSeekPosition = null
             subtitleSeekPending = false
             _state.update { it.copy(buffering = false) }
+            Log.w("PlayerManager", "Unable to seek (${error.javaClass.simpleName})")
+            runCatching { player.setVolume(audioFocus.volumeMultiplier, audioFocus.volumeMultiplier) }
+            if (playWhenPrepared) play()
         }
         updateDerived()
         updateSubtitleText(positionMs)
@@ -778,11 +810,28 @@ class PlayerManager @Inject constructor(
 
     private fun seekEncryptedStream(position: Long) {
         encryptedSeekInFlight = position
+        encryptedSeekRefreshPending = false
+        val tracks = player.trackInfo.orEmpty()
+        encryptedSeekRenderGate = SeekRenderGate(
+            needsAudio = player.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_AUDIO) >= 0,
+            needsVideo = tracks.any { it.trackType == ITrackInfo.MEDIA_TRACK_TYPE_VIDEO })
         subtitleSeekPending = true
         player.seekTo(position)
         discardBitmapSubtitleSnapshot()
         // Queue the seek BEFORE closing the old loopback response, unblocking av_read_frame.
         currentRequest?.interruptPendingReads?.invoke()
+    }
+
+    private fun finishEncryptedSeekIfReady() {
+        if (encryptedSeekRenderGate?.ready != true) return
+        encryptedSeekRenderGate = null
+        encryptedSeekTarget = null
+        val output = if (pausedSurfaceFramePosition == null) audioFocus.volumeMultiplier else 0f
+        player.setVolume(output, output)
+        _state.update { it.copy(buffering = false) }
+        updateDerived()
+        updateSubtitleText(_state.value.positionMs)
+        Log.d("PlayerManager", "Encrypted seek output ready (positionMs=${_state.value.positionMs})")
     }
 
     fun beginTemporarySpeed(speed: Float) {
@@ -850,7 +899,14 @@ class PlayerManager @Inject constructor(
         // IJK reopens even an already-selected stream, racing its existing decoder thread.
         if (_state.value.selectedAudioTrackKey == track.key) return
         val index = track.key.removePrefix("audio:").toIntOrNull() ?: return
-        runCatching { player.selectTrack(index) }
+        runCatching { player.selectTrack(index) }.onSuccess {
+            // A replacement audio stream has a different queue serial. Re-arm
+            // the pending seek rather than waiting for the old stream's output.
+            if (encryptedSeekRenderGate != null) {
+                encryptedSeekRefreshPending = true
+                if (encryptedSeekInFlight == null) encryptedSeekTarget?.let(::seekTo)
+            }
+        }
         updateTracks()
     }
 
@@ -1088,7 +1144,7 @@ class PlayerManager @Inject constructor(
 
     private fun updateDerived(isPlaying: Boolean = runCatching { player.isPlaying }.getOrDefault(false)) {
         val seekTarget = encryptedSeekTarget
-        if (seekTarget != null && encryptedSeekInFlight == null &&
+        if (seekTarget != null && encryptedSeekInFlight == null && encryptedSeekRenderGate == null &&
             kotlin.math.abs(runCatching { player.currentPosition }.getOrDefault(-1) - seekTarget) < 1_000) {
             encryptedSeekTarget = null
         }
@@ -1110,7 +1166,8 @@ class PlayerManager @Inject constructor(
             IjkMediaPlayer.FFP_PROPV_DECODER_AVCODEC -> VideoDecodeMode.SOFTWARE
             else -> null
         } else null
-        _state.update { it.copy(isPlaying = isPlaying && playWhenPrepared && refreshingPosition == null, positionMs = position, durationMs = duration,
+        _state.update { it.copy(isPlaying = isPlaying && playWhenPrepared && refreshingPosition == null &&
+            encryptedSeekRenderGate == null, positionMs = position, durationMs = duration,
             volume = volumeController.volume, videoDecodeMode = decoder) }
     }
 
@@ -1150,6 +1207,7 @@ class PlayerManager @Inject constructor(
         softwareOutputHolder = null
         encryptedSeekTarget = null
         encryptedSeekInFlight = null
+        encryptedSeekRenderGate = null
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
         videoSurfaceLost = false
