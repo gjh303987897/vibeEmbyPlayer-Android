@@ -34,7 +34,7 @@ import com.vibeplayer.app.data.local.db.entity.TransferTaskEntity
         LocalMediaRootEntity::class,
         TransferTaskEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class VibePlayerDatabase : RoomDatabase() {

@@ -289,4 +289,8 @@
     <string name="tssl_stage_downloading">正在读取备份…</string>
     <string name="tssl_stage_extracting">正在校验备份…</string>
     <string name="tssl_stage_importing">正在恢复密钥包…</string>
+    <string name="settings_current_pin">当前 PIN</string>
+    <string name="server_http_consent">允许此服务通过未加密的 HTTP 发送凭据</string>
+    <string name="server_http_warning_title">使用未加密的 HTTP？</string>
+    <string name="server_http_warning">能够监听此网络的人可能读取密码、访问令牌和媒体内容。建议使用 HTTPS。此授权仅适用于当前服务，TSSL 密钥备份仍要求 HTTPS。</string>
 </resources>

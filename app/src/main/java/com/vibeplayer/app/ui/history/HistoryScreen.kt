@@ -103,11 +103,11 @@ fun HistoryScreen(
                             )
                         }
                         items(entries, key = { it.id }) { entry ->
-                            val replayRoute = historyReplayRoute(entry)
+                            val replayRoute = viewModel.replayRoute(entry)
                             HistoryRow(
                                 entry = entry,
                                 replayEnabled = replayRoute != null,
-                                onReplay = { replayRoute?.let { navController.navigate(it) } },
+                                onReplay = { viewModel.replayRoute(entry)?.let { navController.navigate(it) } },
                                 onDelete = { viewModel.deleteHistory(entry) }
                             )
                         }

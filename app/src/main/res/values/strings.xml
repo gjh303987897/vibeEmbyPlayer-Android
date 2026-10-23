@@ -293,4 +293,8 @@
     <string name="tssl_stage_downloading">Reading backup…</string>
     <string name="tssl_stage_extracting">Validating backup…</string>
     <string name="tssl_stage_importing">Restoring key packages…</string>
+    <string name="settings_current_pin">Current PIN</string>
+    <string name="server_http_consent">Allow credentials over unencrypted HTTP for this server</string>
+    <string name="server_http_warning_title">Use unencrypted HTTP?</string>
+    <string name="server_http_warning">Anyone able to monitor this network may read your password, access token and media. Prefer HTTPS. This approval applies only to this server; TSSL key backups still require HTTPS.</string>
 </resources>

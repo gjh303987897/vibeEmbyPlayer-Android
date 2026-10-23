@@ -5,8 +5,9 @@ import com.vibeplayer.app.model.PlaybackSource
 import com.vibeplayer.app.ui.navigation.Routes
 
 /** Route each persisted target through the player that understands its source. */
-internal fun historyReplayRoute(entry: PlaybackHistoryEntry): String? {
+internal fun historyReplayRoute(entry: PlaybackHistoryEntry, showPrivate: Boolean = false): String? {
     if (!entry.available || entry.replayTarget.isBlank()) return null
+    if (entry.privacyMode && !showPrivate) return null
     return when (entry.source) {
         PlaybackSource.EMBY, PlaybackSource.JELLYFIN ->
             entry.serviceId.takeIf(String::isNotBlank)?.let { Routes.player(it, entry.replayTarget) }
@@ -17,7 +18,7 @@ internal fun historyReplayRoute(entry: PlaybackHistoryEntry): String? {
                 Routes.iptvPlayer(it, entry.replayTarget, entry.title)
             }
         PlaybackSource.LOCAL -> Routes.localPlayer(entry.replayTarget)
-        PlaybackSource.LINK -> Routes.linkPlayer(entry.replayTarget)
+        PlaybackSource.LINK -> Routes.linkPlayer(entry.replayTarget, entry.serviceId.ifBlank { Routes.LEGACY_LINK_SERVICE_ID })
         PlaybackSource.UNKNOWN -> null
     }
 }

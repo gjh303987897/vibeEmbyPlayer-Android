@@ -33,7 +33,8 @@ class MediaServerRepository @Inject constructor(
     private val playbackHistoryDao: PlaybackHistoryDao,
     private val dailyUsageStatDao: DailyUsageStatDao,
     private val secureSessionStore: SecureSessionStore,
-    private val activeSessionManager: ActiveSessionManager
+    private val activeSessionManager: ActiveSessionManager,
+    private val linkPlaybackHistoryDao: com.vibeplayer.app.data.local.db.dao.LinkPlaybackHistoryDao
 ) {
 
     /** Observable list of configured service accounts. */
@@ -60,6 +61,7 @@ class MediaServerRepository @Inject constructor(
         if (previous != null && previous.privateMode != config.privateMode) {
             // History visibility follows the current flag while the service exists.
             playbackHistoryDao.reclassifyService(config.id, config.privateMode)
+            linkPlaybackHistoryDao.reclassifyService(config.id, config.privateMode)
             dailyUsageStatDao.reclassifyService(config.id, config.privateMode)
         }
     }
@@ -67,7 +69,7 @@ class MediaServerRepository @Inject constructor(
     suspend fun removeServer(serverId: String) = serviceStore.remove(serverId)
 
     /** Persists a manually reordered service list (drag-sort on the Services page). */
-    suspend fun reorderServices(ordered: List<ServerConfig>) = serviceStore.saveAll(ordered)
+    suspend fun reorderServices(ordered: List<ServerConfig>) = serviceStore.reorder(ordered.map { it.id })
 
     fun clientFor(type: ServiceType): MediaServerClient = when (type) {
         ServiceType.EMBY -> embyClient

@@ -51,9 +51,10 @@ class EncryptedHlsServer(
     private var executor: ExecutorService? = null
     private val openConnections = Semaphore(MAX_CONCURRENT_CONNECTIONS)
     private val requests = mutableMapOf<Socket, Job>()
+    private val accessToken = java.util.UUID.randomUUID().toString()
 
     val baseUrl: String
-        get() = serverSocket?.let { "http://127.0.0.1:${it.localPort}/" } ?: ""
+        get() = serverSocket?.let { "http://127.0.0.1:${it.localPort}/$accessToken/" } ?: ""
 
     @Synchronized
     fun start() {
@@ -110,15 +111,22 @@ class EncryptedHlsServer(
                 }
                 val target = parts[1]
                 var rangeHeader: String? = null
+                var host: String? = null
                 while (true) {
                     val header = reader.readLine() ?: break
                     if (header.isEmpty()) break
                     if (header.startsWith("Range:", ignoreCase = true)) {
                         rangeHeader = header.substringAfter(':').trim()
                     }
+                    if (header.startsWith("Host:", ignoreCase = true)) host = header.substringAfter(':').trim()
                 }
                 val rawPath = target.substringBefore('?')
-                val rel = normalizePath(rawPath.substringBefore('#'))
+                val prefix = "/$accessToken/"
+                if (!rawPath.startsWith(prefix) || host !in setOf("127.0.0.1:${s.localPort}", "localhost:${s.localPort}")) {
+                    respond404(s.getOutputStream())
+                    return
+                }
+                val rel = normalizePath(rawPath.removePrefix(prefix).substringBefore('#'))
                 if (rel == null) {
                     respond(s.getOutputStream(), 400, "text/plain", "Bad path".toByteArray())
                     return

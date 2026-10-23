@@ -24,31 +24,34 @@ class MediaNetworkClient @Inject constructor(
     suspend fun get(
         url: String,
         headers: okhttp3.Headers,
-        trustSelfSigned: Boolean = false
+        trustSelfSigned: Boolean = false,
+        allowInsecureHttp: Boolean = false
     ): NetworkResult =
-        request("GET", url, headers, null, trustSelfSigned)
+        request("GET", url, headers, null, trustSelfSigned, allowInsecureHttp)
 
     suspend fun postJson(
         url: String,
         headers: okhttp3.Headers,
         json: String,
-        trustSelfSigned: Boolean = false
+        trustSelfSigned: Boolean = false,
+        allowInsecureHttp: Boolean = false
     ): NetworkResult =
-        request("POST", url, headers, json, trustSelfSigned)
+        request("POST", url, headers, json, trustSelfSigned, allowInsecureHttp)
 
     private suspend fun request(
         method: String,
         url: String,
         headers: okhttp3.Headers,
         body: String?,
-        trustSelfSigned: Boolean
+        trustSelfSigned: Boolean,
+        allowInsecureHttp: Boolean
     ): NetworkResult = withContext(Dispatchers.IO) {
         try {
             val builder = Request.Builder()
                 .url(url)
                 .headers(headers)
                 .method(method, body?.toRequestBody(JSON_MEDIA_TYPE))
-            clientFactory.client(trustSelfSigned).newCall(builder.build()).execute().use { response ->
+            clientFactory.client(trustSelfSigned, allowInsecureHttp).newCall(builder.build()).execute().use { response ->
                 val bytes = response.body?.bytes()
                 if (!response.isSuccessful || bytes == null) {
                     NetworkResult.Failure(

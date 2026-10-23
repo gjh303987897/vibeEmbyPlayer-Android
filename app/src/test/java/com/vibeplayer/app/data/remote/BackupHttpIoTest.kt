@@ -27,8 +27,9 @@ class BackupHttpIoTest {
 
     @Test fun `WebDAV streams file uploads and downloads without changing bytes`() = runBlocking {
         MockWebServer().use { server ->
+            server.enableLocalHttps()
             val client = WebDavClient(OkHttpClientFactory())
-            val config = ServerConfig("backup", "test", server.url("/dav/").toString(), "user", ServiceType.WEBDAV)
+            val config = ServerConfig("backup", "test", server.localHttpsUrl("/dav/").toString(), "user", ServiceType.WEBDAV, trustSelfSignedCertificate = true)
             val bytes = ByteArray(256 * 1024) { it.toByte() }
             val input = temporary.newFile("input.zip").apply { writeBytes(bytes) }
             server.enqueue(MockResponse().setResponseCode(201))
@@ -46,8 +47,9 @@ class BackupHttpIoTest {
 
     @Test fun `file upload can replay its stream after Digest authentication challenge`() = runBlocking {
         MockWebServer().use { server ->
+            server.enableLocalHttps()
             val client = WebDavClient(OkHttpClientFactory())
-            val config = ServerConfig("backup", "test", server.url("/").toString(), "user", ServiceType.WEBDAV)
+            val config = ServerConfig("backup", "test", server.localHttpsUrl("/").toString(), "user", ServiceType.WEBDAV, trustSelfSignedCertificate = true)
             val file = temporary.newFile().apply { writeText("original backup bytes") }
             server.enqueue(MockResponse().setResponseCode(401)
                 .setHeader("WWW-Authenticate", "Digest realm=\"backup\", nonce=\"test-nonce\", qop=\"auth\", algorithm=MD5"))
@@ -56,6 +58,17 @@ class BackupHttpIoTest {
             val first = server.takeRequest(2, TimeUnit.SECONDS)!!; val second = server.takeRequest(2, TimeUnit.SECONDS)!!
             assertArrayEquals(first.body.readByteArray(), second.body.readByteArray())
             assertTrue(second.getHeader("Authorization")!!.startsWith("Digest "))
+        }
+    }
+
+    @Test fun `WebDAV key backups reject HTTP even with server consent`() = runBlocking {
+        MockWebServer().use { server ->
+            val client = WebDavClient(OkHttpClientFactory())
+            val config = ServerConfig("backup", "test", server.url("/").toString(), "user", ServiceType.WEBDAV, allowInsecureHttp = true)
+            val file = temporary.newFile().apply { writeText("synthetic key package") }
+            assertTrue(client.uploadBackup(config, "synthetic-secret", "test.tssl", file).isFailure)
+            assertTrue(client.downloadBackup(config, "synthetic-secret", "test.tssl", temporary.newFile(), 1024).isFailure)
+            assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
         }
     }
 

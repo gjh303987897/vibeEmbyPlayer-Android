@@ -215,6 +215,7 @@ class PlayerViewModel @Inject constructor(
                 startPositionMs = startMs,
                 headers = mapOf("X-Emby-Token" to s.accessToken),
                 trustSelfSignedCertificate = s.server.trustSelfSignedCertificate,
+                allowInsecureHttp = s.server.allowInsecureHttp,
                 privatePlayback = s.server.privateMode,
                 subtitleConfigurations = target.subtitleConfigurations,
                 preserveSessionControls = true

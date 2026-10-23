@@ -2,8 +2,11 @@
 <!--
   Media sources are supplied by the user: IPTV playlists, LAN WebDAV servers
   and direct links may use HTTP on arbitrary hosts. A localhost-only exception
-  blocks the OkHttp upstream side of the IJK playback proxy. HTTPS connections
-  still use the platform certificate and hostname checks.
+  blocks the OkHttp upstream side of the IJK playback proxy. This is a platform
+  allowance, NOT permission to send credentials: the shared OkHttp transport
+  requires per-server HTTP consent for credentials/bodies and blocks HTTPS
+  downgrades. TSSL WebDAV key backups require HTTPS regardless of that consent.
+  HTTPS connections still use certificate and hostname checks.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />

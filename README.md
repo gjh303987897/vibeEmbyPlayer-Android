@@ -39,10 +39,9 @@ The app is still under active development: `0.1.0`, `versionCode 1`, no store re
 - Foreground services for playback and transfers, notifications, media session and lock-screen
   controls.
 - Dark / light / system theme, per-app English and Chinese UI, and in-app language override.
-- PIN-protected privacy mode is **partially implemented**: the PIN can be set and verified, but
-  nothing is hidden yet (no private flag on service cards, and no privacy filtering in the history /
-  usage queries). The agreed design and the open-issue evidence both live in `fix.md`
-  in `fix20260927.md` (section 一 → P1-4, section 二 = the design).
+- PIN-protected private service cards, history and usage; private playback is stopped on relock.
+  Changing a configured PIN requires the current PIN. See [security audit fixes](docs/security-audit-20261023.md)
+  for Link history migration, HTTP consent and credential redirect boundaries.
 
 ## Project status
 
@@ -56,7 +55,7 @@ The app is still under active development: `0.1.0`, `versionCode 1`, no store re
 | IPTV | M3U/M3U8 import through SAF, groups, search, favourites and playback implemented. |
 | Local media | SAF folder picker, folder browsing and playback implemented; permissions are re-checked per access. |
 | Link playback | HTTP/HTTPS direct media and HLS playback, history and statistics implemented. |
-| Privacy mode | Partially implemented — the PIN can be set and verified, but no content is hidden yet: service cards have no private flag in the UI, and history / usage queries are not privacy-filtered. PR breakdown in `fix20260927.md`. |
+| Privacy mode | Private services, history and usage are hidden while locked; Link playback carries the service identity, and changing PIN requires the old PIN. See `docs/security-audit-20261023.md`. |
 | Scheduled playback | Not implemented — the desktop keep-alive scheduling feature is intentionally out of scope on mobile. |
 | Auto-update | Not implemented — mobile distribution goes through app stores. |
 | SMB | Not implemented and currently out of scope. |

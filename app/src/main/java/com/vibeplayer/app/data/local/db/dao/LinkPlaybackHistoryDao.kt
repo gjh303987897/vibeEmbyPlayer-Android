@@ -10,11 +10,14 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface LinkPlaybackHistoryDao {
 
-    @Query("SELECT * FROM link_playback_history WHERE played_date >= :cutoffDate AND (:showPrivate OR privacy_mode = 0) ORDER BY played_at_ms DESC LIMIT :limit OFFSET :offset")
-    fun observePaged(showPrivate: Boolean, limit: Int, offset: Int, cutoffDate: String = ""): Flow<List<LinkPlaybackHistoryEntity>>
+    @Query("SELECT l.* FROM link_playback_history l JOIN playback_history p ON p.id = l.id WHERE l.played_date >= :cutoffDate AND (:showPrivate OR (l.privacy_mode = 0 AND p.privacy_mode = 0)) AND (:serviceId IS NULL OR p.service_id = :serviceId) ORDER BY l.played_at_ms DESC LIMIT :limit OFFSET :offset")
+    fun observePaged(showPrivate: Boolean, limit: Int, offset: Int, cutoffDate: String = "", serviceId: String? = null): Flow<List<LinkPlaybackHistoryEntity>>
 
-    @Query("SELECT * FROM link_playback_history WHERE playback_url = :url LIMIT 1")
-    suspend fun findByUrl(url: String): LinkPlaybackHistoryEntity?
+    @Query("SELECT l.* FROM link_playback_history l JOIN playback_history p ON p.id = l.id WHERE l.playback_url = :url AND p.service_id = :serviceId LIMIT 1")
+    suspend fun findByUrl(url: String, serviceId: String = ""): LinkPlaybackHistoryEntity?
+
+    @Query("UPDATE link_playback_history SET privacy_mode = :privateMode WHERE id IN (SELECT id FROM playback_history WHERE service_id = :serviceId)")
+    suspend fun reclassifyService(serviceId: String, privateMode: Boolean)
 
     @Query("SELECT * FROM link_playback_history WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): LinkPlaybackHistoryEntity?

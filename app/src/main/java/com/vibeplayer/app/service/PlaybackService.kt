@@ -32,11 +32,12 @@ class PlaybackService : android.app.Service() {
         super.onCreate()
         createChannel(this)
         val state = playerManager.state.value
-        startForeground(NOTIFICATION_ID, buildNotification(state.title, state.isPlaying))
+        val title = state.title.takeUnless { state.privatePlayback }
+        startForeground(NOTIFICATION_ID, buildNotification(title, state.isPlaying))
         notifiedPlaying = state.isPlaying
-        notifiedTitle = state.title
+        notifiedTitle = title
         scope.launch {
-            playerManager.state.collect { updateNotification(it.isPlaying, it.title) }
+            playerManager.state.collect { updateNotification(it.isPlaying, it.title.takeUnless { _ -> it.privatePlayback }) }
         }
     }
 
@@ -46,7 +47,8 @@ class PlaybackService : android.app.Service() {
             ACTION_PLAY -> playerManager.play()
             ACTION_PAUSE -> playerManager.pause()
         }
-        updateNotification(playerManager.state.value.isPlaying, playerManager.state.value.title)
+        val state = playerManager.state.value
+        updateNotification(state.isPlaying, state.title.takeUnless { state.privatePlayback })
         return START_STICKY
     }
 

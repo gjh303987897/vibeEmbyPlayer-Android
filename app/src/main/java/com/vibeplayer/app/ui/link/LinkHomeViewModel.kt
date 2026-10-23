@@ -15,6 +15,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -42,15 +46,18 @@ class LinkHomeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(LinkHomeUiState())
     val uiState: StateFlow<LinkHomeUiState> = _uiState.asStateFlow()
+    private var servicesJob: kotlinx.coroutines.Job? = null
+    private var historyJob: kotlinx.coroutines.Job? = null
 
     fun load(serverId: String) {
-        viewModelScope.launch {
-            val server = repository.getServer(serverId) ?: return@launch
-            if (server.privateMode && !privacyManager.privacyMode.value) {
-                _uiState.value = LinkHomeUiState()
-                return@launch
+        servicesJob?.cancel()
+        servicesJob = viewModelScope.launch {
+            combine(repository.observeServices(), privacyManager.privacyMode) { services, unlocked ->
+                services.firstOrNull { it.id == serverId && (!it.privateMode || unlocked) }
+            }.collect { server ->
+                if (server == null) _uiState.value = LinkHomeUiState()
+                else _uiState.update { it.copy(server = server) }
             }
-            _uiState.update { it.copy(server = server) }
         }
     }
 
@@ -62,7 +69,8 @@ class LinkHomeViewModel @Inject constructor(
 
     /** Validates the typed URL and, on success, prepares navigation to the player. */
     fun playInput() {
-        if (_uiState.value.server?.privateMode == true && !privacyManager.privacyMode.value) return
+        val server = _uiState.value.server ?: return
+        if (server.privateMode && !privacyManager.privacyMode.value) return
         val input = _uiState.value.urlInput
         when (val result = LinkPlaybackService.resolvePlaybackUrl(input)) {
             is LinkPlaybackService.Result.Success -> _uiState.update { it.copy(pendingUrl = result.playbackUrl, validationError = null) }
@@ -72,7 +80,8 @@ class LinkHomeViewModel @Inject constructor(
 
     /** Re-validates a stored URL before replay. */
     fun replay(url: String) {
-        if (_uiState.value.server?.privateMode == true && !privacyManager.privacyMode.value) return
+        val server = _uiState.value.server ?: return
+        if (server.privateMode && !privacyManager.privacyMode.value) return
         when (val result = LinkPlaybackService.resolvePlaybackUrl(url)) {
             is LinkPlaybackService.Result.Success -> _uiState.update { it.copy(pendingUrl = result.playbackUrl, validationError = null) }
             is LinkPlaybackService.Result.Error -> _uiState.update { it.copy(validationError = result.message) }
@@ -91,9 +100,13 @@ class LinkHomeViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observeHistory() {
-        viewModelScope.launch {
-            privacyManager.privacyMode.flatMapLatest { showPrivate ->
-                historyRepository.observeLinkHistory(showPrivate)
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
+            combine(privacyManager.privacyMode, uiState.map { it.server }.distinctUntilChanged()) { unlocked, server ->
+                unlocked to server
+            }.flatMapLatest { (showPrivate, server) ->
+                if (server == null || (server.privateMode && !showPrivate)) flowOf(emptyList())
+                else historyRepository.observeLinkHistory(showPrivate, server.id)
             }.collect { rows ->
                 _uiState.update { it.copy(history = rows) }
             }

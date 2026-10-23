@@ -249,9 +249,8 @@ class TsslBackupService @Inject constructor(
         is TsslBackupTarget.Local -> if (Uri.parse(target.treeUri).scheme != "content") "Select a local backup folder" else null
         is TsslBackupTarget.WebDav -> {
             if (target.server.serviceType != ServiceType.WEBDAV) "Target is not a WebDAV service"
-            else if (!target.server.normalizedBaseUrl.startsWith("http://", true) &&
-                !target.server.normalizedBaseUrl.startsWith("https://", true)
-            ) "The WebDAV backup endpoint is invalid"
+            else if (target.server.normalizedBaseUrl.toHttpUrlOrNull()?.scheme != "https")
+                "TSSL WebDAV backups contain decryption keys and require HTTPS"
             else if (cleanPath(target.path).isEmpty()) "Enter a WebDAV backup folder"
             else null
         }

@@ -41,6 +41,7 @@ import com.vibeplayer.app.ui.player.PlayerFullscreenEffect
 
 @Composable
 fun LinkPlayerScreen(
+    serverId: String,
     encodedUrl: String,
     navController: NavController,
     viewModel: LinkPlayerViewModel = hiltViewModel()
@@ -62,7 +63,7 @@ fun LinkPlayerScreen(
     // Playing keeps the display awake; pausing lets it sleep again.
     KeepScreenOnDuringPlayback(isPlaying = state.isPlaying, buffering = state.buffering, enabled = !sleepTimer.expired)
 
-    LaunchedEffect(encodedUrl) { viewModel.play(encodedUrl) }
+    LaunchedEffect(serverId, encodedUrl) { viewModel.play(encodedUrl, serverId) }
     DisposableEffect(viewModel) { onDispose { viewModel.stopPlayback() } }
 
     Box(modifier = Modifier

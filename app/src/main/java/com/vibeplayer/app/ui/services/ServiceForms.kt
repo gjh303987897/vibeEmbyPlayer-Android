@@ -205,9 +205,10 @@ fun AddServerDialog(
     onSave: (ServerForm, password: String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
-    var scheme by remember { mutableStateOf("http") }
+    var scheme by remember { mutableStateOf("https") }
     var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf(defaultServerPort(ServiceType.EMBY, "http")) }
+    var port by remember { mutableStateOf(defaultServerPort(ServiceType.EMBY, "https")) }
+    var allowInsecureHttp by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var savePassword by remember { mutableStateOf(true) }
@@ -216,7 +217,7 @@ fun AddServerDialog(
     var type by remember { mutableStateOf(ServiceType.EMBY) }
     val needsConnection = type == ServiceType.EMBY || type == ServiceType.JELLYFIN || type == ServiceType.WEBDAV
     val validAddress = !needsConnection || buildServerBaseUrl(scheme, host, port) != null
-    val canSave = if (needsConnection) validAddress && username.isNotBlank() && password.isNotBlank()
+    val canSave = if (needsConnection) validAddress && username.isNotBlank() && password.isNotBlank() && (scheme == "https" || allowInsecureHttp)
     else name.isNotBlank()
 
     Dialog(
@@ -267,6 +268,7 @@ fun AddServerDialog(
                                             serviceType = type,
                                             autoLogin = savePassword,
                                             trustSelfSignedCertificate = trustSelfSignedCertificate,
+                                            allowInsecureHttp = allowInsecureHttp,
                                             privateMode = privateMode
                                         ),
                                         password
@@ -308,6 +310,7 @@ fun AddServerDialog(
                             onSelect = {
                                 if (it != type) {
                                     type = it
+                                    allowInsecureHttp = false
                                     port = defaultServerPort(it, scheme)
                                 }
                             },
@@ -333,15 +336,17 @@ fun AddServerDialog(
                                 onSchemeChange = { selected ->
                                     val oldDefault = defaultServerPort(type, scheme)
                                     scheme = selected
+                                    allowInsecureHttp = false
                                     if (port == oldDefault) port = defaultServerPort(type, selected)
                                 },
                                 host = host,
-                                onHostChange = { host = it },
+                                onHostChange = { host = it; allowInsecureHttp = false },
                                 port = port,
-                                onPortChange = { port = it },
+                                onPortChange = { port = it; allowInsecureHttp = false },
                                 serviceType = type,
                                 enabled = !busy
                             )
+                            if (scheme == "http") HttpConsentOption(allowInsecureHttp, { allowInsecureHttp = it }, !busy)
                             if (host.isNotBlank() && !validAddress) {
                                 Text(
                                     text = stringResource(R.string.server_address_required),
@@ -447,6 +452,7 @@ fun EditServerDialog(
         mutableStateOf(server.trustSelfSignedCertificate)
     }
     var privateMode by remember { mutableStateOf(server.privateMode) }
+    var allowInsecureHttp by remember { mutableStateOf(server.allowInsecureHttp) }
 
     val isCredentialServer = server.serviceType == ServiceType.EMBY ||
         server.serviceType == ServiceType.JELLYFIN ||
@@ -477,14 +483,15 @@ fun EditServerDialog(
                 if (isCredentialServer) {
                     ServerAddressFields(
                         scheme = scheme,
-                        onSchemeChange = { scheme = it },
+                        onSchemeChange = { scheme = it; allowInsecureHttp = false },
                         host = host,
-                        onHostChange = { host = it },
+                        onHostChange = { host = it; allowInsecureHttp = false },
                         port = port,
-                        onPortChange = { port = it },
+                        onPortChange = { port = it; allowInsecureHttp = false },
                         serviceType = server.serviceType,
                         enabled = !busy
                     )
+                    if (scheme == "http") HttpConsentOption(allowInsecureHttp, { allowInsecureHttp = it }, !busy)
                 }
                 PrivacyCardOption(checked = privateMode, onCheckedChange = { privateMode = it }, enabled = !busy)
                 OutlinedTextField(
@@ -543,7 +550,7 @@ fun EditServerDialog(
                 busyText = R.string.services_saving,
                 // Same client-side check as the add dialog, so a cleared address
                 // never submits (and therefore never closes) the form.
-                enabled = !isCredentialServer || (host.isNotBlank() && port.isNotBlank()),
+                enabled = !isCredentialServer || (host.isNotBlank() && port.isNotBlank() && (scheme == "https" || allowInsecureHttp)),
                 onClick = {
                     onSave(
                         ServerForm(
@@ -554,6 +561,7 @@ fun EditServerDialog(
                             username = username,
                             serviceType = server.serviceType,
                             trustSelfSignedCertificate = trustSelfSignedCertificate,
+                            allowInsecureHttp = allowInsecureHttp,
                             privateMode = privateMode
                         ),
                         password,
@@ -567,6 +575,23 @@ fun EditServerDialog(
                 Text(stringResource(R.string.cancel))
             }
         }
+    )
+}
+
+@Composable
+private fun HttpConsentOption(checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean) {
+    var confirm by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Checkbox,
+        onValueChange = { if (it) confirm = true else onCheckedChange(false) }), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
+        Text(stringResource(R.string.server_http_consent), Modifier.padding(start = 8.dp))
+    }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { Text(stringResource(R.string.server_http_warning_title)) },
+        text = { Text(stringResource(R.string.server_http_warning)) },
+        confirmButton = { TextButton(onClick = { confirm = false; onCheckedChange(true) }) { Text(stringResource(R.string.settings_confirm)) } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel)) } }
     )
 }
 

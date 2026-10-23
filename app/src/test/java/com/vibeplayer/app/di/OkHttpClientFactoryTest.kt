@@ -27,5 +27,6 @@ class OkHttpClientFactoryTest {
         // must remain the platform default to prevent MITM via a mismatched
         // certificate name.
         assertNotSame(verified.sslSocketFactory, permissive.sslSocketFactory)
+        assertSame(verified.hostnameVerifier, permissive.hostnameVerifier)
     }
 }

@@ -19,7 +19,7 @@ class HistoryReplayRouteTest {
         assertEquals(Routes.webdavPlayer("server", path), historyReplayRoute(entry(PlaybackSource.WEBDAV, path)))
         assertEquals(Routes.iptvPlayer("server", url, "Channel"), historyReplayRoute(entry(PlaybackSource.IPTV, url)))
         assertEquals(Routes.localPlayer(localUri), historyReplayRoute(entry(PlaybackSource.LOCAL, localUri)))
-        assertEquals(Routes.linkPlayer(url), historyReplayRoute(entry(PlaybackSource.LINK, url)))
+        assertEquals(Routes.linkPlayer(url, "server"), historyReplayRoute(entry(PlaybackSource.LINK, url)))
     }
 
     @Test
@@ -28,6 +28,12 @@ class HistoryReplayRouteTest {
         assertNull(historyReplayRoute(entry(PlaybackSource.WEBDAV, "")))
         assertNull(historyReplayRoute(entry(PlaybackSource.IPTV, "url", serviceId = "")))
         assertNull(historyReplayRoute(entry(PlaybackSource.LINK, "url", available = false)))
+    }
+
+    @Test fun `private history cannot replay after relock`() {
+        val private = entry(PlaybackSource.LINK, "https://example.test/movie").copy(privacyMode = true)
+        assertNull(historyReplayRoute(private))
+        assertEquals(Routes.linkPlayer(private.replayTarget, "server"), historyReplayRoute(private, showPrivate = true))
     }
 
     private fun entry(

@@ -169,6 +169,7 @@ class WebDavPlayerViewModel @Inject constructor(
                 startPositionMs = lastUsagePositionSeconds * 1000,
                 headers = mapOf("Authorization" to auth),
                 trustSelfSignedCertificate = server.trustSelfSignedCertificate,
+                allowInsecureHttp = server.allowInsecureHttp,
                 privatePlayback = server.privateMode,
                 preserveSessionControls = true
             )

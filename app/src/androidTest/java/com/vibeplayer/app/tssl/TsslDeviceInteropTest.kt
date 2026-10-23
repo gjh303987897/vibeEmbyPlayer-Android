@@ -65,6 +65,7 @@ class TsslDeviceInteropTest {
 
     @Test fun webDavRestoresMixedFormatsAndUploadsAndroidSnapshot() = runBlocking {
         TsslDeviceHarness().use { h -> MockWebServer().use { server ->
+            h.enableHttps(server)
             val qt = h.fixture("tssl-backup-qt-fixture.zip").readBytes()
             val legacy = h.fixture("legacy-v3.tssl").readBytes()
             val uploads = LinkedBlockingQueue<ByteArray>()
@@ -81,7 +82,7 @@ class TsslDeviceInteropTest {
                 }
             }
             server.start()
-            val config = ServerConfig(UUID.randomUUID().toString(), "TSSL synthetic DAV", server.url("/dav/").toString(), "test", ServiceType.WEBDAV)
+            val config = ServerConfig(UUID.randomUUID().toString(), "TSSL synthetic DAV", server.url("/dav/").newBuilder().host("localhost").build().toString(), "test", ServiceType.WEBDAV, trustSelfSignedCertificate = true)
             h.password(config)
             val target = TsslBackupTarget.WebDav(config, "backups")
             val store = h.store("dav")
@@ -140,10 +141,11 @@ class TsslDeviceInteropTest {
 
     @Test fun cancellingStalledWebDavDownloadReleasesTemporaryFiles() = runBlocking {
         TsslDeviceHarness().use { h -> MockWebServer().use { server ->
+            h.enableHttps(server)
             server.enqueue(MockResponse().setResponseCode(207).setBody(davListing(includeLegacy = false)))
             server.enqueue(bytes(h.fixture("tssl-backup-qt-fixture.zip").readBytes()).setBodyDelay(2, TimeUnit.SECONDS))
             server.start()
-            val config = ServerConfig(UUID.randomUUID().toString(), "TSSL cancellation", server.url("/dav/").toString(), "test", ServiceType.WEBDAV)
+            val config = ServerConfig(UUID.randomUUID().toString(), "TSSL cancellation", server.url("/dav/").newBuilder().host("localhost").build().toString(), "test", ServiceType.WEBDAV, trustSelfSignedCertificate = true)
             h.password(config)
             val job = async(Dispatchers.IO) { h.service(h.store("cancel")).restore(TsslBackupTarget.WebDav(config, "backups")) }
             assertEquals("PROPFIND", server.takeRequest(5, TimeUnit.SECONDS)!!.method)

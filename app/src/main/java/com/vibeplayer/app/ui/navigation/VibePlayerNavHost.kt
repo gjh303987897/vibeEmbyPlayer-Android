@@ -339,10 +339,10 @@ fun VibePlayerNavHost(
 
             composable(
                 route = Routes.LINK_PLAYER,
-                arguments = listOf(navArgument("url") { type = NavType.StringType })
+                arguments = listOf(navArgument("serverId") { type = NavType.StringType }, navArgument("url") { type = NavType.StringType })
             ) { entry ->
                 val url = entry.arguments?.getString("url").orEmpty()
-                LinkPlayerScreen(encodedUrl = url, navController = navController)
+                LinkPlayerScreen(serverId = entry.arguments?.getString("serverId").orEmpty(), encodedUrl = url, navController = navController)
             }
 
             composable(Routes.LOCAL_HOME) {

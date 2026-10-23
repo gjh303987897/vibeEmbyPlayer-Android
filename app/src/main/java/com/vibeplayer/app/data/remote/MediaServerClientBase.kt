@@ -45,7 +45,7 @@ abstract class MediaServerClientBase(
         }
         val result = network.postJson(
             url, headers, body.toString(),
-            trustSelfSigned = server.trustSelfSignedCertificate
+            trustSelfSigned = server.trustSelfSignedCertificate, allowInsecureHttp = server.allowInsecureHttp
         )
             val root = result.parseJsonObject() ?: return Result.failure(result.asThrowable())
         return runCatching {
@@ -69,7 +69,7 @@ abstract class MediaServerClientBase(
         val result = network.get(
             librariesUrl(session),
             EmbyAuth.headers(session.server.serviceType, session.accessToken),
-            trustSelfSigned = session.server.trustSelfSignedCertificate
+            trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp
         )
         val body = result.parseBytes() ?: return Result.failure(result.asThrowable())
         return runCatching {
@@ -89,7 +89,7 @@ abstract class MediaServerClientBase(
     ): Result<ItemPage> {
         val url = libraryItemsUrl(session, library, parentId, startIndex, limit)
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        val result = network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate)
+        val result = network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp)
         return parseItemPage(result, session)
     }
 
@@ -105,7 +105,7 @@ abstract class MediaServerClientBase(
         }
         val url = searchUrl(session, normalized, startIndex, limit)
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        return parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate), session)
+        return parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp), session)
     }
 
     override suspend fun fetchContinueWatching(
@@ -114,7 +114,7 @@ abstract class MediaServerClientBase(
     ): Result<List<MediaItem>> {
         val url = continueWatchingUrl(session, limit)
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        val page = parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate), session)
+        val page = parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp), session)
         return page.map { keepLatestContinueItems(it.items) }
     }
 
@@ -124,7 +124,7 @@ abstract class MediaServerClientBase(
     ): Result<List<MediaItem>> {
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
         val page = parseItemPage(
-            network.get(suggestedSeriesUrl(session, limit), headers, trustSelfSigned = session.server.trustSelfSignedCertificate),
+            network.get(suggestedSeriesUrl(session, limit), headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp),
             session
         )
         val series = page.map { it.items.filter { item -> item.itemType.equals("Series", ignoreCase = true) } }
@@ -137,7 +137,7 @@ abstract class MediaServerClientBase(
             val fallbackUrl = suggestedSeriesFallbackUrl(session, limit)
             if (fallbackUrl != null) {
                 val fallback = parseItemPage(
-                    network.get(fallbackUrl, headers, trustSelfSigned = session.server.trustSelfSignedCertificate),
+                    network.get(fallbackUrl, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp),
                     session
                 )
                 return fallback.map { it.items.filter { item -> item.itemType.equals("Series", ignoreCase = true) } }
@@ -155,7 +155,7 @@ abstract class MediaServerClientBase(
         }
         val url = seasonsUrl(session, seriesId)
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        return parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate), session).map { it.items }
+        return parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp), session).map { it.items }
     }
 
     override suspend fun fetchSeasonEpisodes(
@@ -168,7 +168,7 @@ abstract class MediaServerClientBase(
         }
         val url = episodesUrl(session, seriesId, seasonId)
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        return parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate), session).map { it.items }
+        return parseItemPage(network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp), session).map { it.items }
     }
 
     override suspend fun fetchItemDetails(
@@ -177,7 +177,7 @@ abstract class MediaServerClientBase(
     ): Result<com.vibeplayer.app.model.MediaItem> {
         val url = itemDetailsUrl(session, itemId)
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        val result = network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate)
+        val result = network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp)
 
         return if (usesItemQueryForDetails()) {
             val page = parseItemPage(result, session)
@@ -204,7 +204,7 @@ abstract class MediaServerClientBase(
         val url = makeUrl(session.server.baseUrl, "/Items/${item.id}/PlaybackInfo")
             .plus("?UserId=${session.userId}&IsPlayback=true&AutoOpenLiveStream=true")
         val headers = EmbyAuth.headers(session.server.serviceType, session.accessToken)
-        val result = network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate)
+        val result = network.get(url, headers, trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp)
         val body = result.parseBytes() ?: return Result.failure(result.asThrowable())
         return runCatching {
             val info = json.decodeFromString<PlaybackInfoResponse>(body)
@@ -263,7 +263,7 @@ abstract class MediaServerClientBase(
         }
         network.postJson(
             url, headers, body.toString(),
-            trustSelfSigned = session.server.trustSelfSignedCertificate
+            trustSelfSigned = session.server.trustSelfSignedCertificate, allowInsecureHttp = session.server.allowInsecureHttp
         )
     }
 
@@ -371,19 +371,8 @@ abstract class MediaServerClientBase(
     /* ---- url helpers ---- */
 
     protected fun makeUrl(baseUrl: String, path: String): String {
-        // Normalize a bare host / LAN address (e.g. `192.168.1.5:8096` or
-        // `emby.bangumi.ca`) to an http(s) URL before building the request.
-        // Without this, a scheme-less base URL passed to OkHttp's
-        // `Request.Builder.url()` throws IllegalArgumentException, which the
-        // caller surfaces as a misleading "Invalid server URL" even though the
-        // address itself is fine. addServer/editServer normalize on save, but a
-        // stored value from an older build may already be scheme-less, so the
-        // safe single chokepoint for every request URL is here. An empty base
-        // is left untouched so callers that guard on it behave as before.
-        var base = baseUrl.trim().trimEnd('/')
-        if (base.isNotEmpty() && !base.contains("://")) {
-            base = "http://$base"
-        }
+        // Scheme-less legacy addresses must be reviewed in the server editor.
+        val base = baseUrl.trim().trimEnd('/')
         return base + path
     }
 

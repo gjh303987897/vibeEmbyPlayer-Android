@@ -58,11 +58,11 @@ class WebDavClient @Inject constructor(
 
     /** Returns a client tuned for TLS and the server's authentication scheme. */
     private fun clientFor(server: ServerConfig, password: String? = null): OkHttpClient {
-        val base = clientFactory.client(server.trustSelfSignedCertificate)
+        val base = clientFactory.client(server.trustSelfSignedCertificate, server.allowInsecureHttp)
         return if (password == null) base else base.newBuilder()
             // Basic is sent pre-emptively by [auth]. The authenticator is a
             // fallback for WebDAV servers that challenge with RFC 7616 Digest.
-            .authenticator(DigestAuthenticator(server.username, password))
+            .authenticator(DigestAuthenticator(server.username, password, server.normalizedBaseUrl.toHttpUrlOrNull()))
             .build()
     }
 
@@ -387,8 +387,13 @@ class WebDavClient @Inject constructor(
         }.onFailure { if (it is CancellationException) throw it }
     }
 
-    private fun backupClient(server: ServerConfig, password: String) = clientFor(server, password).newBuilder()
-        .readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).callTimeout(15, TimeUnit.MINUTES).build()
+    private fun backupClient(server: ServerConfig, password: String): OkHttpClient {
+        require(server.normalizedBaseUrl.toHttpUrlOrNull()?.scheme == "https") {
+            "TSSL WebDAV backups contain decryption keys and require HTTPS"
+        }
+        return clientFor(server, password).newBuilder()
+            .readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).callTimeout(15, TimeUnit.MINUTES).build()
+    }
 
     private fun basicAuth(user: String, password: String): String {
         val credentials = Base64.getEncoder().encodeToString("$user:$password".toByteArray(Charsets.UTF_8))
@@ -499,12 +504,14 @@ class WebDavClient @Inject constructor(
     /** Handles RFC 7616 Digest challenges while retaining pre-emptive Basic auth. */
     private class DigestAuthenticator(
         private val username: String,
-        private val password: String
+        private val password: String,
+        private val origin: HttpUrl?
     ) : Authenticator {
         private val nonceCounts = mutableMapOf<String, Int>()
 
         override fun authenticate(route: Route?, response: Response): Request? {
-            if (response.code != 401 || username.isBlank() ||
+            if (origin == null || !com.vibeplayer.app.data.remote.sameOrigin(origin, response.request.url) ||
+                response.code != 401 || username.isBlank() ||
                 response.request.header("Authorization")?.startsWith("Digest ") == true ||
                 responseCount(response) >= 3
             ) return null

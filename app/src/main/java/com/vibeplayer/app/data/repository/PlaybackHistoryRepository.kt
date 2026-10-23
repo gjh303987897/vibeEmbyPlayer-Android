@@ -174,8 +174,8 @@ class PlaybackHistoryRepository @Inject constructor(
         database.historyRetentionDao().deleteHistory(id)
     }
 
-    fun observeLinkHistory(showPrivate: Boolean = false): Flow<List<LinkPlaybackHistoryEntity>> =
-        retention.cutoffDate.flatMapLatest { linkPlaybackHistoryDao.observePaged(showPrivate, 100, 0, it) }
+    fun observeLinkHistory(showPrivate: Boolean = false, serviceId: String? = null): Flow<List<LinkPlaybackHistoryEntity>> =
+        retention.cutoffDate.flatMapLatest { linkPlaybackHistoryDao.observePaged(showPrivate, 100, 0, it, serviceId) }
 
     /**
      * Records a Link-source playback occurrence. Mirrors the same uuid into the
@@ -192,7 +192,7 @@ class PlaybackHistoryRepository @Inject constructor(
     ) = database.withTransaction {
         val now = System.currentTimeMillis()
         val displayAddress = displayUrl(url)
-        val previous = linkPlaybackHistoryDao.findByUrl(url)
+        val previous = linkPlaybackHistoryDao.findByUrl(url, service?.id.orEmpty())
         val id = previous?.id ?: UUID.randomUUID().toString()
 
         if (previous != null) {
@@ -210,7 +210,7 @@ class PlaybackHistoryRepository @Inject constructor(
                     id = id,
                     playedDate = todayUtc(),
                     playedAtMs = now,
-                    serviceName = "Link",
+                    serviceName = service?.name ?: "Link",
                     title = displayName,
                     subtitle = it.subtitle,
                     displayTarget = displayAddress,
@@ -247,8 +247,8 @@ class PlaybackHistoryRepository @Inject constructor(
             PlaybackHistoryEntity(
                 id = id,
                 source = PlaybackSource.LINK.label,
-                serviceId = "",
-                serviceName = "Link",
+                serviceId = service?.id.orEmpty(),
+                serviceName = service?.name ?: "Link",
                 replayTarget = url,
                 title = displayName,
                 subtitle = "",

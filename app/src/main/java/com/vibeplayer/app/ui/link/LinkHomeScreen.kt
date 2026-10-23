@@ -59,7 +59,7 @@ fun LinkHomeScreen(
 
     LaunchedEffect(state.pendingUrl) {
         state.pendingUrl?.let { url ->
-            navController.navigate(Routes.linkPlayer(url))
+            state.server?.let { navController.navigate(Routes.linkPlayer(url, it.id)) }
             viewModel.consumePendingUrl()
         }
     }

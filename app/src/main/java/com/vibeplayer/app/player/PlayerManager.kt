@@ -75,6 +75,7 @@ private data class PlaybackRequest(
     val subtitle: String?,
     val headers: Map<String, String>,
     val trustSelfSignedCertificate: Boolean,
+    val allowInsecureHttp: Boolean,
     val privatePlayback: Boolean,
     val subtitles: List<SubtitleConfiguration>,
     val hlsVariant: HlsVariant?,
@@ -280,6 +281,7 @@ class PlayerManager @Inject constructor(
     }
     private var currentHeaders: Map<String, String> = emptyMap()
     private var currentTrustSelfSigned = false
+    private var currentAllowInsecureHttp = false
     private var preferredTextLanguage = ""
     private var preferredTextLanguageLoaded = false
     private var lastSpeed = 1f
@@ -566,7 +568,8 @@ class PlayerManager @Inject constructor(
         preserveManualSubtitles: Boolean = false,
         networkByteCounter: (() -> Long)? = null,
         interruptPendingReads: (() -> Unit)? = null,
-        preserveSessionControls: Boolean = preserveManualSubtitles
+        preserveSessionControls: Boolean = preserveManualSubtitles,
+        allowInsecureHttp: Boolean = false
     ) {
         completionDelivered = false
         cancelPausedSurfaceFrame()
@@ -595,13 +598,14 @@ class PlayerManager @Inject constructor(
         decoderRestore = null
         playWhenPrepared = playWhenReady && !(preserveSessionControls && sleepTimerState.value.expired)
         currentRequest = PlaybackRequest(url, title, subtitle, headers.toMap(), trustSelfSignedCertificate,
-            privatePlayback, subtitleConfigurations, hlsVariant, networkByteCounter, interruptPendingReads)
+            allowInsecureHttp, privatePlayback, subtitleConfigurations, hlsVariant, networkByteCounter, interruptPendingReads)
         stopPositionTicker()
         subtitleJob?.cancel()
         subtitleCues = emptyList()
         externalSubtitleCandidates = subtitleConfigurations
         currentHeaders = headers.toMap()
         currentTrustSelfSigned = trustSelfSignedCertificate
+        currentAllowInsecureHttp = allowInsecureHttp
         lastNativeDownloadedBytes = 0L
         downloadedBytes.set(0L)
         runCatching { resetPlayer() }
@@ -630,7 +634,7 @@ class PlayerManager @Inject constructor(
             try {
                 val remoteUrl = url.toHttpUrlOrNull()
                 val sourceUrl = if (remoteUrl != null && (remoteUrl.host != "127.0.0.1" || hlsVariant != null)) {
-                    PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate), remoteUrl, headers, hlsVariant)
+                    PlaybackHttpProxy(clientFactory.client(trustSelfSignedCertificate, allowInsecureHttp), remoteUrl, headers, hlsVariant)
                         .also { httpProxy = it }.playbackUrl
                 } else url
                 if (remoteUrl != null) {
@@ -679,7 +683,8 @@ class PlayerManager @Inject constructor(
         play(request.url, request.title, request.subtitle, resumeMs, request.headers,
             request.trustSelfSignedCertificate, request.privatePlayback, request.subtitles,
             request.hlsVariant, restore.playWhenReady, preserveManualSubtitles = true,
-            networkByteCounter = request.networkByteCounter, interruptPendingReads = request.interruptPendingReads)
+            networkByteCounter = request.networkByteCounter, interruptPendingReads = request.interruptPendingReads,
+            allowInsecureHttp = request.allowInsecureHttp)
         downloadedBytes.addAndGet(carriedBytes)
         decoderRestore = restore
         restoringPausedSurface = restoreSurface && !restore.playWhenReady
@@ -1077,14 +1082,18 @@ class PlayerManager @Inject constructor(
         ?.removePrefix("timedtext:")?.takeIf { it != _state.value.selectedSubtitleKey }?.toIntOrNull()
 
     private fun loadExternalSubtitle(configuration: SubtitleConfiguration, key: String) {
-        val subtitleHeaders = currentHeaders
-        val trustSelfSigned = currentTrustSelfSigned
+        val origin = currentRequest?.url?.toHttpUrlOrNull()
+        val target = configuration.uri.toHttpUrlOrNull()
+        val sameServer = origin != null && target != null && com.vibeplayer.app.data.remote.sameOrigin(origin, target)
+        val subtitleHeaders = if (sameServer) currentHeaders else emptyMap()
+        val trustSelfSigned = sameServer && currentTrustSelfSigned
+        val allowInsecure = sameServer && currentAllowInsecureHttp
         subtitleJob = scope.launch(Dispatchers.IO) {
             val cues = runCatching {
                 val request = Request.Builder().url(configuration.uri).apply {
                     subtitleHeaders.forEach { (name, value) -> header(name, value) }
                 }.build()
-                clientFactory.client(trustSelfSigned).newCall(request).execute().use { response ->
+                clientFactory.client(trustSelfSigned, allowInsecure).newCall(request).execute().use { response ->
                     require(response.isSuccessful) { "subtitle HTTP ${response.code}" }
                     parseSubtitle(requireNotNull(response.body).bytes(), configuration.mimeType)
                 }

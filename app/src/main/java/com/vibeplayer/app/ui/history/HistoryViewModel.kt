@@ -101,6 +101,8 @@ class HistoryViewModel @Inject constructor(
         }
     }
 
+    fun replayRoute(entry: PlaybackHistoryEntry): String? = historyReplayRoute(entry, privacyManager.privacyMode.value)
+
     companion object {
         val SOURCE_FILTERS = listOf(
             null,

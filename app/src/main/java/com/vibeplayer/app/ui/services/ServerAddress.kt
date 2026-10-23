@@ -24,11 +24,11 @@ fun defaultServerPort(serviceType: ServiceType, scheme: String): String = when (
 /** Parses both new-style URLs and legacy saved base URLs into editor fields. */
 fun parseServerAddress(baseUrl: String): ServerAddressParts {
     val trimmed = baseUrl.trim()
-    if (trimmed.isEmpty()) return ServerAddressParts("http", "", "")
+    if (trimmed.isEmpty()) return ServerAddressParts("https", "", "")
 
-    val candidate = if (trimmed.contains("://")) trimmed else "http://$trimmed"
+    val candidate = if (trimmed.contains("://")) trimmed else "https://$trimmed"
     val uri = runCatching { URI(candidate) }.getOrNull()
-    val scheme = uri?.scheme?.lowercase()?.takeIf { it == "http" || it == "https" } ?: "http"
+    val scheme = uri?.scheme?.lowercase()?.takeIf { it == "http" || it == "https" } ?: "https"
     val host = uri?.let(::hostAndPath)
         ?.takeIf { it.isNotBlank() }
         ?: trimmed.removePrefix("http://").removePrefix("https://").trimEnd('/')

@@ -12,7 +12,8 @@ data class ServerConfig(
     val serviceType: ServiceType = ServiceType.EMBY,
     val trustSelfSignedCertificate: Boolean = false,
     val autoLogin: Boolean = true,
-    val privateMode: Boolean = false
+    val privateMode: Boolean = false,
+    val allowInsecureHttp: Boolean = false
 ) {
     /** Normalized base URL without trailing slash. */
     val normalizedBaseUrl: String

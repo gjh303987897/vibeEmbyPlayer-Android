@@ -24,7 +24,7 @@ class EncryptedHlsCancellationTest {
             val port = java.net.URI(server.baseUrl).port
             Socket("127.0.0.1", port).use { old ->
                 old.soTimeout = 1_000
-                old.getOutputStream().write("GET /old.ts HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
+                old.getOutputStream().write("GET ${java.net.URI(server.baseUrl).rawPath}old.ts HTTP/1.1\r\nHost: localhost:$port\r\n\r\n".toByteArray())
                 assertTrue(entered.await(2, TimeUnit.SECONDS))
                 server.interruptPendingReads()
                 assertEquals(-1, old.getInputStream().read())
@@ -32,7 +32,7 @@ class EncryptedHlsCancellationTest {
             }
             Socket("127.0.0.1", port).use { next ->
                 next.soTimeout = 1_000
-                next.getOutputStream().write("GET /index.m3u8 HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
+                next.getOutputStream().write("GET ${java.net.URI(server.baseUrl).rawPath}index.m3u8 HTTP/1.1\r\nHost: localhost:$port\r\n\r\n".toByteArray())
                 val response = next.getInputStream().readBytes().toString(Charsets.UTF_8)
                 assertTrue(response.startsWith("HTTP/1.1 200"))
                 assertTrue(response.endsWith("#EXTM3U\n"))
@@ -52,7 +52,7 @@ class EncryptedHlsCancellationTest {
         try {
             Socket("127.0.0.1", java.net.URI(server.baseUrl).port).use { socket ->
                 socket.soTimeout = 1_000
-                socket.getOutputStream().write("GET /old.ts HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray())
+                socket.getOutputStream().write("GET ${java.net.URI(server.baseUrl).rawPath}old.ts HTTP/1.1\r\nHost: localhost:${socket.port}\r\n\r\n".toByteArray())
                 assertTrue(entered.await(2, TimeUnit.SECONDS))
                 server.close()
                 assertEquals(-1, socket.getInputStream().read())

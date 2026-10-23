@@ -72,14 +72,15 @@ data class ServicesUiState(
 /** UI form for adding a new media server account. */
 data class ServerForm(
     val name: String = "",
-    val scheme: String = "http",
+    val scheme: String = "https",
     val host: String = "",
     val port: String = "",
     val username: String = "",
     val serviceType: ServiceType = ServiceType.EMBY,
     val autoLogin: Boolean = true,
     val trustSelfSignedCertificate: Boolean = false,
-    val privateMode: Boolean = false
+    val privateMode: Boolean = false,
+    val allowInsecureHttp: Boolean = false
 )
 
 @HiltViewModel
@@ -215,7 +216,8 @@ class ServicesViewModel @Inject constructor(
             serviceType = form.serviceType,
             autoLogin = form.autoLogin,
             trustSelfSignedCertificate = form.trustSelfSignedCertificate,
-                privateMode = form.privateMode
+            privateMode = form.privateMode,
+            allowInsecureHttp = form.allowInsecureHttp && form.scheme == "http"
         )
         addInFlight = true
         _uiState.update { it.copy(addingServer = true, errorMessage = null) }
@@ -485,7 +487,8 @@ class ServicesViewModel @Inject constructor(
                         username = form.username.ifBlank { server.username },
                         autoLogin = if (credentialServer) savePassword else server.autoLogin,
                         trustSelfSignedCertificate = form.trustSelfSignedCertificate,
-                        privateMode = form.privateMode
+                        privateMode = form.privateMode,
+                        allowInsecureHttp = form.allowInsecureHttp && form.scheme == "http"
                     )
                 )
             } finally {

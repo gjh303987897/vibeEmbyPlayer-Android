@@ -37,14 +37,14 @@ internal class PlaybackHttpProxy(
     private val headers = headers.toMap()
     private val received = java.util.concurrent.atomic.AtomicLong(0L)
     val receivedBytes: Long get() = received.get()
-    private val transport = client.newBuilder().addNetworkInterceptor { chain ->
+    private val transport = client.newBuilder().apply { networkInterceptors().add(0, okhttp3.Interceptor { chain ->
         val request = chain.request()
         if (request.url.host == origin.host && request.url.port == origin.port && request.url.scheme == origin.scheme) {
             chain.proceed(request)
         } else {
             chain.proceed(request.newBuilder().apply { this@PlaybackHttpProxy.headers.keys.forEach { removeHeader(it) } }.build())
         }
-    }.build()
+    }) }.build()
     private val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
     private val connections = ConcurrentHashMap.newKeySet<Socket>()
     private val calls = ConcurrentHashMap.newKeySet<Call>()

@@ -107,18 +107,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setPin(pin: String): Boolean {
-        val ok = privacyManager.setPin(pin)
-        if (ok) pinConfigured.update { true }
-        return ok
+    suspend fun setPin(pin: String): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        privacyManager.setPin(pin).also { if (it) pinConfigured.update { true } }
     }
 
-    fun openPrivacy(pin: String): Boolean {
+    suspend fun changePin(oldPin: String, newPin: String): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        privacyManager.changePin(oldPin, newPin)
+    }
+
+    suspend fun openPrivacy(pin: String): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val ok = privacyManager.openPrivacy(pin)
         if (ok && !privacyManager.isPinConfigured()) {
             pinConfigured.update { true }
         }
-        return ok
+        ok
     }
 
     fun isPinCoolingDown(): Boolean = privacyManager.isPinCoolingDown()

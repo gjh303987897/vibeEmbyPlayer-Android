@@ -55,7 +55,8 @@ class ServiceStore @Inject constructor(
         // option existed; upgrading must never silently weaken TLS verification.
         val trustSelfSignedCertificate: Boolean = false,
         val autoLogin: Boolean,
-        val privateMode: Boolean
+        val privateMode: Boolean,
+        val allowInsecureHttp: Boolean = false
     )
 
     val services: Flow<List<ServerConfig>> = dataStore.data
@@ -63,24 +64,26 @@ class ServiceStore @Inject constructor(
             prefs[Keys.SERVICES]?.let { decode(it) } ?: emptyList()
         }
 
-    suspend fun saveAll(configs: List<ServerConfig>) {
+    private suspend fun updateServices(transform: (List<ServerConfig>) -> List<ServerConfig>) {
         dataStore.edit { prefs ->
-            val dto = configs.map { it.toDto() }
+            val current = prefs[Keys.SERVICES]?.let(::decode).orEmpty()
+            val dto = transform(current).map { it.toDto() }
             prefs[Keys.SERVICES] = json.encodeToString(ListSerializer(ServerConfigDto.serializer()), dto)
         }
     }
 
     suspend fun upsert(config: ServerConfig) {
-        val current = services.first()
-        val updated = current.map { if (it.id == config.id) config else it }
-            .let { list -> if (list.none { it.id == config.id }) list + config else list }
-        saveAll(updated)
+        updateServices { current ->
+            current.map { if (it.id == config.id) config else it }
+                .let { list -> if (list.none { it.id == config.id }) list + config else list }
+        }
     }
 
     suspend fun remove(serverId: String) {
-        val current = services.first()
-        saveAll(current.filter { it.id != serverId })
+        updateServices { current -> current.filter { it.id != serverId } }
     }
+
+    suspend fun reorder(orderedIds: List<String>) = updateServices { reorderExistingServices(it, orderedIds) }
 
     private fun decode(raw: String): List<ServerConfig> = try {
         json.decodeFromString(ListSerializer(ServerConfigDto.serializer()), raw)
@@ -97,7 +100,8 @@ class ServiceStore @Inject constructor(
         serviceType = serviceType.displayName,
         trustSelfSignedCertificate = trustSelfSignedCertificate,
         autoLogin = autoLogin,
-        privateMode = privateMode
+        privateMode = privateMode,
+        allowInsecureHttp = allowInsecureHttp
     )
 
     private fun ServerConfigDto.toModel() = ServerConfig(
@@ -108,6 +112,7 @@ class ServiceStore @Inject constructor(
         serviceType = ServiceType.fromDisplayName(serviceType),
         trustSelfSignedCertificate = trustSelfSignedCertificate,
         autoLogin = autoLogin,
-        privateMode = privateMode
+        privateMode = privateMode,
+        allowInsecureHttp = allowInsecureHttp
     )
 }

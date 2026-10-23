@@ -56,17 +56,33 @@ class PrivacyManager @Inject constructor(
 
     fun isPinCoolingDown(): Boolean = System.currentTimeMillis() < lockedUntilMs
 
+    @Synchronized
     fun setPin(pin: String): Boolean {
-        if (!isValidPin(pin)) return false
-        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val saltStr = Base64.getEncoder().encodeToString(salt)
-        prefs.edit()
-            .putString(KEY_SALT, saltStr)
-            .putString(KEY_HASH, pbkdf2Hash(pin, saltStr))
-            .apply()
-        return true
+        if (isPinConfigured() || !isValidPin(pin)) return false
+        return writePin(pin)
     }
 
+    @Synchronized
+    fun changePin(oldPin: String, newPin: String): Boolean {
+        if (!isValidPin(newPin) || !verifyPin(oldPin)) return false
+        return writePin(newPin)
+    }
+
+    private fun writePin(pin: String): Boolean {
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val saltStr = Base64.getEncoder().encodeToString(salt)
+        val saved = prefs.edit()
+            .putString(KEY_SALT, saltStr)
+            .putString(KEY_HASH, pbkdf2Hash(pin, saltStr))
+            .commit()
+        if (saved) {
+            failedAttempts = 0
+            lockedUntilMs = 0L
+        }
+        return saved
+    }
+
+    @Synchronized
     fun verifyPin(pin: String): Boolean {
         if (System.currentTimeMillis() < lockedUntilMs) return false
         val salt = prefs.getString(KEY_SALT, null) ?: return false

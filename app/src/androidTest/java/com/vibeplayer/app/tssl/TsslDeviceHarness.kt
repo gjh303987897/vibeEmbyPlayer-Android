@@ -51,6 +51,17 @@ internal class TsslDeviceHarness : Closeable {
         check(secure.savePassword(server.id, "synthetic-device-password"))
     }
 
+    fun enableHttps(server: okhttp3.mockwebserver.MockWebServer) {
+        val password = "fixture-only".toCharArray()
+        val keys = java.security.KeyStore.getInstance("PKCS12")
+        instrumentation.context.assets.open("tls/localhost-test.p12").use { keys.load(it, password) }
+        val managers = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
+            .apply { init(keys, password) }
+        val tls = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(managers.keyManagers, null, null) }
+        server.protocols = listOf(okhttp3.Protocol.HTTP_1_1)
+        server.useHttps(tls.socketFactory, false)
+    }
+
     fun keepResult(source: File, name: String) {
         val output = File(app.getExternalFilesDir(null), "tssl-device-results").apply { mkdirs() }
         source.copyTo(File(output, name), overwrite = true)

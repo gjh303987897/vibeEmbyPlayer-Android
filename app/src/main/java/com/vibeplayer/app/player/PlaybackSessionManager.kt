@@ -64,13 +64,13 @@ class PlaybackSessionManager @Inject constructor(
                     )
                 }
                 if (old == null || old.title != state.title || old.subtitle != state.subtitle ||
-                    old.durationMs != state.durationMs
+                    old.durationMs != state.durationMs || old.privatePlayback != state.privatePlayback
                 ) {
                     session.setMetadata(
                         MediaMetadata.Builder()
-                            .putString(MediaMetadata.METADATA_KEY_TITLE, state.title.orEmpty())
-                            .putString(MediaMetadata.METADATA_KEY_ARTIST, state.subtitle.orEmpty())
-                            .putLong(MediaMetadata.METADATA_KEY_DURATION, state.durationMs)
+                            .putString(MediaMetadata.METADATA_KEY_TITLE, if (state.privatePlayback) "VibePlayer" else state.title.orEmpty())
+                            .putString(MediaMetadata.METADATA_KEY_ARTIST, if (state.privatePlayback) "" else state.subtitle.orEmpty())
+                            .putLong(MediaMetadata.METADATA_KEY_DURATION, if (state.privatePlayback) 0L else state.durationMs)
                             .build()
                     )
                 }

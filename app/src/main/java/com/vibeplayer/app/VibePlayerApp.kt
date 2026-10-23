@@ -20,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import javax.inject.Inject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Application entry point.
@@ -37,6 +38,7 @@ class VibePlayerApp : Application(), ImageLoaderFactory {
     @Inject lateinit var playerManager: PlayerManager
     @Inject lateinit var activeSessionManager: ActiveSessionManager
     @Inject lateinit var historyRetentionManager: HistoryRetentionManager
+    @Inject lateinit var clientFactory: com.vibeplayer.app.di.OkHttpClientFactory
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**
@@ -46,6 +48,13 @@ class VibePlayerApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
             .crossfade(true)
+            .callFactory(okhttp3.Call.Factory { request ->
+                val server = activeSessionManager.activeSession.value?.server?.takeIf { server ->
+                    server.normalizedBaseUrl.toHttpUrlOrNull()
+                        ?.let { com.vibeplayer.app.data.remote.sameOrigin(it, request.url) } == true
+                }
+                clientFactory.client(server?.trustSelfSignedCertificate == true, server?.allowInsecureHttp == true).newCall(request)
+            })
             .build()
 
     override fun onCreate() {

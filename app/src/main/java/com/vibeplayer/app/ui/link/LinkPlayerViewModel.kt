@@ -25,6 +25,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import com.vibeplayer.app.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 
@@ -37,6 +38,8 @@ import kotlinx.coroutines.CoroutineScope
 class LinkPlayerViewModel @Inject constructor(
     private val playerManager: PlayerManager,
     private val historyRepository: PlaybackHistoryRepository,
+    private val repository: com.vibeplayer.app.data.repository.MediaServerRepository,
+    private val privacyManager: com.vibeplayer.app.security.PrivacyManager,
     @ApplicationScope private val appScope: CoroutineScope
 ) : ViewModel() {
 
@@ -53,6 +56,7 @@ class LinkPlayerViewModel @Inject constructor(
     private var started = false
     private var loadJob: Job? = null
     private var finishJob: Job? = null
+    private var server: ServerConfig? = null
 
     init {
         // The player instance is shared by every source screen, so a new session
@@ -60,6 +64,15 @@ class LinkPlayerViewModel @Inject constructor(
         // frame - otherwise the incoming item shows the old title, progress and
         // track list while it is still loading.
         playerManager.beginLoading()
+        viewModelScope.launch {
+            privacyManager.privacyMode.collect { unlocked ->
+                if (!unlocked && server?.privateMode == true && playerManager.queue.owns(this@LinkPlayerViewModel)) {
+                    stopPlayback()
+                    playerManager.beginLoading()
+                    playerManager.failLoading("Service is locked")
+                }
+            }
+        }
         viewModelScope.launch {
             playerManager.state.collect { p ->
                 _uiState.update {
@@ -86,47 +99,63 @@ class LinkPlayerViewModel @Inject constructor(
         }
     }
 
-    fun play(encodedUrl: String) {
+    fun play(encodedUrl: String, serverId: String = Routes.LEGACY_LINK_SERVICE_ID) {
         val url = Routes.decodeLinkUrl(encodedUrl)
         // Reset the shared player (and its error) before validating the link, so
         // the loading UI can never show the previously played item.
-        playerManager.beginLoading(
-            title = url?.substringAfterLast('/')?.substringBefore('?')?.takeIf { it.isNotBlank() },
-            subtitle = BUILTIN_LINK_SERVER.name
-        )
         if (url.isNullOrBlank()) {
-            _uiState.update { it.copy(error = "Invalid playback address") }
+            playerManager.beginLoading()
+            playerManager.failLoading("Invalid playback address")
             return
         }
         when (val resolved = LinkPlaybackService.resolvePlaybackUrl(url)) {
             is LinkPlaybackService.Result.Success -> {
+                playerManager.queue.attach(this, PlaybackQueueScope(PlaybackSource.LINK, serverId),
+                    PlaybackQueueItem(resolved.playbackUrl, resolved.displayName),
+                    onSelect = { play(Routes.linkPlayer(it.id, serverId).substringAfterLast('/'), serverId) }, onCompleted = ::onPlaybackEnded,
+                    onClosed = { loadJob?.cancel(); finishCurrent(false) })
+                loadJob?.cancel()
+                finishCurrent(false)
                 resolvedUrl = resolved.playbackUrl
                 displayName = resolved.displayName
-                playerManager.queue.attach(this, PlaybackQueueScope(PlaybackSource.LINK),
-                    PlaybackQueueItem(resolvedUrl, displayName),
-                    onSelect = { play(Routes.linkPlayer(it.id).substringAfterLast('/')) }, onCompleted = ::onPlaybackEnded,
-                    onClosed = { loadJob?.cancel(); finishCurrent(false) })
+                playerManager.beginLoading(continuingQueue = true)
                 lastUsageSeconds = 0L
                 loadJob = viewModelScope.launch {
                     finishJob?.join()
+                    val service = if (serverId == Routes.LEGACY_LINK_SERVICE_ID) BUILTIN_LINK_SERVER
+                        else repository.getServer(serverId)?.takeIf { it.serviceType == ServiceType.LINK }
+                    if (service == null) {
+                        playerManager.failLoading("Server not found")
+                        return@launch
+                    }
+                    server = service
+                    if (service.privateMode && !privacyManager.privacyMode.value) {
+                        playerManager.queue.clear()
+                        playerManager.failLoading("Service is locked")
+                        return@launch
+                    }
                     val resumeMs = historyRepository.resumePositionSeconds(
-                        PlaybackSource.LINK, BUILTIN_LINK_SERVER, resolved.playbackUrl
+                        PlaybackSource.LINK, service, resolved.playbackUrl
                     ) * 1000
                     lastUsageSeconds = resumeMs / 1000
                     historyRepository.recordLinkPlayback(url = resolved.playbackUrl,
-                        displayName = resolved.displayName, service = BUILTIN_LINK_SERVER)
+                        displayName = resolved.displayName, service = service)
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (service.privateMode && !privacyManager.privacyMode.value) return@launch
                     started = true
                     playerManager.play(
                     url = resolved.playbackUrl,
                     title = resolved.displayName,
-                    subtitle = BUILTIN_LINK_SERVER.name,
-                    startPositionMs = resumeMs
+                    subtitle = service.name,
+                    startPositionMs = resumeMs,
+                    privatePlayback = service.privateMode
                     )
                     startReporter()
                 }
             }
             is LinkPlaybackService.Result.Error -> {
-                _uiState.update { it.copy(error = resolved.message) }
+                playerManager.beginLoading()
+                playerManager.failLoading(resolved.message)
             }
         }
     }
@@ -165,6 +194,7 @@ class LinkPlayerViewModel @Inject constructor(
         val dur = playerManager.state.value.durationMs / 1000
         val watchedSeconds = (pos - lastUsageSeconds).coerceAtLeast(0L)
         if (started) {
+            val service = server
             val url = resolvedUrl
             val title = displayName
             val bytes = playerManager.drainDownloadedBytes()
@@ -175,12 +205,12 @@ class LinkPlayerViewModel @Inject constructor(
                 historyRepository.recordLinkPlayback(
                     url = url,
                     displayName = title,
-                    service = BUILTIN_LINK_SERVER,
+                    service = service,
                     positionSeconds = if (completed) dur else pos,
                     durationSeconds = dur,
                     completed = completed
                 )
-                historyRepository.addLinkUsage(BUILTIN_LINK_SERVER, watchedSeconds, bytes)
+                historyRepository.addLinkUsage(service, watchedSeconds, bytes)
             } }
         }
     }
@@ -196,13 +226,13 @@ class LinkPlayerViewModel @Inject constructor(
                 historyRepository.recordLinkPlayback(
                     url = resolvedUrl,
                     displayName = displayName,
-                    service = BUILTIN_LINK_SERVER,
+                    service = server,
                     positionSeconds = pos,
                     durationSeconds = dur
                 )
                 val delta = (pos - lastUsageSeconds).coerceAtLeast(0)
                 if (delta > 0) {
-                    historyRepository.addLinkUsage(BUILTIN_LINK_SERVER, watchedSeconds, playerManager.drainDownloadedBytes())
+                    historyRepository.addLinkUsage(server, watchedSeconds, playerManager.drainDownloadedBytes())
                     lastUsageSeconds = pos
                 }
             }
@@ -222,11 +252,12 @@ class LinkPlayerViewModel @Inject constructor(
     companion object {
         /** Stable built-in source identity used for Link usage statistics. */
         val BUILTIN_LINK_SERVER = ServerConfig(
-            id = "builtin-link-playback",
+            id = Routes.LEGACY_LINK_SERVICE_ID,
             name = "Link",
             baseUrl = "",
             username = "",
-            serviceType = ServiceType.LINK
+            serviceType = ServiceType.LINK,
+            privateMode = true
         )
     }
 }

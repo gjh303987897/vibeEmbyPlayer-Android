@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vibeplayer.app.R
 import com.vibeplayer.app.MainActivity
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,8 +113,11 @@ fun SettingsScreen(
     if (showSetPin) {
         PinDialog(
             title = stringResource(R.string.settings_set_pin_dialog),
-            onConfirm = { pin ->
-                if (viewModel.setPin(pin)) {
+            currentPinRequired = state.pinConfigured,
+            isCoolingDown = viewModel::isPinCoolingDown,
+            onConfirm = { pin, oldPin ->
+                val saved = if (state.pinConfigured) viewModel.changePin(oldPin, pin) else viewModel.setPin(pin)
+                if (saved) {
                     showSetPin = false
                     true
                 } else {
@@ -128,7 +132,7 @@ fun SettingsScreen(
         PinDialog(
             title = stringResource(R.string.settings_enter_pin_dialog),
             isCoolingDown = viewModel::isPinCoolingDown,
-            onConfirm = { pin ->
+            onConfirm = { pin, _ ->
                 if (viewModel.openPrivacy(pin)) {
                     showEnterPin = false
                     true
@@ -317,22 +321,40 @@ private fun PrivacySection(
 private fun PinDialog(
     title: String,
     isCoolingDown: () -> Boolean = { false },
-    onConfirm: (String) -> Boolean,
+    currentPinRequired: Boolean = false,
+    onConfirm: suspend (String, String) -> Boolean,
     onBiometric: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var pin by remember { mutableStateOf("") }
+    var oldPin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(title) },
         text = {
             Column {
+                if (currentPinRequired) {
+                    OutlinedTextField(
+                        value = oldPin,
+                        onValueChange = { oldPin = it; error = false },
+                        label = { Text(stringResource(R.string.settings_current_pin)) },
+                        singleLine = true,
+                        enabled = !busy,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it; error = false },
                     label = { Text(stringResource(R.string.settings_pin_placeholder)) },
                     singleLine = true,
+                    enabled = !busy,
                     isError = error,
                     supportingText = if (error) {
                         {
@@ -348,11 +370,12 @@ private fun PinDialog(
                         }
                     } else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (onBiometric != null) {
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onBiometric, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = onBiometric, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.Fingerprint, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.settings_use_biometric))
@@ -362,11 +385,15 @@ private fun PinDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { if (!onConfirm(pin)) error = true }
+                enabled = !busy,
+                onClick = {
+                    busy = true
+                    scope.launch { try { if (!onConfirm(pin, oldPin)) error = true } finally { busy = false } }
+                }
             ) { Text(stringResource(R.string.settings_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !busy) {
                 Text(stringResource(R.string.cancel))
             }
         }

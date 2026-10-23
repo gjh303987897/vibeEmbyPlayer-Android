@@ -105,7 +105,7 @@ class PlaybackHttpProxyTest {
                     else -> MockResponse().setResponseCode(404)
                 }
             }.use { source ->
-                PlaybackHttpProxy(client, "${source.url}/start".toHttpUrl(), mapOf("Authorization" to "fixture-token", "X-Emby-Token" to "fixture-token")).use { proxy ->
+                PlaybackHttpProxy(com.vibeplayer.app.di.OkHttpClientFactory().client(false), "${source.url}/start".toHttpUrl(), mapOf("Authorization" to "fixture-token", "X-Emby-Token" to "fixture-token")).use { proxy ->
                     val master = fetch(proxy.playbackUrl).toString(Charsets.UTF_8)
                     val childUrl = master.lineSequence().first { it.startsWith("http://") }
                     val child = fetch(childUrl).toString(Charsets.UTF_8)

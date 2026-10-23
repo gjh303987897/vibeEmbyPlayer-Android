@@ -15,7 +15,8 @@ object Routes {
     const val IPTV_HOME = "iptv/{serverId}"
     const val IPTV_PLAYER = "iptvPlayer/{serverId}/{url}/{name}"
     const val LINK_HOME = "link/{serverId}"
-    const val LINK_PLAYER = "linkPlayer/{url}"
+    const val LINK_PLAYER = "linkPlayer/{serverId}/{url}"
+    const val LEGACY_LINK_SERVICE_ID = "legacy-link-playback"
     const val LOCAL_HOME = "localHome"
     const val LOCAL_PLAYER = "localPlayer/{url}"
     const val TSSL_HOME = "tsslHome"
@@ -59,10 +60,10 @@ object Routes {
     fun linkHome(serverId: String) = "link/$serverId"
 
     /** Encodes a link URL (may contain slashes/queries) into a URL-safe segment. */
-    fun linkPlayer(url: String): String {
+    fun linkPlayer(url: String, serverId: String = LEGACY_LINK_SERVICE_ID): String {
         val encoded = Base64.getUrlEncoder().withoutPadding()
             .encodeToString(url.toByteArray(Charsets.UTF_8))
-        return "linkPlayer/$encoded"
+        return "linkPlayer/$serverId/$encoded"
     }
 
     fun decodeLinkUrl(encoded: String): String? = runCatching {
