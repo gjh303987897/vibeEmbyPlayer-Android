@@ -44,6 +44,7 @@ data class PlayerUiState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val buffering: Boolean = false,
+    val videoOutputBlocked: Boolean = false,
     val error: String? = null,
     val playbackSpeed: Float = 1f,
     val volume: Float = 1f,

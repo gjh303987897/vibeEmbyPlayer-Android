@@ -492,6 +492,87 @@ class PlayerManagerPlaybackTest {
     }
 
     @Test
+    fun encryptedSeekShutterHidesOldVideoUntilTargetRenders() {
+        val context = instrumentation.targetContext
+        val app = context.applicationContext as VibePlayerApp
+        val shared = app.playerManager
+        val originalMode = runBlocking { app.settingsDataStore.playerPreferences.first().videoDecodeMode }
+        fun visibleCenter(view: IjkPlayerView): Int {
+            val point = IntArray(2)
+            callOnMain {
+                view.getLocationOnScreen(point)
+                point[0] += view.width / 2
+                point[1] += view.height / 2
+            }
+            val screen = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+            return try { screen.getPixel(point[0], point[1]) } finally { screen.recycle() }
+        }
+        fun awaitScreenColor(view: IjkPlayerView, message: String, matches: (Int) -> Boolean) {
+            val deadline = SystemClock.elapsedRealtime() + TIMEOUT_MS
+            do {
+                if (matches(visibleCenter(view))) return
+                SystemClock.sleep(32)
+            } while (SystemClock.elapsedRealtime() < deadline)
+            throw AssertionError(message)
+        }
+        try {
+            for (mode in VideoDecodeMode.entries) {
+                runBlocking { app.settingsDataStore.setVideoDecodeMode(mode) }
+                awaitCondition("decoder preference must load") { shared.preferences.value.videoDecodeMode == mode }
+                WebDavTsslSeekFixture(context, instrumentation.context, "segment_012.ts").use { fixture ->
+                    ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                        val view = attachSurface(scenario, shared)
+                        val playback = fixture.prepare()
+                        callOnMain {
+                            shared.play(playback.playUrl, "Synthetic encrypted seek shutter", null,
+                                interruptPendingReads = playback::interruptPendingReads)
+                        }
+                        awaitCondition("initial video must play") { shared.state.value.isPlaying && shared.state.value.positionMs > 500 }
+                        awaitScreenColor(view, "the uncovered screen must show the red source") {
+                            Color.red(it) > 150 && Color.blue(it) < 50
+                        }
+                        val originalSurface = callOnMain { (view.getChildAt(0) as SurfaceView).holder.surface }
+                        callOnMain {
+                            shared.seekTo(24_000)
+                            assertTrue(shared.state.value.videoOutputBlocked)
+                        }
+                        assertTrue("target segment must be delayed", fixture.slowRead.await(TIMEOUT_MS, TimeUnit.MILLISECONDS))
+                        awaitCondition("view must cover stale native output") { view.videoOutputBlocked }
+                        repeat(2) {
+                            SystemClock.sleep(250)
+                            val covered = visibleCenter(view)
+                            assertTrue("old moving video must not remain visible", Color.red(covered) < 8 && Color.green(covered) < 8 && Color.blue(covered) < 8)
+                            callOnMain {
+                                assertEquals(24_000L, shared.state.value.positionMs)
+                                assertTrue(shared.state.value.buffering)
+                                assertTrue(originalSurface === (view.getChildAt(0) as SurfaceView).holder.surface)
+                            }
+                        }
+                        awaitCondition("fresh output must uncover the target") {
+                            shared.state.value.isPlaying && !shared.state.value.videoOutputBlocked && !view.videoOutputBlocked
+                        }
+                        awaitScreenColor(view, "the target blue segment must be visible") {
+                            Color.blue(it) > 150 && Color.red(it) < 50
+                        }
+                        callOnMain { shared.pause(); shared.seekTo(4_000); shared.seekTo(22_000) }
+                        awaitCondition("paused seek must reveal its target without waiting for audio") {
+                            !shared.state.value.videoOutputBlocked && !view.videoOutputBlocked &&
+                                !shared.state.value.buffering && shared.state.value.positionMs == 22_000L
+                        }
+                        callOnMain { assertFalse(shared.playWhenReady); assertFalse(shared.player.isPlaying) }
+                        assertBlueFrameVisible(view)
+                        callOnMain { shared.seekTo(24_000); shared.stop() }
+                        awaitCondition("stopping must clear the shutter") { !shared.state.value.videoOutputBlocked && !view.videoOutputBlocked }
+                    }
+                }
+            }
+        } finally {
+            callOnMain { shared.stop(); surfaceObserver?.cancel(); context.stopService(Intent(context, PlaybackService::class.java)) }
+            runBlocking { app.settingsDataStore.setVideoDecodeMode(originalMode) }
+        }
+    }
+
+    @Test
     fun webDavTsslSeekInterruptsSlowOldSegmentAndKeepsLatestPausedTarget() {
         val context = instrumentation.targetContext
         val shared = (context.applicationContext as VibePlayerApp).playerManager
@@ -754,7 +835,7 @@ class PlayerManagerPlaybackTest {
                     // Use this app's existing injected dependencies; never read another app's
                     // storage or serialize credentials. Reflection is confined to this opt-in probe.
                     fun dependency(name: String): Any = viewModel.javaClass.getDeclaredField(name)
-                        .apply { isAccessible = true }.get(viewModel)
+                        .apply { isAccessible = true }.get(viewModel).let(::requireNotNull)
                     val repository = dependency("repository") as com.vibeplayer.app.data.repository.MediaServerRepository
                     val encryptedHls = dependency("encryptedHlsManager") as com.vibeplayer.app.player.hls.EncryptedHlsManager
                     val server = runBlocking {
@@ -1336,8 +1417,9 @@ class PlayerManagerPlaybackTest {
             }).apply { player = manager.player }
             activity.setContentView(view)
             surfaceObserver = activity.lifecycleScope.launch {
-                manager.state.map { it.surfaceGeneration }.distinctUntilChanged().collect {
-                    view.updateSurfaceGeneration(it)
+                manager.state.map { it.surfaceGeneration to it.videoOutputBlocked }.distinctUntilChanged().collect { (generation, blocked) ->
+                    view.updateSurfaceGeneration(generation)
+                    view.videoOutputBlocked = blocked
                 }
             }
         }

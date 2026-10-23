@@ -82,6 +82,7 @@ fun LocalPlayerScreen(
                 }
             },
             update = {
+                it.videoOutputBlocked = state.videoOutputBlocked
                 it.updateSurfaceGeneration(state.surfaceGeneration)
                 if (state.isPrepared) it.updateVideoSize()
                 it.updatePresentation(if (pipMode) com.vibeplayer.app.player.VideoScaleMode.FIT else playerPreferences.videoScaleMode,
@@ -91,7 +92,7 @@ fun LocalPlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        state.subtitleText?.let { text ->
+        state.subtitleText?.takeUnless { state.videoOutputBlocked }?.let { text ->
             PlayerSubtitleOverlay(text, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (pipMode) 2.dp else if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp), playerPreferences.subtitleAppearance, compact = pipMode)
         }
         // Transparent gesture layer: below the control overlays (so a touch on a

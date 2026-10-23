@@ -88,6 +88,7 @@ class WebDavPlayerViewModel @Inject constructor(
                         positionMs = p.positionMs,
                         durationMs = p.durationMs,
                         buffering = p.buffering,
+                        videoOutputBlocked = p.videoOutputBlocked,
                         error = p.error,
                         playbackSpeed = p.playbackSpeed,
                         volume = p.volume,

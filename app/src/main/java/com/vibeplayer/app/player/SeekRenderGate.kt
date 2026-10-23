@@ -4,10 +4,11 @@ package com.vibeplayer.app.player
 internal class SeekRenderGate(needsAudio: Boolean, needsVideo: Boolean) {
     private var demuxComplete = false
     private var audioReady = !needsAudio
-    private var videoReady = !needsVideo
-    val ready: Boolean get() = demuxComplete && audioReady && videoReady
+    private var videoFrameReady = !needsVideo
+    val videoReady: Boolean get() = demuxComplete && videoFrameReady
+    val ready: Boolean get() = videoReady && audioReady
 
     fun demuxCompleted() { demuxComplete = true }
     fun audioRendered() { if (demuxComplete) audioReady = true }
-    fun videoRendered() { if (demuxComplete) videoReady = true }
+    fun videoRendered() { if (demuxComplete) videoFrameReady = true }
 }

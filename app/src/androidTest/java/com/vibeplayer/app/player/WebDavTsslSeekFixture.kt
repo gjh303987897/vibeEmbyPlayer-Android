@@ -29,7 +29,11 @@ import okhttp3.mockwebserver.RecordedRequest
 import okio.Buffer
 
 /** A real TSSL v4 container served over strict WebDAV ranges, without user data. */
-internal class WebDavTsslSeekFixture(context: Context, testContext: Context) : Closeable {
+internal class WebDavTsslSeekFixture(
+    context: Context,
+    testContext: Context,
+    slowSegment: String = "segment_003.ts"
+) : Closeable {
     private val root = Files.createTempDirectory(context.cacheDir.toPath(), "tssl-seek-").toFile()
     private val secure = SecureSessionStore(context, KeystoreSecretStore(context))
     private val remote = MockWebServer()
@@ -64,7 +68,7 @@ internal class WebDavTsslSeekFixture(context: Context, testContext: Context) : C
         val container = File(root, "video.m3u8sp")
         val index = EncryptedHlsTarContainer.build(source, container, "index.m3u8s")
         val bytes = container.readBytes()
-        val slowEntry = index.entries.getValue("segment_003.ts")
+        val slowEntry = index.entries.getValue(slowSegment)
         val store = TsslStore(File(root, "tssl"))
         val document = TsslDocument("TSSL", 4, "AES-256-GCM", identifier,
             TsslCrypto.sha256Hex(manifest), TsslSourceName(encryptedName, nameKey), emptyList(), segments,

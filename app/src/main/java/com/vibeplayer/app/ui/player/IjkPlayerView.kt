@@ -27,6 +27,19 @@ class IjkPlayerView(
     private var surfaceView = SurfaceView(context)
     private var surfaceGeneration = 0L
     private val bitmapSubtitleView = BitmapSubtitleView(context)
+    // Keep the actual Surface attached: hiding/recreating it would restart codecs
+    // and reintroduce the seek audio recovery race.
+    private val seekShutter = View(context).apply {
+        setBackgroundColor(Color.BLACK)
+        visibility = GONE
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+    var videoOutputBlocked: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            seekShutter.visibility = if (value) VISIBLE else GONE
+        }
     private val visibleVideoBounds = Rect()
     var onVideoBoundsChanged: ((Rect) -> Unit)? = null
 
@@ -45,6 +58,7 @@ class IjkPlayerView(
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER)
         )
         addView(bitmapSubtitleView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(seekShutter, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         surfaceView.holder.addCallback(this)
     }
 

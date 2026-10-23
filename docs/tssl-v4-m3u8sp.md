@@ -39,6 +39,24 @@ TSSL seek 现在分别等待当前音轨的 `MEDIA_INFO_AUDIO_SEEK_RENDERING_STA
 连续 seek 为新目标重新建立就绪条件；停止、播放完成、切换来源和播放器 reset/release 都会
 清除旧条件。等待期间更换音轨会重新定位，避免继续等待旧音轨的队列事件。
 
+### Seek 加载期间的画面
+
+`.m3u8sp` / `.m3u8s` 跳转立即设置 `videoOutputBlocked`：WebDAV 与本地播放页用不透明
+遮挡层盖住原生 Surface 上的旧画面和位图字幕，并隐藏文字字幕，显示现有加载提示。
+进度始终保留在最新目标，连续拖动不会在中途露出旧片段。
+
+播放状态下，两路输出都就绪后才撤掉遮挡并恢复声音；暂停状态下，目标视频帧到达即可显示
+新位置的静止画面，不等待尚未恢复的音频。停止、错误、完成或切换来源时会清除遮挡状态。
+遮挡只改变 `IjkPlayerView` 上的普通 View，不隐藏、移除或重建 SurfaceView，也不额外暂停
+IJK，保留上一轮音视频恢复修复。普通缓冲和未发生加密 seek 的播放不启用此遮挡。
+层叠方式依据 Android [SurfaceView 文档](https://developer.android.com/reference/android/view/SurfaceView)：
+保留底层 Surface 的生命周期，用上方的普通 View 覆盖视频输出。
+
+`encryptedSeekShutterHidesOldVideoUntilTargetRenders` 使用延迟 8 秒的目标分片，计划分别在
+硬解和软解下检查屏幕实际像素：初始红色视频、seek 期间黑色遮挡、新位置蓝色视频；同时
+检查 Surface 不变、目标进度不回退、暂停后可看到目标帧，以及停止后遮挡清除。
+`SeekRenderGateTest` 另覆盖视频帧先于音频就绪时的暂停显示条件。
+
 `SeekRenderGateTest` 覆盖音频晚到、视频晚到、定位前旧事件、缺失流和目标替换。
 `PlayerManagerPlaybackTest.webDavTsslSeeksWaitForBothOutputsAndKeepAudioVideoClocksAligned`
 在独立验证包内播放合成 H.264 + AC-3 `.m3u8sp`，通过生产监听器验证两路 seek 输出，
@@ -111,3 +129,8 @@ AndroidTest APK、148 项 JVM 测试和 lint 均通过（0 error，3 项既有 w
 `build/tssl-original-seek/`，主要文件为 `configured-device-results.log`、
 `active-seek-device-results.log`、`active-seek-clocks.txt`、`active-seek-regressions.log`
 及 `local-check.log`。测试过程中没有从旧应用复制账号或 TSSL 密钥；验证包配置由用户在手机上完成。
+
+2026-10-23 seek 画面遮挡修复：debug APK、AndroidTest APK、149 项 JVM 测试及 lint
+均通过（0 error，3 项既有 warning），最终日志保存在忽略目录
+`build/tssl-seek-shutter/final-local-check.log`。本轮 ADB 未检测到设备，新增的硬解/软解
+屏幕像素测试仅完成编译，尚未实机执行；不将此前音视频时钟回归结果视为本轮画面验证结果。

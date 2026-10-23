@@ -87,6 +87,7 @@ class LocalPlayerViewModel @Inject constructor(
                         positionMs = p.positionMs,
                         durationMs = p.durationMs,
                         buffering = p.buffering,
+                        videoOutputBlocked = p.videoOutputBlocked,
                         error = p.error,
                         audioTracks = p.audioTracks,
                         selectedAudioTrackKey = p.selectedAudioTrackKey,

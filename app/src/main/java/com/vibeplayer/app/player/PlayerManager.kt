@@ -46,6 +46,8 @@ data class PlayerState(
     val durationMs: Long = 0L,
     val isPrepared: Boolean = false,
     val buffering: Boolean = false,
+    /** Hide stale native output while an encrypted seek is preparing its target. */
+    val videoOutputBlocked: Boolean = false,
     val title: String? = null,
     val subtitle: String? = null,
     val subtitleText: String? = null,
@@ -381,7 +383,7 @@ class PlayerManager @Inject constructor(
         }
         player.setOnBufferingUpdateListener { _, percent ->
             _state.update { it.copy(buffering = !sleepTimerState.value.expired && (encryptedSeekInFlight != null ||
-                (playWhenPrepared && encryptedSeekRenderGate != null) ||
+                shouldBlockSeekVideo() ||
                 (percent < 100 && !it.isPlaying && (playWhenPrepared || subtitleSeekPending)))) }
         }
         player.setOnInfoListener { _, what, _ ->
@@ -391,7 +393,14 @@ class PlayerManager @Inject constructor(
                     IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START -> encryptedSeekRenderGate?.videoRendered()
                 }
                 if (what == IMediaPlayer.MEDIA_INFO_AUDIO_SEEK_RENDERING_START ||
-                    what == IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START) finishEncryptedSeekIfReady()
+                    what == IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START) {
+                    finishEncryptedSeekIfReady()
+                    if (encryptedSeekRenderGate != null) {
+                        val blocked = shouldBlockSeekVideo()
+                        _state.update { it.copy(videoOutputBlocked = blocked,
+                            buffering = if (!playWhenPrepared) blocked else it.buffering) }
+                    }
+                }
             }
             if (pausedSurfaceFramePosition != null &&
                 (what == IMediaPlayer.MEDIA_INFO_VIDEO_SEEK_RENDERING_START ||
@@ -400,13 +409,14 @@ class PlayerManager @Inject constructor(
             }
             when (what) {
                 IMediaPlayer.MEDIA_INFO_BUFFERING_START -> _state.update {
-                    it.copy(buffering = !sleepTimerState.value.expired && (playWhenPrepared || subtitleSeekPending))
+                    it.copy(buffering = !sleepTimerState.value.expired &&
+                        (playWhenPrepared || subtitleSeekPending || shouldBlockSeekVideo()))
                 }
                 IMediaPlayer.MEDIA_INFO_BUFFERING_END,
                 IMediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START,
                 IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START -> _state.update {
                     it.copy(buffering = !sleepTimerState.value.expired && (encryptedSeekInFlight != null ||
-                        (playWhenPrepared && encryptedSeekRenderGate != null)))
+                        shouldBlockSeekVideo()))
                 }
             }
             if (what == IMediaPlayer.MEDIA_INFO_AUDIO_RENDERING_START || what == IMediaPlayer.MEDIA_INFO_METADATA_UPDATE) {
@@ -444,7 +454,7 @@ class PlayerManager @Inject constructor(
                 Log.d("PlayerManager", "Encrypted seek demux complete (targetMs=$target)")
                 if (playWhenPrepared) play() else {
                     pausedSeekPosition = target
-                    _state.update { it.copy(buffering = false) }
+                    _state.update { it.copy(buffering = shouldBlockSeekVideo()) }
                 }
                 finishEncryptedSeekIfReady()
             }
@@ -722,7 +732,7 @@ class PlayerManager @Inject constructor(
         playWhenPrepared = false
         if (encryptedSeekRenderGate != null && encryptedSeekInFlight == null) {
             pausedSeekPosition = encryptedSeekTarget
-            _state.update { it.copy(buffering = false) }
+            _state.update { it.copy(buffering = shouldBlockSeekVideo()) }
         }
         decoderRestore = decoderRestore?.copy(playWhenReady = false)
         if (!_state.value.isPrepared) {
@@ -764,7 +774,8 @@ class PlayerManager @Inject constructor(
         stopPositionTicker()
         clearVisibleSubtitles()
         runCatching { player.stop() }
-        _state.update { it.copy(isPrepared = false, buffering = false, mediaInfo = PlaybackMediaInfo()) }
+        _state.update { it.copy(isPrepared = false, buffering = false, videoOutputBlocked = false,
+            mediaInfo = PlaybackMediaInfo()) }
     }
 
     fun seekTo(positionMs: Long) {
@@ -786,7 +797,8 @@ class PlayerManager @Inject constructor(
                 // AudioTrack paused after the new video frame has already rendered.
                 // A user-paused pipeline remains paused without an extra pause command.
                 player.setVolume(0f, 0f)
-                _state.update { it.copy(positionMs = position, buffering = true, isPlaying = false) }
+                _state.update { it.copy(positionMs = position, buffering = true, isPlaying = false,
+                    videoOutputBlocked = true) }
                 if (encryptedSeekInFlight == null) seekEncryptedStream(position)
                 else currentRequest?.interruptPendingReads?.invoke()
                 return
@@ -799,7 +811,7 @@ class PlayerManager @Inject constructor(
             encryptedSeekRenderGate = null
             pausedSeekPosition = null
             subtitleSeekPending = false
-            _state.update { it.copy(buffering = false) }
+            _state.update { it.copy(buffering = false, videoOutputBlocked = false) }
             Log.w("PlayerManager", "Unable to seek (${error.javaClass.simpleName})")
             runCatching { player.setVolume(audioFocus.volumeMultiplier, audioFocus.volumeMultiplier) }
             if (playWhenPrepared) play()
@@ -826,13 +838,19 @@ class PlayerManager @Inject constructor(
         if (encryptedSeekRenderGate?.ready != true) return
         encryptedSeekRenderGate = null
         encryptedSeekTarget = null
-        val output = if (pausedSurfaceFramePosition == null) audioFocus.volumeMultiplier else 0f
+        val output = if (playWhenPrepared && pausedSurfaceFramePosition == null) audioFocus.volumeMultiplier else 0f
         player.setVolume(output, output)
-        _state.update { it.copy(buffering = false) }
+        _state.update { it.copy(buffering = false, videoOutputBlocked = false) }
         updateDerived()
         updateSubtitleText(_state.value.positionMs)
         Log.d("PlayerManager", "Encrypted seek output ready (positionMs=${_state.value.positionMs})")
     }
+
+    private fun shouldBlockSeekVideo(): Boolean = encryptedSeekRenderGate?.let {
+        // A paused seek may show its new still frame without waiting for audio,
+        // which cannot render until the user resumes playback.
+        playWhenPrepared || !it.videoReady
+    } ?: false
 
     fun beginTemporarySpeed(speed: Float) {
         if (temporarySpeedActive) return
@@ -1168,7 +1186,8 @@ class PlayerManager @Inject constructor(
         } else null
         _state.update { it.copy(isPlaying = isPlaying && playWhenPrepared && refreshingPosition == null &&
             encryptedSeekRenderGate == null, positionMs = position, durationMs = duration,
-            volume = volumeController.volume, videoDecodeMode = decoder) }
+            volume = volumeController.volume, videoDecodeMode = decoder,
+            videoOutputBlocked = shouldBlockSeekVideo()) }
     }
 
 

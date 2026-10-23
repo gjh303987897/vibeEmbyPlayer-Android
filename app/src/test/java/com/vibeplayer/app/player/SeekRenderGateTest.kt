@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SeekRenderGateTest {
+    @Test fun pausedVideoCanBeRevealedBeforeAudioResumes() {
+        val gate = SeekRenderGate(needsAudio = true, needsVideo = true)
+        assertFalse(gate.videoReady)
+        gate.videoRendered()
+        gate.demuxCompleted()
+        assertFalse(gate.videoReady)
+        gate.videoRendered()
+        assertTrue(gate.videoReady)
+        assertFalse(gate.ready)
+        gate.audioRendered()
+        assertTrue(gate.ready)
+    }
+
     @Test fun demuxAndVideoAloneMustNotExposePlaybackWhileAudioIsLate() {
         val gate = SeekRenderGate(needsAudio = true, needsVideo = true)
         gate.demuxCompleted()
