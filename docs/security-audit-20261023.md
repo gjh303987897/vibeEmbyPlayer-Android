@@ -40,7 +40,8 @@ Room 3→4 保留这些记录和进度，统一归到 `legacy-link-playback` 并
   原有慢读取取消测试使用带令牌地址，继续检查 seek 关闭旧连接并可建立后续请求。
 - `HistoryReplayRouteTest`：私密记录回锁后不能生成回放路由，Link 路由携带来源身份。
 - `PrivacyPinTest`、`LinkPrivacyStorageTest` 为设备测试：真实加密 PIN 存储、原 PIN 校验、冷却，
-  以及不同 Link 来源的同 URL 记录和续播隔离。本轮按用户要求不运行实机，仅检查编译。
+  以及不同 Link 来源的同 URL 记录和续播隔离。2026-10-24 按用户要求仅检查编译；
+  2026-10-25 已补做实机验证，详见下文。
 - 原有 JVM/Android WebDAV 备份流式传输及取消测试改为 HTTPS；HTTP/1.1 分块流仍逐字节核对，
   大小上限检查保留。TLS 样本是公开的合成 localhost 测试密钥，仅属于测试资源，
   不进入应用正式 APK。新增测试明确检查即使服务已授权 HTTP，TSSL 备份也不会发出明文请求。
@@ -50,9 +51,49 @@ Room 3→4 保留这些记录和进度，统一归到 `legacy-link-playback` 并
 2026-10-24 本地验证完成：`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、
 `:app:testDebugUnitTest`（164 项，0 失败、0 跳过）及 `:app:lint` 均通过，lint 为
 0 error、3 项既有 warning。SQLite 迁移检查通过，版本 3/4 的实体 schema 相同。
-未进行实机测试，不将 PIN/Room 设备测试的编译通过描述为设备验证成功。
+当时未进行实机测试，不将 PIN/Room 设备测试的编译通过描述为设备验证成功。
 日志与迁移检查脚本位于忽略目录 `build/security-audit-20261023/`，主要文件为
 `final-local-check.log`、`migration-check.log`、`verify_migration.py`。
+
+### 2026-10-25 实机补测
+
+设备为华为 TAS-AL00、Android 12 / API 31，使用独立 `.regression` 验证包。
+所有新增服务、PIN、设置和历史均使用隔离存储，网络服务与媒体为本机合成样本；
+未重置或读取用户原应用的凭据、数据库及 TSSL。
+
+- `PrivacyPinTest`：实际 Keystore 加密存储、原 PIN 修改、错误次数冷却通过。
+- `PrivacyUiPlaybackTest.pinDialogsMaskInputAndChangingPinRequiresCurrentPin`：操作生产设置页，
+  检查首次设置、修改、错误原 PIN 拒绝、正确原 PIN 修改、解锁与回锁；真实截图核对新旧输入
+  都以圆点显示，修改成功不会自动解锁。
+- `CredentialBoundaryDeviceTest`：真实 DataStore 的可见子集排序、并发新增及编辑通过；
+  环回 TSSL 无令牌/错误令牌请求被拒绝，合法清单可读；跨端口 token/Cookie、307/308
+  密码请求体及 Digest 挑战不会泄露凭据；远程 HTTP 凭据需单独授权；Android TLS 实际握手
+  验证自签名授权、主机名不匹配拒绝及 HTTPS 降级拒绝。
+- `LinkPrivacyStorageTest`：手机上的 Room 写入、同 URL 不同来源的续播与历史隔离通过。
+- `LegacyLinkMigrationDeviceTest`：从已提交的版本 3 schema 建立独立数据库，交给 Room 执行
+  生产 `MIGRATION_3_4` 并校验版本 4 schema；旧 Link 进度保留且转为私密、镜像历史隐藏、
+  公开/私密旧流量合并不丢失，以及其他来源保留和 SQLite 完整性检查均通过。
+- `PrivacyUiPlaybackTest.privateLinkGatesPlaybackRedactsSystemMetadataAndStopsOnRelock`：
+  生产 Link ViewModel 和原生播放器验证锁定拒播、解锁播放、回锁停止；读取本应用实际通知与
+  Android MediaSession，确认标题隐藏、媒体作者为空和时长归零；Activity 的 PiP 控制器
+  报告 `PRIVATE_VIDEO` 并禁止进入。未通过实际进入私密 PiP 窗口来测试。
+- `TsslDeviceInteropTest` 的 5 项均通过：Qt/旧格式往返、损坏包隔离、S3 分页签名快照、
+  HTTPS WebDAV 混合格式恢复/上传以及下载取消后的临时文件清理。
+
+首次执行暴露的是测试 TLS 容器兼容性：Android 无法读取 JDK 生成的 PKCS12 MAC。
+Android 测试资源现从同一公开合成密钥导出 PKCS8/X509 DER，再在内存建立 KeyStore；
+生产 HTTPS 策略和默认主机名校验器保持原样，正式 APK 不包含这些测试密钥。
+私密播放用例另修正了 Compose 首帧推进前等待 Surface 的测试等待方式。
+升级用例首次被样本空播放地址重复触发唯一约束而阻断，给各样本分配不同地址后单项复测通过；
+没有修改生产迁移 SQL。
+
+本次共通过 18 项不同的实机用例：完整批次 17 项通过，修正造数据后剩余迁移用例单项通过；
+其中 3 项为 TSSL seek 遮挡/取消/时钟回归，详见 `tssl-v4-m3u8sp.md`。未发现新的生产代码缺陷。
+正常包名的 debug APK、AndroidTest APK、164 项 JVM 测试（0 失败/跳过）和 lint 通过，
+lint 为 0 error、3 项既有 warning。
+测试结果与 PIN 对话框截图保存在忽略目录 `build/device-audit-20261025/`，主要为
+`final-device-results.log`、`migration-device-results.log`、`device-summary.json`、
+`final-local-check.log` 与 `final-artifacts-check.log`。
 
 ## 官方资料与 Qt 参考
 

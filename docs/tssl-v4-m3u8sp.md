@@ -52,9 +52,10 @@ IJK，保留上一轮音视频恢复修复。普通缓冲和未发生加密 seek
 层叠方式依据 Android [SurfaceView 文档](https://developer.android.com/reference/android/view/SurfaceView)：
 保留底层 Surface 的生命周期，用上方的普通 View 覆盖视频输出。
 
-`encryptedSeekShutterHidesOldVideoUntilTargetRenders` 使用延迟 8 秒的目标分片，计划分别在
+`encryptedSeekShutterHidesOldVideoUntilTargetRenders` 使用延迟 8 秒的目标分片，分别在
 硬解和软解下检查屏幕实际像素：初始红色视频、seek 期间黑色遮挡、新位置蓝色视频；同时
 检查 Surface 不变、目标进度不回退、暂停后可看到目标帧，以及停止后遮挡清除。
+2026-10-25 已在华为 TAS-AL00 / Android 12 的独立验证包内实测通过，硬解、软解均覆盖。
 `SeekRenderGateTest` 另覆盖视频帧先于音频就绪时的暂停显示条件。
 
 `SeekRenderGateTest` 覆盖音频晚到、视频晚到、定位前旧事件、缺失流和目标替换。
@@ -134,3 +135,10 @@ AndroidTest APK、148 项 JVM 测试和 lint 均通过（0 error，3 项既有 w
 均通过（0 error，3 项既有 warning），最终日志保存在忽略目录
 `build/tssl-seek-shutter/final-local-check.log`。本轮 ADB 未检测到设备，新增的硬解/软解
 屏幕像素测试仅完成编译，尚未实机执行；不将此前音视频时钟回归结果视为本轮画面验证结果。
+
+2026-10-25 补做实机验证：在华为 TAS-AL00 / Android 12（API 31）独立 `.regression`
+验证包中，新增 seek 遮挡用例通过实际屏幕像素检查红色旧画面、加载时黑色遮挡与蓝色目标
+画面，硬解和软解均通过；同一轮慢分片取消/连续暂停目标测试、双路输出/音画时钟回归
+也通过，共 3 项。没有修改原生解码器或生产播放代码，仍使用合成 H.264 + AC-3 媒体，
+此次未重测用户原始文件的听感与公网加载耗时。设备日志位于
+`build/device-audit-20261025/final-device-results.log`。

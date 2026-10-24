@@ -1,5 +1,6 @@
-localhost-test.p12 is a public, synthetic JVM unit-test TLS keypair.
-Alias: localhost. Password: fixture-only. Subject/SAN: localhost.
+localhost-key.pk8 and localhost-cert.der are a public, synthetic test TLS keypair.
+Subject/SAN: localhost. RSA 2048 / SHA256withRSA.
 It has no access to any real server or user data and is not included in production APKs.
-Generated with the JDK keytool, RSA 2048 / SHA256withRSA, PKCS12.
+Exported as PKCS8 DER and X509 DER from src/test/resources/localhost-test.p12.
+DER avoids Android PKCS12 provider incompatibility with the JDK-generated MAC.
 Used to verify HTTPS backup streaming, Digest retries, downgrade rejection and hostname checks.

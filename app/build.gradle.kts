@@ -85,6 +85,8 @@ android {
         compose = true
         buildConfig = true
     }
+    // Recreate historical Room databases on devices without using the user's database.
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

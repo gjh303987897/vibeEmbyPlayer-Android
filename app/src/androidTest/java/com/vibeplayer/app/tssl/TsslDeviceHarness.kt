@@ -53,8 +53,19 @@ internal class TsslDeviceHarness : Closeable {
 
     fun enableHttps(server: okhttp3.mockwebserver.MockWebServer) {
         val password = "fixture-only".toCharArray()
-        val keys = java.security.KeyStore.getInstance("PKCS12")
-        instrumentation.context.assets.open("tls/localhost-test.p12").use { keys.load(it, password) }
+        // Import DER directly: Android's PKCS12 provider cannot read the JDK fixture's MAC.
+        val privateKey = instrumentation.context.assets.open("tls/localhost-key.pk8").use {
+            java.security.KeyFactory.getInstance("RSA").generatePrivate(
+                java.security.spec.PKCS8EncodedKeySpec(it.readBytes()),
+            )
+        }
+        val certificate = instrumentation.context.assets.open("tls/localhost-cert.der").use {
+            java.security.cert.CertificateFactory.getInstance("X.509").generateCertificate(it)
+        }
+        val keys = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType()).apply {
+            load(null, null)
+            setKeyEntry("localhost", privateKey, password, arrayOf(certificate))
+        }
         val managers = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
             .apply { init(keys, password) }
         val tls = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(managers.keyManagers, null, null) }
