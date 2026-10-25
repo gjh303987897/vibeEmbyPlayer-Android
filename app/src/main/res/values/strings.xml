@@ -15,6 +15,9 @@
     <string name="service_options_section">Options</string>
     <string name="server_name_optional_hint">Optional. The host is used when no name is entered.</string>
     <string name="edit_server">Edit server</string>
+    <string name="server_password_edit_hint">Enter a new password, or leave blank to keep the saved password.</string>
+    <string name="server_password_save_failed">Unable to save the password securely. Please try again.</string>
+    <string name="services_edit_failed">Unable to save server changes. Please try again.</string>
     <string name="server_host">Host or path</string>
     <string name="server_port">Port</string>
     <string name="server_address_required">Enter a valid host and port.</string>

@@ -61,6 +61,8 @@ data class ServicesUiState(
      * closing without any visible result.
      */
     val savingServerId: String? = null,
+    /** Successful edit event; a failed password write must leave the editor open. */
+    val lastEditedServerId: String? = null,
     /**
      * Set when the user asked to save a password but secure storage refused the
      * write (unavailable Keystore). The screen turns it into a snackbar, because
@@ -436,9 +438,9 @@ class ServicesViewModel @Inject constructor(
     }
 
     /**
-     * Updates an existing server's editable fields (name / base URL / username).
-     * When a new password is supplied and the user opts to save it, the password
-     * is persisted so tapping the card enters directly next time.
+     * Updates connection settings and an optional replacement password. WebDAV
+     * needs a stored password; Emby/Jellyfin retain their opt-in save policy.
+     * An empty replacement leaves the password unchanged under that policy.
      */
     fun editServer(
         server: ServerConfig,
@@ -449,7 +451,7 @@ class ServicesViewModel @Inject constructor(
         // Two saves for the same server would race each other's DataStore write,
         // so a repeat tap while one is running is ignored.
         if (!inFlightEdits.add(server.id)) return
-        _uiState.update { it.copy(savingServerId = server.id, errorMessage = null) }
+        _uiState.update { it.copy(savingServerId = server.id, lastEditedServerId = null, errorMessage = null) }
         val requiresAddress = server.serviceType == ServiceType.EMBY ||
             server.serviceType == ServiceType.JELLYFIN ||
             server.serviceType == ServiceType.WEBDAV
@@ -475,8 +477,13 @@ class ServicesViewModel @Inject constructor(
                 // Save the password before the services list updates so that when the
                 // services DataStore emits, the collect re-reads hasSavedPassword and
                 // the card already reflects one-tap entry.
-                if (credentialServer && savePassword && password.isNotBlank()) {
-                    repository.savePassword(server, password)
+                if ((server.serviceType == ServiceType.WEBDAV || (credentialServer && savePassword)) &&
+                    password.isNotBlank()
+                ) {
+                    if (!repository.savePassword(server, password)) {
+                        _uiState.update { it.copy(errorMessage = context.getString(com.vibeplayer.app.R.string.server_password_save_failed)) }
+                        return@launch
+                    }
                 } else if (credentialServer && !savePassword) {
                     repository.clearSavedPassword(server)
                 }
@@ -491,6 +498,12 @@ class ServicesViewModel @Inject constructor(
                         allowInsecureHttp = form.allowInsecureHttp && form.scheme == "http"
                     )
                 )
+                _uiState.update { it.copy(lastEditedServerId = server.id) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                android.util.Log.w("ServicesViewModel", "Server edit failed (${failure.javaClass.simpleName})")
+                _uiState.update { it.copy(errorMessage = context.getString(com.vibeplayer.app.R.string.services_edit_failed)) }
             } finally {
                 inFlightEdits.remove(server.id)
                 _uiState.update { state ->
@@ -503,6 +516,10 @@ class ServicesViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun acknowledgeEditSuccess() {
+        _uiState.update { it.copy(lastEditedServerId = null) }
     }
 
     fun acknowledgePrivatePlaybackStopped() = privacyManager.acknowledgePrivatePlaybackStopped()

@@ -156,11 +156,14 @@ fun ServicesScreen(
         }
     }
 
-    LaunchedEffect(submittedEditServerId, uiState.savingServerId) {
+    LaunchedEffect(submittedEditServerId, uiState.savingServerId, uiState.lastEditedServerId) {
         val submitted = submittedEditServerId ?: return@LaunchedEffect
         if (uiState.savingServerId != submitted) {
             submittedEditServerId = null
-            if (editTarget?.id == submitted) editTarget = null
+            if (uiState.lastEditedServerId == submitted) {
+                if (editTarget?.id == submitted) editTarget = null
+                viewModel.acknowledgeEditSuccess()
+            }
         }
     }
 

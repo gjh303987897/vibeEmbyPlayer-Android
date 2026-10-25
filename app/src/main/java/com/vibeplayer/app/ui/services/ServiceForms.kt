@@ -444,7 +444,7 @@ fun EditServerDialog(
     var host by remember(server.baseUrl) { mutableStateOf(initialAddress.host) }
     var port by remember(server.baseUrl) { mutableStateOf(initialAddress.port) }
     var username by remember { mutableStateOf(server.username) }
-    var password by remember { mutableStateOf("") }
+    var password by remember(server.id) { mutableStateOf("") }
     // Start from what this server actually does today, so opening the dialog and
     // pressing Save never silently changes the user's stored-password choice.
     var savePassword by remember { mutableStateOf(server.autoLogin) }
@@ -511,16 +511,18 @@ fun EditServerDialog(
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text(stringResource(R.string.password)) },
+                        supportingText = { Text(stringResource(R.string.server_password_edit_hint)) },
+                        singleLine = true,
+                        enabled = !busy,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     if (server.serviceType == ServiceType.EMBY || server.serviceType == ServiceType.JELLYFIN) {
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = { Text(stringResource(R.string.password)) },
-                            singleLine = true,
-                            enabled = !busy,
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth()
-                        )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically

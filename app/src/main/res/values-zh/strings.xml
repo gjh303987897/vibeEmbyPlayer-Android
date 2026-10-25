@@ -15,6 +15,9 @@
     <string name="service_options_section">其他选项</string>
     <string name="server_name_optional_hint">可留空，未填写时使用主机名。</string>
     <string name="edit_server">编辑服务器</string>
+    <string name="server_password_edit_hint">输入新密码，留空则保留已保存的密码。</string>
+    <string name="server_password_save_failed">无法安全保存密码，请重试。</string>
+    <string name="services_edit_failed">无法保存服务器更改，请重试。</string>
     <string name="server_host">主机或路径</string>
     <string name="server_port">端口</string>
     <string name="server_name">服务器名称</string>
