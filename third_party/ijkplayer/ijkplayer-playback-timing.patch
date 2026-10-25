@@ -1,0 +1,178 @@
+--- a/ijkmedia/ijkplayer/ff_ffplay.c
++++ b/ijkmedia/ijkplayer/ff_ffplay.c
+@@ -21,6 +21,7 @@
+  */
+ 
+ #include "ff_ffplay.h"
++#include "playback_timing.h"
+ 
+ /**
+  * @file
+@@ -1247,12 +1248,15 @@
+ static double compute_target_delay(FFPlayer *ffp, double delay, VideoState *is)
+ {
+     double sync_threshold, diff = 0;
++    const double rate = vibe_playback_rate(ffp->pf_playback_rate);
++    /* PTS stay in media time; presentation deadlines use wall time. */
++    delay /= rate;
+ 
+     /* update delay to follow master synchronisation source */
+     if (get_master_sync_type(is) != AV_SYNC_VIDEO_MASTER) {
+         /* if video is slave, we try to correct big delays by
+            duplicating or deleting a frame */
+-        diff = get_clock(&is->vidclk) - get_master_clock(is);
++        diff = (get_clock(&is->vidclk) - get_master_clock(is)) / rate;
+ 
+         /* skip or repeat frame. We take into account the
+            delay to compute the threshold. I still don't know
+@@ -1271,7 +1275,7 @@
+ 
+     if (ffp) {
+         ffp->stat.avdelay = delay;
+-        ffp->stat.avdiff  = diff;
++        ffp->stat.avdiff  = diff * rate;
+     }
+ #ifdef FFP_SHOW_AUDIO_DELAY
+     av_log(NULL, AV_LOG_TRACE, "video: delay=%0.3f A-V=%f\n",
+@@ -1357,7 +1361,14 @@
+     double time;
+ 
+ 
+-    if (!is->paused && get_master_sync_type(is) == AV_SYNC_EXTERNAL_CLOCK && is->realtime)
++    const double rate = vibe_playback_rate(ffp->pf_playback_rate);
++    if (is->vidclk.speed != rate) {
++        set_clock_speed(&is->vidclk, rate);
++        set_clock_speed(&is->extclk, rate);
++        /* Do not carry a deadline from the previous playback rate into this one. */
++        is->frame_timer = av_gettime_relative() / 1000000.0;
++    }
++    if (!is->paused && rate == 1.0 && get_master_sync_type(is) == AV_SYNC_EXTERNAL_CLOCK && is->realtime)
+         check_external_clock_speed(is);
+ 
+     if (!ffp->display_disable && is->show_mode != SHOW_MODE_VIDEO && is->audio_st) {
+@@ -1405,6 +1416,8 @@
+             }
+ 
+             is->frame_timer += delay;
++            /* Poll at the scaled frame interval, including >100fps playback. */
++            if (delay > 0) *remaining_time = FFMIN(*remaining_time, delay);
+             if (delay > 0 && time - is->frame_timer > AV_SYNC_THRESHOLD_MAX)
+                 is->frame_timer = time;
+ 
+@@ -1415,7 +1428,7 @@
+ 
+             if (frame_queue_nb_remaining(&is->pictq) > 1) {
+                 Frame *nextvp = frame_queue_peek_next(&is->pictq);
+-                duration = vp_duration(is, vp, nextvp);
++                duration = vp_duration(is, vp, nextvp) / rate;
+                 if(!is->step && (ffp->framedrop > 0 || (ffp->framedrop && get_master_sync_type(is) != AV_SYNC_VIDEO_MASTER)) && time > is->frame_timer + duration) {
+                     frame_queue_next(&is->pictq);
+                     goto retry;
+@@ -2488,9 +2501,7 @@
+     av_unused double audio_clock0;
+     int wanted_nb_samples;
+     Frame *af;
+-#if defined(__ANDROID__)
+-    int translate_time = 1;
+-#endif
++    const float playback_rate = vibe_playback_rate(ffp->pf_playback_rate);
+ 
+     if (is->paused || is->step)
+         return -1;
+@@ -2523,6 +2534,12 @@
+         frame_queue_next(&is->sampq);
+     } while (af->serial != is->audioq.serial);
+ 
++    /* Only seek serials invalidate buffered media; tempo changes retain it. */
++    if (ffp->soundtouch_enable && is->soundtouch_serial != af->serial) {
++        vibe_soundtouch_clear(is->handle);
++        is->soundtouch_serial = af->serial;
++        is->soundtouch_active = 0;
++    }
+     data_size = av_samples_get_buffer_size(NULL, af->frame->channels,
+                                            af->frame->nb_samples,
+                                            af->frame->format, 1);
+@@ -2603,30 +2620,29 @@
+         is->audio_buf = is->audio_buf1;
+         int bytes_per_sample = av_get_bytes_per_sample(is->audio_tgt.fmt);
+         resampled_data_size = len2 * is->audio_tgt.channels * bytes_per_sample;
+-#if defined(__ANDROID__)
+-        if (ffp->soundtouch_enable && ffp->pf_playback_rate != 1.0f && !is->abort_request) {
+-            av_fast_malloc(&is->audio_new_buf, &is->audio_new_buf_size, out_size * translate_time);
+-            for (int i = 0; i < (resampled_data_size / 2); i++)
+-            {
+-                is->audio_new_buf[i] = (is->audio_buf1[i * 2] | (is->audio_buf1[i * 2 + 1] << 8));
+-            }
+-
+-            int ret_len = ijk_soundtouch_translate(is->handle, is->audio_new_buf, (float)(ffp->pf_playback_rate), (float)(1.0f/ffp->pf_playback_rate),
+-                    resampled_data_size / 2, bytes_per_sample, is->audio_tgt.channels, af->frame->sample_rate);
+-            if (ret_len > 0) {
+-                is->audio_buf = (uint8_t*)is->audio_new_buf;
+-                resampled_data_size = ret_len;
+-            } else {
+-                translate_time++;
+-                goto reload;
+-            }
+-        }
+-#endif
++
+     } else {
+         is->audio_buf = af->frame->data[0];
+         resampled_data_size = data_size;
+     }
+ 
++#if defined(__ANDROID__)
++    is->soundtouch_active = vibe_soundtouch_should_process(is->soundtouch_active, playback_rate);
++    if (ffp->soundtouch_enable && is->soundtouch_active && !is->abort_request) {
++        if (resampled_data_size > INT_MAX / 4) return AVERROR(ENOMEM);
++        const int capacity = FFMAX(resampled_data_size * 4, is->audio_tgt.bytes_per_sec);
++        av_fast_malloc(&is->audio_new_buf, &is->audio_new_buf_size, capacity);
++        if (!is->audio_new_buf) return AVERROR(ENOMEM);
++        int translated = vibe_soundtouch_translate(is->handle, is->audio_buf, resampled_data_size,
++            is->audio_new_buf, capacity, playback_rate, is->audio_tgt.channels, is->audio_tgt.freq);
++        if (translated <= 0) goto reload;
++        is->audio_buf = (uint8_t *)is->audio_new_buf;
++        resampled_data_size = translated;
++    }
++#endif
++    is->audio_buffer_rate = ffp->soundtouch_enable ? playback_rate : 1.0f;
++    is->soundtouch_delay = ffp->soundtouch_enable && is->soundtouch_active
++        ? vibe_soundtouch_pending_seconds(is->handle, is->audio_tgt.freq, playback_rate) : 0.0;
+     audio_clock0 = is->audio_clock;
+     /* update the audio clock with the pts */
+     if (!isnan(af->pts))
+@@ -2719,7 +2735,11 @@
+     is->audio_write_buf_size = is->audio_buf_size - is->audio_buf_index;
+     /* Let's assume the audio driver that is used by SDL has two periods. */
+     if (!isnan(is->audio_clock)) {
+-        set_clock_at(&is->audclk, is->audio_clock - (double)(is->audio_write_buf_size) / is->audio_tgt.bytes_per_sec - SDL_AoutGetLatencySeconds(ffp->aout), is->audio_clock_serial, ffp->audio_callback_time / 1000000.0);
++        is->audclk.speed = vibe_playback_rate(ffp->pf_playback_rate);
++        double audio_pts = vibe_audio_clock_pts(is->audio_clock, is->audio_write_buf_size,
++            is->audio_tgt.bytes_per_sec, SDL_AoutGetLatencySeconds(ffp->aout),
++            is->audio_buffer_rate, is->soundtouch_delay);
++        set_clock_at(&is->audclk, audio_pts, is->audio_clock_serial, ffp->audio_callback_time / 1000000.0);
+         sync_clock_to_slave(&is->extclk, &is->audclk);
+     }
+     if (!ffp->first_audio_frame_rendered) {
+@@ -4830,7 +4850,7 @@
+ 
+ void ffp_set_playback_rate(FFPlayer *ffp, float rate)
+ {
+-    if (!ffp)
++    if (!ffp || !isfinite(rate) || rate < 0.25f || rate > 4.0f)
+         return;
+ 
+     av_log(ffp, AV_LOG_INFO, "Playback rate: %f\n", rate);
+--- a/ijkmedia/ijkplayer/ff_ffplay_def.h
++++ b/ijkmedia/ijkplayer/ff_ffplay_def.h
+@@ -307,6 +307,10 @@
+ 
+     int av_sync_type;
+     void *handle;
++    int soundtouch_serial;
++    int soundtouch_active;
++    float audio_buffer_rate;
++    double soundtouch_delay;
+     double audio_clock;
+     int audio_clock_serial;
+     double audio_diff_cum; /* used for AV difference average computation */

@@ -251,6 +251,10 @@ device rendering; use the device execution and pixel/decoder assertions above.
 
 ## Official references
 
+Playback-rate clock, audio queue and frame scheduling fixes are documented in
+[Playback speed timing](playback-speed-timing.md), including host-only checks and the
+explicitly deferred device validation.
+
 - IJK Java API: <https://github.com/bilibili/ijkplayer/blob/k0.8.8/android/ijkplayer/ijkplayer-java/src/main/java/tv/danmaku/ijk/media/player/IjkMediaPlayer.java>
 - IJK player options: <https://github.com/bilibili/ijkplayer/blob/k0.8.8/ijkmedia/ijkplayer/ff_ffplay_options.h>
 - Android media buttons: <https://developer.android.com/media/legacy/media-buttons>

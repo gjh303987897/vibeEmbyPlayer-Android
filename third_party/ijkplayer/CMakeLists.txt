@@ -65,6 +65,7 @@ add_library(ijksdl SHARED ${sdl_sources})
 target_link_libraries(ijksdl PRIVATE ijkffmpeg ijkj4a cpufeatures yuv log android OpenSLES EGL GLESv2)
 ijk_sources(player_sources "${media}/ijkplayer")
 add_library(ijkplayer SHARED ${player_sources} "${IJK_SOURCE}/ijkprof/android-ndk-profiler-dummy/jni/prof.c"
-    bitmap_subtitles.c bitmap_subtitle_pixels.c)
+    bitmap_subtitles.c bitmap_subtitle_pixels.c playback_soundtouch.cpp)
 target_include_directories(ijkplayer PRIVATE "${media}/ijkplayer" "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(ijkplayer PRIVATE "${SOUNDTOUCH_SOURCE}/include")
 target_link_libraries(ijkplayer PRIVATE ijkffmpeg ijksdl ijksoundtouch log android jnigraphics)

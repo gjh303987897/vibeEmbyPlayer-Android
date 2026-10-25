@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,6 +58,7 @@ import com.vibeplayer.app.model.MediaItem
 import com.vibeplayer.app.ui.components.MediaPoster
 import com.vibeplayer.app.ui.components.AppMessageCard
 import com.vibeplayer.app.ui.components.pressScale
+import com.vibeplayer.app.ui.components.topEdgeInsets
 import com.vibeplayer.app.ui.navigation.Routes
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -91,6 +93,7 @@ fun SearchScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .topEdgeInsets()
                         .padding(horizontal = 4.dp, vertical = 8.dp)
                         .clip(RoundedCornerShape(28.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -126,7 +129,7 @@ fun SearchScreen(
                 }
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding).consumeWindowInsets(innerPadding)) {
                 when {
                     state.loading -> {
                         CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))

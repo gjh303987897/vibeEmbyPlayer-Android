@@ -649,6 +649,9 @@ class PlayerManager @Inject constructor(
                 player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
                 player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "subtitle", 1L)
                 player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1L)
+                // Keep high-frame-rate sources intact; discard only frames that miss their deadline.
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", -1L)
+                player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)
                 player.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 0L)
                 player.setScreenOnWhilePlaying(true)
                 player.setVolume(audioFocus.volumeMultiplier, audioFocus.volumeMultiplier)
@@ -859,26 +862,32 @@ class PlayerManager @Inject constructor(
 
     fun beginTemporarySpeed(speed: Float) {
         if (temporarySpeedActive) return
-        speedBeforeTemporary = lastSpeed
-        temporarySpeedActive = true
-        applySpeed(speed)
+        val previous = lastSpeed
+        if (applySpeed(speed)) {
+            speedBeforeTemporary = previous
+            temporarySpeedActive = true
+        }
     }
 
     fun endTemporarySpeed() {
         if (!temporarySpeedActive) return
-        temporarySpeedActive = false
-        applySpeed(speedBeforeTemporary)
+        if (applySpeed(speedBeforeTemporary)) temporarySpeedActive = false
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        temporarySpeedActive = false
-        applySpeed(speed)
+        if (applySpeed(speed)) temporarySpeedActive = false
     }
 
-    private fun applySpeed(speed: Float) {
-        lastSpeed = speed.coerceIn(.25f, 4f)
-        runCatching { player.setSpeed(lastSpeed) }
-        _state.update { it.copy(playbackSpeed = lastSpeed) }
+    private fun applySpeed(speed: Float): Boolean {
+        if (!speed.isFinite()) return false
+        val normalized = speed.coerceIn(.25f, 4f)
+        return runCatching { player.setSpeed(normalized) }
+            .onSuccess {
+                lastSpeed = normalized
+                _state.update { it.copy(playbackSpeed = normalized) }
+            }
+            .onFailure { Log.w("PlayerManager", "Unable to change playback speed (${it.javaClass.simpleName})") }
+            .isSuccess
     }
 
     fun setVolume(volume: Float) {

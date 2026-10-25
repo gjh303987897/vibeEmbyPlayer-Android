@@ -82,6 +82,11 @@ const wrapper = path.join(vendor, 'libdav1d.c');
 const wrapperOutput = path.join(ffmpeg, 'libavcodec/libdav1d.c');
 if (!fs.existsSync(wrapperOutput) || sha256(wrapperOutput) !== sha256(wrapper)) fs.copyFileSync(wrapper, wrapperOutput);
 const ijkSource = path.join(source, 'ijkplayer');
+const playbackTimingPatch = path.join(vendor, 'ijkplayer-playback-timing.patch');
+// Unwind overlays before checking their underlying context, then reapply in order.
+if (spawnSync('git', ['apply', '--reverse', '--check', playbackTimingPatch], { cwd: ijkSource, stdio: 'ignore' }).status === 0) {
+  run('git', ['apply', '--reverse', playbackTimingPatch], ijkSource);
+}
 const subtitleDelayPatch = path.join(vendor, 'ijkplayer-subtitle-delay.patch');
 // This final overlay touches context from the bitmap patch. Validate older layers
 // against their original context, then reapply the timing overlay deterministically.
@@ -99,6 +104,7 @@ if (spawnSync('git', ['apply', '--reverse', '--check', bitmapPatch], { cwd: ijkS
 if (spawnSync('git', ['apply', '--reverse', '--check', subtitleDelayPatch], { cwd: ijkSource, stdio: 'ignore' }).status !== 0) {
   run('git', ['apply', subtitleDelayPatch], ijkSource);
 }
+run('git', ['apply', playbackTimingPatch], ijkSource);
 const abis = {
   armv7a: { android: 'armeabi-v7a', arch: 'arm', target: 'armv7a-linux-androideabi', extra: ['--cpu=armv7-a', '--enable-neon'] },
   arm64: { android: 'arm64-v8a', arch: 'aarch64', target: 'aarch64-linux-android', extra: [] },
@@ -130,6 +136,11 @@ const metadata = {
     maxDelayMs: 10000,
   },
   av1: { patchSha256: sha256(av1Patch), wrapperSha256: sha256(path.join(vendor, 'libdav1d.c')) },
+  playbackTiming: {
+    patchSha256: sha256(playbackTimingPatch),
+    supportSha256: Object.fromEntries(['playback_timing.h', 'playback_soundtouch.cpp']
+      .map(file => [file, sha256(path.join(vendor, file))])),
+  },
 };
 // Separate metadata files allow independent ABI jobs without sharing writable outputs.
 const prior = options.metadata ? path.resolve(options.metadata) : path.join(vendor, 'native-build.json');
