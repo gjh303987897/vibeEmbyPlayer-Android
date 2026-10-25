@@ -12,10 +12,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,27 +23,23 @@ import com.vibeplayer.app.player.AudioDecodeInfo
 import com.vibeplayer.app.player.AudioDecodeMode
 
 /**
- * One-line explanation of *how the current audio track is being decoded*, for the formats a
- * phone cannot decode on its own.
+ * Explains the selected audio decoder without inferring the phone's codec capabilities.
  *
  * Streams are fetched with `static=true`, so the server sends the original file. When the
- * device has no hardware decoder for it (AC-3, DTS / DTS-HD, TrueHD), IJKPlayer's
- * bundled FFmpeg path handles the track and this row tells the user it is happening:
+ * bundled FFmpeg path handles the track, this row tells the user it is happening:
  *
- * - [AudioDecodeMode.SOFTWARE]: the on-device FFmpeg decoder took over - sound works, and
+ * - [AudioDecodeMode.SOFTWARE]: the on-device FFmpeg decoder is selected, and
  *   the user learns why the app mentions "client decoding".
- * - [AudioDecodeMode.UNSUPPORTED]: neither MediaCodec nor FFmpeg can decode it (no native
- *   library in this build), so the "no sound" is named explicitly instead of being silent.
+ * - [AudioDecodeMode.UNSUPPORTED]: no active audio decoder was reported, so possible
+ *   missing sound is named explicitly without guessing whether a library is installed.
  * - [AudioDecodeMode.HARDWARE]: draws nothing.
  *
  * Kept inside the player's top bar so it never competes with the video surface, and
- * dismissible for the current item.
+ * dismissed by the playback screen, which retains dismissal when this row leaves composition.
  */
 @Composable
-fun AudioDecodeNotice(info: AudioDecodeInfo?, modifier: Modifier = Modifier) {
+fun AudioDecodeNotice(info: AudioDecodeInfo?, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     if (info == null || info.mode == AudioDecodeMode.HARDWARE) return
-    var dismissed by remember(info.mimeType, info.mode) { mutableStateOf(false) }
-    if (dismissed) return
 
     val text = when (info.mode) {
         AudioDecodeMode.SOFTWARE -> stringResource(R.string.player_audio_soft_decoding, info.codecLabel)
@@ -85,7 +77,7 @@ fun AudioDecodeNotice(info: AudioDecodeInfo?, modifier: Modifier = Modifier) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false)
         )
-        IconButton(onClick = { dismissed = true }) {
+        IconButton(onClick = onDismiss) {
             Icon(
                 imageVector = Icons.Outlined.Close,
                 contentDescription = stringResource(R.string.message_dismiss),

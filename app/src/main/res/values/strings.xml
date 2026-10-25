@@ -59,10 +59,10 @@
     <string name="player_lock">Lock player controls</string>
     <string name="player_unlock">Unlock player controls</string>
     <string name="player_audio_tracks">Audio tracks</string>
-    <!-- Audio the phone itself cannot decode is decoded on the device by the bundled FFmpeg
-         decoder; %1$s is the codec name, e.g. "DTS-HD Master Audio". -->
-    <string name="player_audio_soft_decoding">This device cannot decode %1$s audio, so the player is decoding it on-device (client-side FFmpeg software decoding).</string>
-    <string name="player_audio_unsupported">This device cannot decode %1$s audio and no client-side decoder library is installed, so this video may be silent.</string>
+    <!-- Describe the selected decoder, not the device capabilities;
+         %1$s is the codec name, e.g. "DTS-HD Master Audio". -->
+    <string name="player_audio_soft_decoding">%1$s audio is playing with the built-in FFmpeg software decoder.</string>
+    <string name="player_audio_unsupported">The selected %1$s audio track cannot currently be decoded. This video may be silent.</string>
     <string name="season">Season</string>
 
     <string name="search">Search</string>

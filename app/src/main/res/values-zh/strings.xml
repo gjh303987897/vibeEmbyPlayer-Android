@@ -58,8 +58,8 @@
     <string name="player_lock">锁定播放器操作</string>
     <string name="player_unlock">解锁播放器操作</string>
     <string name="player_audio_tracks">音轨</string>
-    <string name="player_audio_soft_decoding">本机不支持 %1$s 音轨，已启用客户端解码（应用内置 FFmpeg 软解码）播放。</string>
-    <string name="player_audio_unsupported">本机不支持 %1$s 音轨，且当前安装包未包含客户端解码库，本片可能没有声音。</string>
+    <string name="player_audio_soft_decoding">%1$s 音轨正在使用应用内置 FFmpeg 软解码播放。</string>
+    <string name="player_audio_unsupported">当前无法解码 %1$s 音轨，本片可能没有声音。</string>
     <string name="season">季</string>
 
     <string name="search">搜索</string>

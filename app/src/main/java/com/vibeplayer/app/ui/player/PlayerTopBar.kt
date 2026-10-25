@@ -29,6 +29,7 @@ internal fun PlayerTopBar(
     title: String,
     subtitle: String,
     audioDecode: AudioDecodeInfo?,
+    onDismissAudioDecodeNotice: () -> Unit,
     onBack: () -> Unit,
     performance: @Composable () -> Unit,
     actions: @Composable () -> Unit
@@ -48,6 +49,6 @@ internal fun PlayerTopBar(
             performance()
             Row(verticalAlignment = Alignment.CenterVertically) { actions() }
         }
-        AudioDecodeNotice(audioDecode, Modifier.padding(start = 48.dp, end = 8.dp))
+        AudioDecodeNotice(audioDecode, onDismissAudioDecodeNotice, Modifier.padding(start = 48.dp, end = 8.dp))
     }
 }

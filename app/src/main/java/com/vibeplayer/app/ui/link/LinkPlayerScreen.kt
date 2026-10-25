@@ -53,6 +53,9 @@ fun LinkPlayerScreen(
     var fullscreen by remember { mutableStateOf(false) }
     val gestures = rememberPlayerGestureState()
     val playerSettings: PlayerSettingsViewModel = hiltViewModel()
+    val queue by playerSettings.queue.collectAsState()
+    val currentItemId = queue.items.getOrNull(queue.index)?.id ?: encodedUrl
+    var audioNoticeDismissed by rememberSaveable(serverId, currentItemId) { mutableStateOf(false) }
     val playerPreferences by playerSettings.preferences.collectAsState()
     val videoZoom by playerSettings.videoZoom.collectAsState()
     val sleepTimer by playerSettings.sleepTimer.collectAsState()
@@ -143,7 +146,8 @@ fun LinkPlayerScreen(
                 },
                 title = state.title,
                 subtitle = state.subtitle,
-                audioDecode = state.audioDecode,
+                audioDecode = state.audioDecode.takeUnless { audioNoticeDismissed },
+                onDismissAudioDecodeNotice = { audioNoticeDismissed = true },
                 onBack = { navController.popBackStack() },
                 actions = {
                     PlayerExtraActions(

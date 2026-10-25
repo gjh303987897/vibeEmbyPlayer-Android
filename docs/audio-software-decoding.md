@@ -5,6 +5,23 @@
 Emby, Jellyfin, WebDAV, local SAF, IPTV and link playback share one `PlayerManager`. Emby/Jellyfin
 URLs retain `static=true`; no server-side audio-transcoding fallback is used.
 
+### Audio notice and dismissal
+
+The notice describes the decoder actually used by IJK. Its FFmpeg audio path includes AAC;
+selecting hardware video decoding does not switch the audio decoder to MediaCodec. Software
+decoding alone is not evidence that the device cannot play that audio format, and a missing
+active decoder is not evidence that a library was omitted from the package. Both notice
+translations describe the current playback path without making these capability claims.
+
+Each playback screen owns a `rememberSaveable` dismissal flag keyed by the queue's current
+video identity (and server where applicable), outside the conditional top bar. Route arguments
+are only the fallback before the queue is attached: queue navigation reuses the same screen
+without changing its original route. Dismissing the notice hides
+it for that video's current playback, including control-bar hiding, screen locking, PiP,
+orientation changes, seeking and decoder/track updates. A different video or a fresh player
+visit starts with the notice eligible to appear again. This is temporary UI state, not a
+global preference or a permanent per-video setting.
+
 ## Android 11+ HTTP startup crash
 
 The affected Android 12 ARM64 device recorded `SIGSEGV` / `SIGBUS` on `ff_read`, with

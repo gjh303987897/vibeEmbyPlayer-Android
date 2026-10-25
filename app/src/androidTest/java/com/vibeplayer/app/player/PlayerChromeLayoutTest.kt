@@ -29,7 +29,7 @@ class PlayerChromeLayoutTest {
             MaterialTheme {
                 Box(Modifier.fillMaxSize()) {
                     PlayerTopBar(title = "Fixed header", subtitle = "Fixed subtitle", audioDecode = null,
-                        onBack = {}, performance = {
+                        onDismissAudioDecodeNotice = {}, onBack = {}, performance = {
                             if (diagnostics.value) Column {
                                 repeat(4) { Text("Metric $it", Modifier.height(24.dp)) }
                             }
