@@ -71,12 +71,12 @@
   "artifacts": {
     "arm64": {
       "file": "ijkplayer-arm64-0.8.8-full.aar",
-      "sha256": "1dd10767e3bff49bd951e45d3d164d07a69a5ab9dde3af015ddf60b3770f0219",
+      "sha256": "80184011c995406e9c173af876a59a29d57c97a80f33ff5a8069ea3404187afb",
       "upstreamAarSha256": "12d5324160415afd678e901cf9cbfb28c2be5ff2918f9e576f40b8d7c1ac9841",
       "nativeHashes": {
         "libijkffmpeg.so": "f320413df05906437508bbeb965b00b7302d239da463e25528fa8127df29656a",
-        "libijkplayer.so": "45b830dc83ba2683d6f6ecde85ce9b08f0b709d9f1d0376da77b9c243bab4ec6",
-        "libijksdl.so": "451a24668b65834745ff5c98a745753c43f1e1343249e4cc206c2beac68a0285"
+        "libijkplayer.so": "e2c6c964a4cfc8de18f9e59d1aa02a0946a976856903fdca8c3b1115b4222aa4",
+        "libijksdl.so": "df1e280e5ce7953598441bb3fe5b1b4cf784bfc7b26b626ea5fc136b012bf9a0"
       },
       "configureArguments": [
         "--prefix=output",
@@ -134,12 +134,12 @@
     },
     "armv7a": {
       "file": "ijkplayer-armv7a-0.8.8-full.aar",
-      "sha256": "b00b81412222d0c2e75602d7d97d944fab5365c984f501b9ed77e71387c98d88",
+      "sha256": "8ce139006eb990cd7458dca9748857dda35dd1d9fcba17172a7c5801b00f6c50",
       "upstreamAarSha256": "dcd76afad49954d5bd205ada8f661804c0c9f8e8e8f113fc931799b4df2b866a",
       "nativeHashes": {
         "libijkffmpeg.so": "6c06e09b89bc7beb7f5ea1d8ae7b3a59097edb2b039a2e888c87d8ee28e6ca41",
-        "libijkplayer.so": "6a1c89f74855884032ac3baecf6c87ca3a4ec3f44adf7d1425942347b49db6a9",
-        "libijksdl.so": "eedfd1a2e5f0cc95707f1280d0568b9395ee5176489099e74afc5935730104af"
+        "libijkplayer.so": "b49d8a509539ca86e6c9e19fbc25ff1495694a72af30ddb190b3365fbabea7df",
+        "libijksdl.so": "492af343a8c5cf920d294903b635ea949bdb0a1d2d3068db2e283c014b057724"
       },
       "configureArguments": [
         "--prefix=output",
@@ -199,12 +199,12 @@
     },
     "x86": {
       "file": "ijkplayer-x86-0.8.8-full.aar",
-      "sha256": "8a0bbfca2d906231c111b9d5097930b7e8310a935a927958879af0a6c19ab1d0",
+      "sha256": "c9503dca03f6838a42ea192576769ced72826b8f4bd700ce438fae4bf2ad8a2b",
       "upstreamAarSha256": "1a23aa9da7b8e51877abb26538dcaa487bb1c2d5be8b15da71a4b9a6f39ce50a",
       "nativeHashes": {
         "libijkffmpeg.so": "81545cc0990b9a35ba8f7600340d2b0b1f79521d36a12358a678a9ad1c0ab798",
-        "libijkplayer.so": "f0efe20ab8b11892d320466033e6e583d34580d4ad4f2aea3179f928d9ebed1e",
-        "libijksdl.so": "25cd5c34090c395f4c1c96b362ecef36b46ef332771250d83434920d2c989d06"
+        "libijkplayer.so": "6eee2ab1168435132cc83e25b7f04e9d240658b8a96a07878d44c4dc15563bfa",
+        "libijksdl.so": "4fcb35e2392d0ee850e0073ce4fd654cb948ebb8a5cd4b36fc330b34acb649f2"
       },
       "configureArguments": [
         "--prefix=output",
@@ -265,12 +265,12 @@
     },
     "x86_64": {
       "file": "ijkplayer-x86_64-0.8.8-full.aar",
-      "sha256": "aa2fabeaab9c474a5189ac83ac053d47e5635be9be2213de2a83c42215da0eb2",
+      "sha256": "bcc6807cf75619aaa218e5bc3a48cc59a0f7f33a11969ae3565e7628e3cfd746",
       "upstreamAarSha256": "ef93518f7bf943a562ba01dd41163f19e03acec8e71ecce07213b9f49d7a255d",
       "nativeHashes": {
         "libijkffmpeg.so": "4451c2dec9e46201aa720c231d3f7f1b042d06fb2874c19eb6fa303c52c7f23b",
-        "libijkplayer.so": "323b0d32b8ec8435474a7d2c0b78bad592246ca2168c45baf7eb0dc4a3def410",
-        "libijksdl.so": "0115cb518dadc6aafe891b729b8076ef03045f1e36da6c4ce39a18376e305d3f"
+        "libijkplayer.so": "dd40ea1c3a9efe27476e2135e6a4de2ab8d79c6a50c9058a876101028231216a",
+        "libijksdl.so": "40355f72732b803a7759b8b142b99eb2bbdf46063f3be8b223007aab447f74eb"
       },
       "configureArguments": [
         "--prefix=output",
@@ -339,8 +339,24 @@
   "playbackTiming": {
     "patchSha256": "f81990dc693977cca9be6807238b5f4eace60f9bd5f2c2f5b5fd516b60bde6d2",
     "supportSha256": {
-      "playback_timing.h": "a2db5b6702a92b607bd869713c678006092240963f74ca19205cbbdf041bfd6c",
+      "playback_timing.h": "940ba68ab183f1ef5dc7761abad0877e5c0fbd3fb44c9177e79422db86c312be",
       "playback_soundtouch.cpp": "fb708afa8ebf4a7ef6fcb5f8d532999d827ad900b6656ab69264b8a1122c712b"
     }
+  },
+  "audioPresentation": {
+    "patchSha256": "4f3ea435e3176ff87852c547e348eb8974fe366e0aafa2105977340d97b997af",
+    "supportSha256": {
+      "audio_presentation_clock.h": "f5a9224d8211e2491d96cd7f1de9aa50403f905858a06c0b6d9a69aafaddf8df",
+      "audio_presentation_jni.h": "1432b09c1921c966213286056bb7de5ca1507503c8dadc03cea08f7f903475b2",
+      "audio_presentation_jni.c": "e1da2a5d5017f7d528f7e9fb5d67dbd79779886193748dd5111bb67120e1ab87"
+    },
+    "regressionSha256": "fd50afeffe903b6d85744e08a2f4d086b3db97979596ff1db335630b9ce2b178",
+    "sourceProperty": 10901,
+    "mediaDelayProperty": 10902,
+    "displayRefreshProperty": 10903,
+    "jniExports": [
+      "Java_com_vibeplayer_app_player_NativePlaybackTiming_setDisplayRefreshRate",
+      "Java_com_vibeplayer_app_player_NativePlaybackTiming_readFloat"
+    ]
   }
 }

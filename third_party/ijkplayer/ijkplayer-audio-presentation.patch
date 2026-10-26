@@ -1,0 +1,512 @@
+--- a/ijkmedia/ijksdl/ijksdl_aout.h
++++ b/ijkmedia/ijksdl/ijksdl_aout.h
+@@ -47,6 +47,10 @@
+     double (*func_get_latency_seconds)(SDL_Aout *aout);
+     void   (*func_set_default_latency_seconds)(SDL_Aout *aout, double latency);
+ 
++    /* Called only by the audio output thread. Optional for non-AudioTrack backends. */
++    void (*record_audio_pts)(SDL_Aout *, int bytes, double pts, double rate, int serial);
++    int (*get_presentation_clock)(SDL_Aout *, int serial, double *pts, double *rate);
++
+     // optional
+     void   (*func_set_playback_rate)(SDL_Aout *aout, float playbackRate);
+     void   (*func_set_playback_volume)(SDL_Aout *aout, float playbackVolume);
+@@ -68,6 +72,9 @@
+ void   SDL_AoutSetDefaultLatencySeconds(SDL_Aout *aout, double latency);
+ int    SDL_AoutGetAudioPerSecondCallBacks(SDL_Aout *aout);
+ 
++void SDL_AoutRecordAudioPts(SDL_Aout *, int bytes, double pts, double rate, int serial);
++int SDL_AoutGetPresentationClock(SDL_Aout *, int serial, double *pts, double *rate);
++
+ // optional
+ void   SDL_AoutSetPlaybackRate(SDL_Aout *aout, float playbackRate);
+ void   SDL_AoutSetPlaybackVolume(SDL_Aout *aout, float volume);
+--- a/ijkmedia/ijksdl/ijksdl_aout.c
++++ b/ijkmedia/ijksdl/ijksdl_aout.c
+@@ -78,6 +78,17 @@
+     *paout = NULL;
+ }
+ 
++void SDL_AoutRecordAudioPts(SDL_Aout *aout, int bytes, double pts, double rate, int serial)
++{
++    if (aout && aout->record_audio_pts) aout->record_audio_pts(aout, bytes, pts, rate, serial);
++}
++
++int SDL_AoutGetPresentationClock(SDL_Aout *aout, int serial, double *pts, double *rate)
++{
++    return aout && aout->get_presentation_clock
++        ? aout->get_presentation_clock(aout, serial, pts, rate) : 0;
++}
++
+ double SDL_AoutGetLatencySeconds(SDL_Aout *aout)
+ {
+     if (!aout)
+--- a/ijkmedia/ijksdl/android/android_audiotrack.h
++++ b/ijkmedia/ijksdl/android/android_audiotrack.h
+@@ -95,6 +95,8 @@
+ void SDL_Android_AudioTrack_free(JNIEnv *env, SDL_Android_AudioTrack* atrack);
+ 
+ void SDL_Android_AudioTrack_get_target_spec(SDL_Android_AudioTrack* atrack, SDL_AudioSpec *spec);
++/* Borrowed reference: valid until SDL_Android_AudioTrack_free. */
++jobject SDL_Android_AudioTrack_java_object(SDL_Android_AudioTrack *atrack);
+ int SDL_Android_AudioTrack_get_min_buffer_size(SDL_Android_AudioTrack* atrack);
+ int audiotrack_get_native_output_sample_rate(JNIEnv *env/* = NULL */);
+ 
+--- a/ijkmedia/ijksdl/android/android_audiotrack.c
++++ b/ijkmedia/ijksdl/android/android_audiotrack.c
+@@ -280,6 +280,11 @@
+     sdl_spec->padding = 0;
+ }
+ 
++jobject SDL_Android_AudioTrack_java_object(SDL_Android_AudioTrack *atrack)
++{
++    return atrack ? atrack->thiz : NULL;
++}
++
+ int SDL_Android_AudioTrack_get_min_buffer_size(SDL_Android_AudioTrack* atrack)
+ {
+     return atrack->min_buffer_size;
+--- a/ijkmedia/ijksdl/android/ijksdl_aout_android_audiotrack.c
++++ b/ijkmedia/ijksdl/android/ijksdl_aout_android_audiotrack.c
+@@ -32,6 +32,8 @@
+ #include "../ijksdl_aout_internal.h"
+ #include "ijksdl_android_jni.h"
+ #include "android_audiotrack.h"
++#include "../ijksdl_timer.h"
++#include "audio_presentation_jni.h"
+ 
+ #ifdef SDLTRACE
+ #undef SDLTRACE
+@@ -51,6 +53,7 @@
+     SDL_Android_AudioTrack* atrack;
+     uint8_t *buffer;
+     int buffer_size;
++    VibeAudioPresentation *presentation;
+ 
+     volatile bool need_flush;
+     volatile bool pause_on;
+@@ -68,6 +71,17 @@
+     volatile float speed;
+     volatile bool speed_changed;
+ } SDL_Aout_Opaque;
++
++/* AudioTrack.flush is a no-op while playing. Keep its frame epoch and the
++ * software timeline synchronized when a seek discards queued PCM. */
++static void aout_flush_track(JNIEnv *env, SDL_Aout_Opaque *opaque, int resume)
++{
++    SDL_Android_AudioTrack_pause(env, opaque->atrack);
++    SDL_Android_AudioTrack_flush(env, opaque->atrack);
++    vibe_audio_presentation_flush(opaque->presentation);
++    if (resume) SDL_Android_AudioTrack_play(env, opaque->atrack);
++    vibe_audio_presentation_pause(opaque->presentation, !resume);
++}
+ 
+ static int aout_thread_n(JNIEnv *env, SDL_Aout *aout)
+ {
+@@ -84,26 +98,31 @@
+     SDL_SetThreadPriority(SDL_THREAD_PRIORITY_HIGH);
+ 
+     if (!opaque->abort_request && !opaque->pause_on)
++    {
+         SDL_Android_AudioTrack_play(env, atrack);
++        vibe_audio_presentation_pause(opaque->presentation, 0);
++    }
+ 
+     while (!opaque->abort_request) {
+         SDL_LockMutex(opaque->wakeup_mutex);
+         if (!opaque->abort_request && opaque->pause_on) {
+             SDL_Android_AudioTrack_pause(env, atrack);
++            vibe_audio_presentation_pause(opaque->presentation, 1);
+             while (!opaque->abort_request && opaque->pause_on) {
+                 SDL_CondWaitTimeout(opaque->wakeup_cond, opaque->wakeup_mutex, 1000);
+             }
+             if (!opaque->abort_request && !opaque->pause_on) {
+                 if (opaque->need_flush) {
+                     opaque->need_flush = 0;
+-                    SDL_Android_AudioTrack_flush(env, atrack);
++                    aout_flush_track(env, opaque, 0);
+                 }
+                 SDL_Android_AudioTrack_play(env, atrack);
++                vibe_audio_presentation_pause(opaque->presentation, 0);
+             }
+         }
+         if (opaque->need_flush) {
+             opaque->need_flush = 0;
+-            SDL_Android_AudioTrack_flush(env, atrack);
++            aout_flush_track(env, opaque, !opaque->pause_on);
+         }
+         if (opaque->need_set_volume) {
+             opaque->need_set_volume = 0;
+@@ -115,25 +134,31 @@
+         }
+         SDL_UnlockMutex(opaque->wakeup_mutex);
+ 
++        vibe_audio_presentation_begin(opaque->presentation);
+         audio_cblk(userdata, buffer, copy_size);
+         if (opaque->need_flush) {
+-            SDL_Android_AudioTrack_flush(env, atrack);
+-            opaque->need_flush = false;
+-        }
+-
+-        if (opaque->need_flush) {
+             opaque->need_flush = 0;
+-            SDL_Android_AudioTrack_flush(env, atrack);
+-        } else {
+-            int written = SDL_Android_AudioTrack_write(env, atrack, buffer, copy_size);
+-            if (written != copy_size) {
+-                ALOGW("AudioTrack: not all data copied %d/%d", (int)written, (int)copy_size);
++            aout_flush_track(env, opaque, !opaque->pause_on);
++            continue; /* A seek raced this callback; never write its old serial. */
++        }
++        int offset = 0;
++        while (offset < copy_size && !opaque->abort_request && !opaque->need_flush) {
++            int written = SDL_Android_AudioTrack_write(env, atrack, buffer + offset, copy_size - offset);
++            if (written < 0) {
++                ALOGE("AudioTrack: write failed (%d)", written);
++                opaque->abort_request = true;
++                break;
+             }
++            if (!written) { SDL_Delay(1); continue; }
++            vibe_audio_presentation_written(opaque->presentation, written);
++            offset += written;
+         }
+ 
+         // TODO: 1 if callback return -1 or 0
+     }
+ 
++    vibe_audio_presentation_free(env, opaque->presentation);
++    opaque->presentation = NULL;
+     SDL_Android_AudioTrack_free(env, atrack);
+     return 0;
+ }
+@@ -185,6 +210,9 @@
+         SDLTRACE("audio target format fmt:0x%x, channel:0x%x", (int)obtained->format, (int)obtained->channels);
+     }
+ 
++    SDL_Android_AudioTrack_get_target_spec(opaque->atrack, &opaque->spec);
++    opaque->presentation = vibe_audio_presentation_new(env, SDL_Android_AudioTrack_java_object(opaque->atrack),
++        opaque->spec.freq, opaque->spec.channels * (opaque->spec.format & 0xff) / 8);
+     opaque->audio_session_id = SDL_Android_AudioTrack_getAudioSessionId(env, opaque->atrack);
+     ALOGI("audio_session_id = %d\n", opaque->audio_session_id);
+ 
+@@ -193,6 +221,8 @@
+     opaque->audio_tid = SDL_CreateThreadEx(&opaque->_audio_tid, aout_thread, aout, "ff_aout_android");
+     if (!opaque->audio_tid) {
+         ALOGE("aout_open_audio_n: failed to create audio thread");
++        vibe_audio_presentation_free(env, opaque->presentation);
++        opaque->presentation = NULL;
+         SDL_Android_AudioTrack_free(env, opaque->atrack);
+         opaque->atrack = NULL;
+         return -1;
+@@ -300,6 +330,18 @@
+     opaque->speed_changed = 1;
+     SDL_CondSignal(opaque->wakeup_cond);
+     SDL_UnlockMutex(opaque->wakeup_mutex);
++}
++
++static void aout_record_audio_pts(SDL_Aout *aout, int bytes, double pts, double rate, int serial)
++{
++    vibe_audio_presentation_record(aout->opaque->presentation, bytes, pts, rate, serial);
++}
++
++static int aout_get_presentation_clock(SDL_Aout *aout, int serial, double *pts, double *rate)
++{
++    JNIEnv *env = NULL;
++    if (JNI_OK != SDL_JNI_SetupThreadEnv(&env)) return 0;
++    return vibe_audio_presentation_get(env, aout->opaque->presentation, serial, pts, rate);
+ }
+ 
+ SDL_Aout *SDL_AoutAndroid_CreateForAudioTrack()
+@@ -320,6 +362,8 @@
+     aout->flush_audio  = aout_flush_audio;
+     aout->set_volume   = aout_set_volume;
+     aout->close_audio  = aout_close_audio;
++    aout->record_audio_pts = aout_record_audio_pts;
++    aout->get_presentation_clock = aout_get_presentation_clock;
+     aout->func_get_audio_session_id = aout_get_audio_session_id;
+     aout->func_set_playback_rate    = func_set_playback_rate;
+ 
+--- a/ijkmedia/ijkplayer/ff_ffplay_def.h
++++ b/ijkmedia/ijkplayer/ff_ffplay_def.h
+@@ -363,6 +363,7 @@
+     PacketQueue subtitleq;
+ 
+     double frame_timer;
++    double next_video_present;
+     double frame_last_returned_time;
+     double frame_last_filter_delay;
+     int video_stream;
+@@ -501,6 +502,8 @@
+     float vdps;
+     float avdelay;
+     float avdiff;
++    float audio_presentation_used;
++    float audio_presentation_media_delay;
+     int64_t bit_rate;
+ 
+     FFTrackCacheStatistic video_cache;
+@@ -708,6 +711,7 @@
+     int         vf_changed;
+     int         af_changed;
+     float       pf_playback_rate;
++    float display_refresh_rate;
+     int         pf_playback_rate_changed;
+     float       pf_playback_volume;
+     int         pf_playback_volume_changed;
+--- a/ijkmedia/ijkplayer/ff_ffplay.c
++++ b/ijkmedia/ijkplayer/ff_ffplay.c
+@@ -888,6 +888,11 @@
+ 
+     vp = frame_queue_peek_last(&is->pictq);
+ 
++    if (!is->paused && !is->step && ffp->first_video_frame_rendered &&
++        is->latest_video_seek_load_serial != vp->serial &&
++        !vibe_video_present_due(av_gettime_relative() / 1000000.0,
++            ffp->display_refresh_rate, &is->next_video_present)) return;
++
+     if (vp->bmp) {
+         if (ffp->render_wait_start && !ffp->start_on_prepared && is->pause_req) {
+             if (!ffp->first_video_frame_rendered) {
+@@ -2629,8 +2634,8 @@
+ #if defined(__ANDROID__)
+     is->soundtouch_active = vibe_soundtouch_should_process(is->soundtouch_active, playback_rate);
+     if (ffp->soundtouch_enable && is->soundtouch_active && !is->abort_request) {
+-        if (resampled_data_size > INT_MAX / 4) return AVERROR(ENOMEM);
+-        const int capacity = FFMAX(resampled_data_size * 4, is->audio_tgt.bytes_per_sec);
++        if (resampled_data_size > INT_MAX / 10) return AVERROR(ENOMEM);
++        const int capacity = FFMAX(resampled_data_size * 10, is->audio_tgt.bytes_per_sec);
+         av_fast_malloc(&is->audio_new_buf, &is->audio_new_buf_size, capacity);
+         if (!is->audio_new_buf) return AVERROR(ENOMEM);
+         int translated = vibe_soundtouch_translate(is->handle, is->audio_buf, resampled_data_size,
+@@ -2731,15 +2736,34 @@
+         len -= len1;
+         stream += len1;
+         is->audio_buf_index += len1;
++        /* Associate every produced PCM interval with its own media tempo, including
++         * old buffers that are still queued when the user selects a new speed. */
++        double output_pts = is->audio_buf
++            ? vibe_audio_clock_pts(is->audio_clock, is->audio_buf_size - is->audio_buf_index,
++                is->audio_tgt.bytes_per_sec, 0, is->audio_buffer_rate, is->soundtouch_delay)
++            : is->audio_clock - is->soundtouch_delay;
++        SDL_AoutRecordAudioPts(ffp->aout, len1, output_pts,
++            is->audio_buf ? is->audio_buffer_rate : 0, is->audio_clock_serial);
+     }
+     is->audio_write_buf_size = is->audio_buf_size - is->audio_buf_index;
+     /* Let's assume the audio driver that is used by SDL has two periods. */
+     if (!isnan(is->audio_clock)) {
+-        is->audclk.speed = vibe_playback_rate(ffp->pf_playback_rate);
+-        double audio_pts = vibe_audio_clock_pts(is->audio_clock, is->audio_write_buf_size,
+-            is->audio_tgt.bytes_per_sec, SDL_AoutGetLatencySeconds(ffp->aout),
+-            is->audio_buffer_rate, is->soundtouch_delay);
+-        set_clock_at(&is->audclk, audio_pts, is->audio_clock_serial, ffp->audio_callback_time / 1000000.0);
++        double audio_pts, presentation_rate;
++        int presented = ffp->soundtouch_enable && SDL_AoutGetPresentationClock(ffp->aout,
++            is->audio_clock_serial, &audio_pts, &presentation_rate);
++        if (presented) {
++            is->audclk.speed = presentation_rate;
++        } else {
++            is->audclk.speed = vibe_playback_rate(ffp->pf_playback_rate);
++            audio_pts = vibe_audio_clock_pts(is->audio_clock, is->audio_write_buf_size,
++                is->audio_tgt.bytes_per_sec, SDL_AoutGetLatencySeconds(ffp->aout),
++                is->audio_buffer_rate, is->soundtouch_delay);
++        }
++        ffp->stat.audio_presentation_used = presented;
++        ffp->stat.audio_presentation_media_delay = is->audio_clock - is->soundtouch_delay - audio_pts;
++        /* Decode/IO may block inside this callback. Anchor to the time of this
++         * measurement, never to its stale entry time. */
++        set_clock_at(&is->audclk, audio_pts, is->audio_clock_serial, av_gettime_relative() / 1000000.0);
+         sync_clock_to_slave(&is->extclk, &is->audclk);
+     }
+     if (!ffp->first_audio_frame_rendered) {
+@@ -4850,7 +4874,7 @@
+ 
+ void ffp_set_playback_rate(FFPlayer *ffp, float rate)
+ {
+-    if (!ffp || !isfinite(rate) || rate < 0.25f || rate > 4.0f)
++    if (!ffp || !isfinite(rate) || rate < 0.1f || rate > 4.0f)
+         return;
+ 
+     av_log(ffp, AV_LOG_INFO, "Playback rate: %f\n", rate);
+@@ -4967,6 +4991,12 @@
+             return ffp ? ffp->pf_playback_volume : default_value;
+         case FFP_PROP_FLOAT_DROP_FRAME_RATE:
+             return ffp ? ffp->stat.drop_frame_rate : default_value;
++        case 10901: /* Vendor diagnostic: actual AudioTrack presentation used. */
++            return ffp ? ffp->stat.audio_presentation_used : default_value;
++        case 10902: /* Vendor diagnostic: presentation backlog in media seconds. */
++            return ffp ? ffp->stat.audio_presentation_media_delay : default_value;
++        case 10903: /* Actual display's refresh rate, not source frame rate. */
++            return ffp ? ffp->display_refresh_rate : default_value;
+         default:
+             return default_value;
+     }
+@@ -4975,6 +5005,10 @@
+ void ffp_set_property_float(FFPlayer *ffp, int id, float value)
+ {
+     switch (id) {
++        case 10903:
++            if (ffp && isfinite(value) && value >= 1 && value <= 1000)
++                ffp->display_refresh_rate = value;
++            break;
+         case FFP_PROP_FLOAT_PLAYBACK_RATE:
+             ffp_set_playback_rate(ffp, value);
+             break;
+--- a/ijkmedia/ijkplayer/android/pipeline/ffpipenode_android_mediacodec_vdec.c
++++ b/ijkmedia/ijkplayer/android/pipeline/ffpipenode_android_mediacodec_vdec.c
+@@ -35,6 +35,7 @@
+ #include "hevc_nal.h"
+ #include "mpeg4_esds.h"
+ #include "ffpipeline_android.h"
++#include "playback_timing.h"
+ 
+ #define AMC_USE_AVBITSTREAM_FILTER 0
+ #ifndef AMCTRACE
+@@ -105,6 +106,7 @@
+     SDL_mutex                *any_input_mutex;
+     SDL_cond                 *any_input_cond;
+ 
++    float                     operating_speed;
+     int                       input_packet_count;
+     int                       input_error_count;
+     int                       output_error_count;
+@@ -119,6 +121,55 @@
+     SDL_SpeedSampler          sampler;
+     volatile bool             abort;
+ } IJKFF_Pipenode_Opaque;
++
++/* Public API 23 operating-rate hint, updated on the codec output thread only.
++ * A codec that rejects a resource hint retains ordinary playback. */
++static void update_operating_rate(JNIEnv *env, IJKFF_Pipenode *node)
++{
++    IJKFF_Pipenode_Opaque *opaque = node->opaque;
++    FFPlayer *ffp = opaque->ffp;
++    float speed = vibe_playback_rate(ffp->pf_playback_rate);
++    if (SDL_Android_GetApiLevel() < 23 || speed == opaque->operating_speed) return;
++    AVRational fps = av_guess_frame_rate(ffp->is->ic, ffp->is->video_st, NULL);
++    double operating_rate = vibe_codec_operating_rate(av_q2d(fps), speed);
++    opaque->operating_speed = speed;
++    if (!operating_rate) return;
++    /* The caller owns acodec_mutex (or the single-threaded codec loop). Do not
++     * acquire it from the input thread: the blocking output loop can starve it. */
++    jobject codec = SDL_AMediaCodec_isStarted(opaque->acodec)
++        ? SDL_AMediaCodecJava_getObject(env, opaque->acodec) : NULL;
++    jclass cls = NULL, bundle_cls = NULL;
++    jobject params = NULL;
++    jstring key = NULL;
++    if (!codec) goto done;
++    cls = (*env)->GetObjectClass(env, codec);
++    if (!cls) goto done;
++    jmethodID set = (*env)->GetMethodID(env, cls, "setParameters", "(Landroid/os/Bundle;)V");
++    if (!set) goto done;
++    bundle_cls = (*env)->FindClass(env, "android/os/Bundle");
++    if (!bundle_cls) goto done;
++    jmethodID ctor = (*env)->GetMethodID(env, bundle_cls, "<init>", "()V");
++    if (!ctor) goto done;
++    jmethodID put = (*env)->GetMethodID(env, bundle_cls, "putFloat", "(Ljava/lang/String;F)V");
++    if (!put) goto done;
++    params = (*env)->NewObject(env, bundle_cls, ctor);
++    if (!params) goto done;
++    key = (*env)->NewStringUTF(env, "operating-rate");
++    if (!key) goto done;
++    (*env)->CallVoidMethod(env, params, put, key, (jfloat)operating_rate);
++    if ((*env)->ExceptionCheck(env)) goto done;
++    (*env)->CallVoidMethod(env, codec, set, params);
++    if (!(*env)->ExceptionCheck(env)) ALOGI("MediaCodec operating-rate set: %.3f fps", operating_rate);
++done:
++    if ((*env)->ExceptionCheck(env)) {
++        (*env)->ExceptionClear(env);
++        ALOGW("MediaCodec operating-rate hint unavailable");
++    }
++    if (key) (*env)->DeleteLocalRef(env, key);
++    if (params) (*env)->DeleteLocalRef(env, params);
++    if (bundle_cls) (*env)->DeleteLocalRef(env, bundle_cls);
++    if (cls) (*env)->DeleteLocalRef(env, cls);
++}
+ 
+ static SDL_AMediaCodec *create_codec_l(JNIEnv *env, IJKFF_Pipenode *node)
+ {
+@@ -253,6 +304,11 @@
+         ALOGE("no buffer(%d)\n", opaque->codecpar->extradata_size);
+     }
+ 
++    AVRational source_fps = av_guess_frame_rate(ffp->is->ic, ffp->is->video_st, NULL);
++    double frame_rate = vibe_codec_operating_rate(av_q2d(source_fps), 1);
++    if (frame_rate > 0) SDL_AMediaFormat_setInt32(opaque->input_aformat, "frame-rate", (int)ceil(frame_rate));
++    if (SDL_Android_GetApiLevel() >= 23) SDL_AMediaFormat_setInt32(opaque->input_aformat, "priority", 0);
++
+     rotate_degrees = ffp_get_video_rotate_degrees(ffp);
+     if (ffp->mediacodec_auto_rotate &&
+         rotate_degrees != 0 &&
+@@ -328,6 +384,7 @@
+         goto fail;
+     }
+ 
++    opaque->operating_speed = 0;
+     amc_ret = SDL_AMediaCodec_start(opaque->acodec);
+     if (amc_ret != SDL_AMEDIA_OK) {
+         ALOGE("%s:SDL_AMediaCodec_start: failed\n", __func__);
+@@ -392,6 +449,7 @@
+         ret = -1;
+         goto fail;
+     }
++    opaque->operating_speed = 0;
+     amc_ret = SDL_AMediaCodec_start(opaque->acodec);
+     if (amc_ret != SDL_AMEDIA_OK) {
+         ALOGE("%s:SDL_AMediaCodec_start: failed\n", __func__);
+@@ -1092,6 +1150,7 @@
+         goto fail;
+     }
+ 
++    update_operating_rate(env, node);
+     output_buffer_index = SDL_AMediaCodecFake_dequeueOutputBuffer(opaque->acodec, &bufferInfo, timeUs);
+     if (output_buffer_index == AMEDIACODEC__INFO_OUTPUT_BUFFERS_CHANGED) {
+         ALOGI("AMEDIACODEC__INFO_OUTPUT_BUFFERS_CHANGED\n");
+@@ -1265,6 +1324,7 @@
+         return ACODEC_RETRY;
+     }
+ 
++    update_operating_rate(env, node);
+     output_buffer_index = SDL_AMediaCodecFake_dequeueOutputBuffer(opaque->acodec, &bufferInfo, timeUs);
+     if (output_buffer_index == AMEDIACODEC__INFO_OUTPUT_BUFFERS_CHANGED) {
+         ALOGD("AMEDIACODEC__INFO_OUTPUT_BUFFERS_CHANGED\n");
+--- a/ijkmedia/ijksdl/android/ijksdl_codec_android_mediacodec_java.c
++++ b/ijkmedia/ijksdl/android/ijksdl_codec_android_mediacodec_java.c
+@@ -44,7 +44,7 @@
+ 
+ jobject SDL_AMediaCodecJava_getObject(JNIEnv *env, const SDL_AMediaCodec *thiz)
+ {
+-    if (!thiz || !thiz->opaque)
++    if (!thiz || thiz->opaque_class != &g_amediacodec_class || !thiz->opaque)
+         return NULL;
+ 
+     SDL_AMediaCodec_Opaque *opaque = (SDL_AMediaCodec_Opaque *)thiz->opaque;
+--- a/ijkmedia/ijkplayer/android/ijkplayer_jni.c
++++ b/ijkmedia/ijkplayer/android/ijkplayer_jni.c
+@@ -124,6 +124,27 @@
+     ijkmp_dec_ref_p(&mp);
+ }
+ 
++JNIEXPORT void JNICALL
++Java_com_vibeplayer_app_player_NativePlaybackTiming_setDisplayRefreshRate(JNIEnv *env, jobject bridge,
++                                                                       jobject player, jfloat hz)
++{
++    IjkMediaPlayer *mp = jni_get_media_player(env, player);
++    if (!mp) return;
++    ijkmp_set_property_float(mp, 10903, hz);
++    ijkmp_dec_ref_p(&mp);
++}
++
++JNIEXPORT jfloat JNICALL
++Java_com_vibeplayer_app_player_NativePlaybackTiming_readFloat(JNIEnv *env, jobject bridge,
++                                                            jobject player, jint property)
++{
++    IjkMediaPlayer *mp = jni_get_media_player(env, player);
++    if (!mp) return NAN;
++    float value = ijkmp_get_property_float(mp, property, NAN);
++    ijkmp_dec_ref_p(&mp);
++    return value;
++}
++
+ static IjkMediaPlayer *jni_set_media_player(JNIEnv* env, jobject thiz, IjkMediaPlayer *mp)
+ {
+     pthread_mutex_lock(&g_clazz.mutex);

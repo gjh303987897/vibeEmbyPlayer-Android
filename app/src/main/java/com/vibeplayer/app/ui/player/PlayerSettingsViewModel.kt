@@ -56,6 +56,8 @@ class PlayerSettingsViewModel @Inject constructor(
     fun togglePlayPause() = manager.togglePlayPause()
     fun seekTo(positionMs: Long) = manager.seekTo(positionMs)
     fun setPlaybackSpeed(speed: Float) = manager.setPlaybackSpeed(speed)
+    fun setDisplayRefreshRate(hz: Float) = manager.setDisplayRefreshRate(hz)
+    fun dismissSpeedAdjustment() = manager.dismissSpeedAdjustment()
     fun setVolume(volume: Float) = manager.setVolume(volume)
     fun selectSubtitle(track: com.vibeplayer.app.player.SubtitleTrack?) = manager.selectSubtitle(track)
     fun setSubtitleAppearance(appearance: com.vibeplayer.app.player.SubtitleAppearance) =

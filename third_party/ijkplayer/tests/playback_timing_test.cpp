@@ -31,7 +31,7 @@ static void av_log(FFPlayer *, int, const char *, ...) { }
 static void clocks_and_cadence()
 {
     int serial = 1;
-    for (double rate : {0.25, 0.5, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0}) {
+    for (double rate : {0.1, 0.125, 0.2, 0.25, 0.5, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0}) {
         for (double fps : {24.0, 30.0, 60.0}) {
             wall_time = 0;
             VideoState is{};
@@ -73,7 +73,7 @@ static void clocks_and_cadence()
     }
     ffp_set_playback_rate(&player, 2.f);
     assert(player.pf_playback_rate == 2.f && player.pf_playback_rate_changed == 1);
-    puts("PASS: native clocks, 24,000 frame deadlines, pause/rebase and media-time audio latency");
+    puts("PASS: native clocks, 33,000 frame deadlines, pause/rebase and media-time audio latency");
 }
 
 static void soundtouch_output()
@@ -81,7 +81,7 @@ static void soundtouch_output()
     constexpr int sample_rate = 48000;
     for (int channels : {1, 2}) {
         soundtouch::SoundTouch processor;
-        for (float rate : {.25f, .5f, 1.f, 1.25f, 1.5f, 2.f, 3.f, 4.f}) {
+        for (float rate : {.1f, .125f, .2f, .25f, .5f, 1.f, 1.25f, 1.5f, 2.f, 3.f, 4.f}) {
             std::vector<short> result;
             auto receive = [&](const unsigned char *input, int bytes) {
                 std::array<short, 66> guarded;
@@ -121,7 +121,7 @@ static void soundtouch_output()
             assert(receive(nullptr, 0) == 0);
         }
     }
-    puts("PASS: real SoundTouch mono/stereo tempo, pitch, bounded output and queue clearing at 8 rates");
+    puts("PASS: real SoundTouch mono/stereo tempo, pitch, bounded output and queue clearing at 11 rates");
 }
 
 static void soundtouch_continuous_rates()

@@ -27,6 +27,8 @@ fs.writeFileSync(delayFile, delay);
 for (const expected of ['duration = vp_duration(is, vp, nextvp) / rate;', 'set_clock_speed(&is->vidclk, rate);',
   'set_clock_speed(&is->extclk, rate);', '*remaining_time = FFMIN(*remaining_time, delay);',
   'vibe_audio_clock_pts(is->audio_clock',
+  'resampled_data_size > INT_MAX / 10',
+  'FFMAX(resampled_data_size * 10, is->audio_tgt.bytes_per_sec)',
   'if (ffp->soundtouch_enable && is->soundtouch_serial != af->serial)',
   'is->soundtouch_active = vibe_soundtouch_should_process(is->soundtouch_active, playback_rate);',
   'ffp->soundtouch_enable && is->soundtouch_active && !is->abort_request',

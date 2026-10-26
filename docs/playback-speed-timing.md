@@ -108,9 +108,108 @@ IJK 的 A-V 差保留媒体秒，设备断言必须除以倍率后再与一致�
 `final-device-results.log`、`remaining-device-results.log`、`device-summary.json`、
 `speed-device-results/*.txt`、`host-speed-results.log`、`local-check.log`、`final-local-check.log`。
 
+## 2026-10-26 输出时间戳与排队倍率
+
+用户反馈在 Emby 连续倍速时画面领先声音，切回 1x 后才逐渐恢复，手机扬声器与蓝牙均会
+出现。已核对手机验证包的原生库确实包含上一轮修复，继续复核 AudioTrack 输出路径。
+
+旧路径使用固定的 `2 × AudioTrack 缓冲大小 / PCM 字节率` 估算设备延迟，没有读取实际
+播放位置；倍速切换还会立即将音频时钟斜率设为新倍率，而设备可能仍在播放旧倍率的 PCM。
+另一个问题是回调内解码和 IO 可能阻塞，旧代码仍使用进入回调前的时间给测得的音频位置
+打点。上述问题都发生在共用音频输出层，与硬解或软解视频的选择无关。
+
+新增 `ijkplayer-audio-presentation.patch` 与 `audio_presentation_*` 支持文件：
+
+- 使用公开的 `AudioTrack.getTimestamp(AudioTimestamp)`，以单调时钟推算当前输出帧。
+  为每段已经交给输出设备的 PCM 记录媒体位置、对应倍率和 seek serial，按实际呈现的
+  输出帧反查媒体时间；新倍率不会覆盖仍排队的旧倍率区间。
+- 只累计成功写入 AudioTrack 的帧；处理短写、暂停、恢复、seek、设备切换和缓冲耗尽。
+  时间戳启动时快速采样，稳定后降低轮询频率，切换路由后重新采样。无有效时间戳的设备
+  保留旧时钟回退，不因设备不支持此 API 而中断播放。
+- 原生 seek 清理时先暂停 AudioTrack 再 flush，确保系统确实清空数据，再重置对应的
+  帧计数和时间线。若 seek 在解码回调中发生，丢弃该次过时的 PCM，不写回旧时间线。
+- 在测量完成时给音频时钟打点。保留原始帧 PTS、字幕时间、播放进度与 seek 坐标。
+  诊断属性 `10901` 表示是否实际采用输出时间戳，`10902` 是媒体秒单位的输出积压。
+- 硬解路径配置源帧率及实时优先级，并在 API 23+ 随倍率更新公开的 MediaCodec
+  `operating-rate` 资源提示。更新在解码输出线程执行，复用其现有锁边界，不从输入线程
+  与阻塞 dequeue 循环竞争锁；不支持提示时保留原播放路径，也不修改源帧时间戳。
+
+构建脚本在原倍速补丁外应用此补丁，重复构建时按相反顺序撤销。四种 ABI 重新编译；
+补丁、支持文件、主机回归与库哈希均记录在 `native-build.json`。
+
+新增主机回归：
+
+```text
+node scripts/test-ijkplayer-audio-presentation.mjs
+```
+
+覆盖 40–1000ms 的模拟设备延迟、1x→2x→1x 队列混合、倍率分界、seek serial 隔离、
+启动预缓冲、缓冲耗尽、64 位帧计数与有界历史淘汰，并对照旧时钟在混合倍率队列下的偏差。
+原倍速/SoundTouch 与字幕主机回归继续通过。新增可选的 `ConfiguredEmbySpeedDeviceTest`
+仅在明确传入服务和剧集名称时运行，使用同一验证应用中已有的会话，账号和令牌不出应用。
+它不向服务端上报播放进度，并在结束时停止播放、恢复原解码偏好。
+
+本地检查结果：四 ABI 原生库、正常及独立包 APK/AndroidTest APK 构建通过；170 项 JVM
+测试 0 失败、0 跳过，lint 0 error、3 项既有 warning。12 个原生库与清单哈希一致，
+ABI、16KB ELF 对齐及 APK zipalign 通过；逐层应用五个 IJK 补丁可重现构建源码。
+记录位于忽略目录 `build/speed-sync-20261026/`。
+
+实机原片使用已授权服务中名称完全匹配的剧集，测得源为 HEVC Main 10、3840×2160、
+60fps、AAC 44.1kHz 双声道。输出设备确认为手机扬声器。硬解 1x 与 1.5x 的原生时钟差
+约 40ms 以内，全部采样使用真实输出时间戳；2x 下视频解码约 105fps，未达到所需的
+120fps，视频逐渐落后音频，约 11 秒测量窗口的最大墙钟偏差达到 1.37 秒，切回 1x 后
+仍需追赶。该原片的 CPU 软解约 15fps，1x 已无法实时处理。静音测试观测到的这一
+性能不足方向与用户描述的画面领先声音不同，不能据此断言原始听感问题已经解决。
+
+资源提示在本机上未消除 4K60 的 2x 累积偏差。固定增加连续丢帧的实验也未提高解码吞吐，
+已从最终源码撤回。
+
+用户随后明确选择：送屏帧率跟随当前手机屏幕刷新率；仍然解码不足时允许自动降低实际
+倍速，并告知用户。实现如下：
+
+- `IjkPlayerView` 读取当前 View 所在 Display 的刷新率，监听 Display 变化，并经共用
+  PlayerManager 更新原生送屏节奏。没有 View 时先使用默认 Display 的有效刷新率。
+  原生显示按墙钟网格限制提交次数，源帧率、PTS 和进度不变，暂停和 seek 的首帧仍可
+  立即显示。主机回归覆盖 30–144Hz 及高频输入。
+- `PlaybackSpeedGovernor` 观察解码吞吐、实际送屏吞吐与有符号音画差。启动/切速/seek 后
+  先等待 2.5 秒，连续四次采样确认视频落后超过 120ms 且处理不足，才选择留有余量的
+  较低倍率。送屏目标取源帧率乘倍速与当前刷新率的较小值，避免把正常的刷新率限制
+  当作性能不足；原始解码足够而颜色转换/送屏不足时，也会继续保护。
+  加载、暂停、seek 遮挡、未知数据与画面领先声音均不触发该性能回退。
+- 降速后沿用原 seek 管线重新对齐两路输出；新实际倍速同步到控件，五类来源的播放页均
+  显示可关闭的 7 秒提示。用户手动选速会重新尝试；下一视频恢复用户选择的倍率。
+  该限制不写入全局偏好。手动选速的原范围保留；自动性能保护可用 0.2/0.125/0.1x
+  低速档。原生校验与 PCM 容量边界相应支持 0.1x，乘法溢出检查保留。
+- 低于 0.25x 的进入、退出或切换通过 seek 重建该处理时间线。固定版本 SoundTouch
+  在这些低倍率与普通倍率的短段连续混合试验中，最终时长与逐段期望不一致；生产路径
+  使用已验证的重置边界，不把未通过的低倍率连续混播当作可用行为。普通倍率原有 48 段
+  连续队列保留回归保持不变。独立处理/清理回归扩展至 11 档、33,000 个帧截止时间。
+
+更新后的原片硬解实测通过：Display 约 60Hz；1x 与 1.5x 分别按所选速度推进；选择 2x
+后因持续解码不足自动降至 1.5x，最终一轮重新对齐后的最大原生时钟差约 35ms；切回 1x
+最大差约 5ms。采样窗口全部采用实际音频时间戳，原生送屏统计约 59–61fps（毫秒采样取整）。
+这表示能力不足时以较低实际倍率保持同步，并非本机已经能实时解码这份 4K60 的 2x。
+同一原片的 CPU 软解也完成实测：0.25/0.2x 仍受完整画面处理吞吐限制；最终保护会
+继续降低至 0.1x，实测速率约 0.09994，送屏约 6fps，稳定窗口最大原生时钟差约 1.2ms，
+首尾采样中位数差约 0.85ms，没有持续漂移。如此低的实际倍率明确显示在控件与提示中。
+极低帧率的测试容差按最多一帧加 40ms 计算，并额外检查首尾窗口漂移；本次实际误差
+仍远低于原有 150ms 容差，没有依赖放宽容差通过。
+四组软硬解 AAC/PCM 合成素材实测也通过，覆盖到 4x、暂停、长按恢复和 seek。原先一次
+帧编号采样失败的截图显示系统正在旋转动画中；测试改为固定方向后完整重跑通过。
+最终扬声器回归共 9 项通过：原片硬解、原片软解、四组常规倍速，以及三项 TSSL seek
+遮挡、慢分片中断与两路输出恢复检查。2026-10-27 用户选择本次先完成扬声器验证，
+蓝牙物理输出尚未实测，不将主机模拟延迟检查当作蓝牙实测结果。
+
+实机测试遵守用户要求保持静音，不录制音频；时间戳、原生 A-V 时钟和截图只能验证输出
+时序及画面推进，不能代替用户对实际听感的复核。生产 EOF 排空仍保留上文的已知限制。
+
 ## 参考
 
 - [IJK k0.8.8 播放时钟与调度源码](https://github.com/bilibili/ijkplayer/blob/k0.8.8/ijkmedia/ijkplayer/ff_ffplay.c)
 - [IJK 配置项](https://github.com/bilibili/ijkplayer/blob/k0.8.8/ijkmedia/ijkplayer/ff_ffplay_options.h)
 - [Android AudioTrack](https://developer.android.com/reference/android/media/AudioTrack)
+- [AudioTrack 输出时间戳](https://developer.android.com/reference/android/media/AudioTrack#getTimestamp(android.media.AudioTimestamp))
+- [AudioTrack flush 的暂停要求](https://developer.android.com/reference/android/media/AudioTrack#flush())
+- [MediaCodec operating-rate 资源提示](https://developer.android.com/reference/android/media/MediaFormat#KEY_OPERATING_RATE)
+- [Display 当前刷新率](https://developer.android.com/reference/android/view/Display#getRefreshRate())
 - Qt `VIBEDOCS/PlayerRuntime.md`、`src/player/PlayerController.cpp`。

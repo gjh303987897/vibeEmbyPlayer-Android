@@ -300,4 +300,5 @@
     <string name="server_http_consent">Allow credentials over unencrypted HTTP for this server</string>
     <string name="server_http_warning_title">Use unencrypted HTTP?</string>
     <string name="server_http_warning">Anyone able to monitor this network may read your password, access token and media. Prefer HTTPS. This approval applies only to this server; TSSL key backups still require HTTPS.</string>
+    <string name="player_speed_adapted">To keep audio and video in sync, playback was reduced from %1$s× to %2$s× because this video exceeds the device’s decoding capacity.</string>
 </resources>

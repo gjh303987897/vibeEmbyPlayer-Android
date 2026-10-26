@@ -1,6 +1,7 @@
 package com.vibeplayer.app.player
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.SurfaceView
@@ -68,6 +69,7 @@ class PlaybackSpeedDeviceTest {
                         if (attached) created.countDown()
                     }).apply { player = manager.player }
                     activity.setContentView(view)
+                    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                     observer = activity.lifecycleScope.launch {
                         manager.state.collect {
                             view.updateSurfaceGeneration(it.surfaceGeneration)
@@ -86,8 +88,8 @@ class PlaybackSpeedDeviceTest {
                     main {
                         if (manager.player.currentPosition > 13_000) manager.seekTo(1_000)
                         manager.setPlaybackSpeed(rate)
-                        // Keep the synthetic sine quiet without changing the system's media volume.
-                        manager.player.setVolume(.03f, .03f)
+                        // These timing probes must never emit audible test tones.
+                        manager.player.setVolume(0f, 0f)
                     }
                     SystemClock.sleep(1_200)
                     probe(view, rate, report)
@@ -131,7 +133,7 @@ class PlaybackSpeedDeviceTest {
     }
 
     private data class FrameSample(val wall: Long, val frame: Int, val position: Long, val av: Float,
-                                   val fps: Float, val presentationGap: Double)
+                                   val fps: Float, val presentationGap: Double, val presented: Boolean)
 
     private fun probe(view: IjkPlayerView, rate: Float, report: File) {
         val samples = (1..16).map {
@@ -148,6 +150,12 @@ class PlaybackSpeedDeviceTest {
                         bounds.top + bounds.height() * 20 / 180)
                     if (android.graphics.Color.red(pixel) > 128) number = number or (1 shl bit)
                 }
+                if (number !in 1..3600) {
+                    File(report.parentFile, "${report.nameWithoutExtension}-invalid-${SystemClock.elapsedRealtime()}.png")
+                        .outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    report.appendText(main { "invalidFrame=$number blocked=${manager.state.value.videoOutputBlocked} " +
+                        "playing=${manager.state.value.isPlaying} surface=${view.width}x${view.height}\n" })
+                }
                 number
             } finally { bitmap.recycle() }
             val after = main { manager.player.currentPosition }
@@ -155,7 +163,8 @@ class PlaybackSpeedDeviceTest {
             val gap = maxOf(before - frameMs, frameMs - after, 0.0) / rate
             val sample = main { FrameSample(SystemClock.elapsedRealtime(), frame, manager.player.currentPosition,
                 avDifference.invoke(manager.player, 10005, Float.NaN) as Float,
-                manager.player.videoOutputFramesPerSecond, gap) }
+                manager.player.videoOutputFramesPerSecond, gap,
+                avDifference.invoke(manager.player, 10901, Float.NaN) as Float == 1f) }
             assertNull(manager.state.value.error)
             SystemClock.sleep(100)
             sample
@@ -169,10 +178,11 @@ class PlaybackSpeedDeviceTest {
         val avWallMs = difference * 1000 / rate
         val gap = samples.maxOf { it.presentationGap }
         val framesPerSecond = samples.takeLast(8).map { it.fps }.sorted()[4]
-        val line = "rate=$rate actualRate=$actualRate screenRate=$videoRate maxAvMediaSeconds=$difference maxAvWallMs=$avWallMs maxScreenGapWallMs=$gap nativeFps=$framesPerSecond frames=${samples.map { it.frame }}\n"
+        val line = "rate=$rate actualRate=$actualRate screenRate=$videoRate maxAvMediaSeconds=$difference maxAvWallMs=$avWallMs maxScreenGapWallMs=$gap nativeFps=$framesPerSecond presentationSamples=${samples.count { it.presented }}/16 frames=${samples.map { it.frame }}\n"
         report.appendText(line)
         println(line.trim())
         assertTrue("native media clock must follow $rate: $line", abs(actualRate - rate) < rate * .20)
+        assertTrue("actual AudioTrack presentation must drive the clock: $line", samples.count { it.presented } >= 12)
         assertTrue("composited screen must follow $rate: $line", abs(videoRate - rate) < rate * .25)
         assertTrue("all frame IDs must decode", samples.all { it.frame in 1..3600 })
         assertTrue("stable native A/V clocks: $line", samples.all { it.av.isFinite() && abs(it.av) / rate < .15f })

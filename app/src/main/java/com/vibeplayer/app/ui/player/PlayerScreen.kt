@@ -74,6 +74,7 @@ fun PlayerScreen(
             factory = { ctx ->
                 IjkPlayerView(ctx, viewModel::setVideoSurface).apply {
                     player = viewModel.player
+                    onDisplayRefreshRateChanged = playerSettings::setDisplayRefreshRate
                     onVideoBoundsChanged = pipHost?.let { it::updateSourceBounds }
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -121,6 +122,9 @@ fun PlayerScreen(
 
         PlayerSubtitleOverlay(state.subtitleText, Modifier.align(Alignment.BottomCenter).bottomEdgeInsets().padding(bottom = if (pipMode) 2.dp else if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp), playerPreferences.subtitleAppearance, compact = pipMode)
 
+        if (!pipMode) com.vibeplayer.app.ui.player.PlaybackSpeedNotice(playerSettings,
+            Modifier.align(Alignment.BottomCenter).bottomEdgeInsets()
+                .padding(bottom = if (controlsVisible && !locked) controlsHeight + 12.dp else 24.dp))
         // Loading + failure feedback: a playback error must never look like an
         // endless spinner.
         if (!locked && !pipMode) PlaybackStatusOverlay(

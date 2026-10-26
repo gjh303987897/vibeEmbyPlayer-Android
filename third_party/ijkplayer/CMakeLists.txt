@@ -61,7 +61,8 @@ target_include_directories(ijksoundtouch PUBLIC "${SOUNDTOUCH_SOURCE}" "${SOUNDT
 target_link_libraries(ijksoundtouch PUBLIC cpufeatures log)
 
 ijk_sources(sdl_sources "${media}/ijksdl")
-add_library(ijksdl SHARED ${sdl_sources})
+add_library(ijksdl SHARED ${sdl_sources} audio_presentation_jni.c)
+target_include_directories(ijksdl PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(ijksdl PRIVATE ijkffmpeg ijkj4a cpufeatures yuv log android OpenSLES EGL GLESv2)
 ijk_sources(player_sources "${media}/ijkplayer")
 add_library(ijkplayer SHARED ${player_sources} "${IJK_SOURCE}/ijkprof/android-ndk-profiler-dummy/jni/prof.c"

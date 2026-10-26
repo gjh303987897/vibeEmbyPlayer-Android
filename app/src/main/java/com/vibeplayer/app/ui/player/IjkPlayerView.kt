@@ -1,6 +1,9 @@
 package com.vibeplayer.app.ui.player
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -42,6 +45,25 @@ class IjkPlayerView(
         }
     private val visibleVideoBounds = Rect()
     var onVideoBoundsChanged: ((Rect) -> Unit)? = null
+    var onDisplayRefreshRateChanged: ((Float) -> Unit)? = null
+    private val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (display?.displayId == displayId) reportDisplayRate()
+        }
+    }
+
+    private fun reportDisplayRate() {
+        display?.refreshRate?.takeIf { it.isFinite() && it > 0 }?.let { onDisplayRefreshRateChanged?.invoke(it) }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+        reportDisplayRate()
+    }
 
     var bitmapSubtitleFrame: BitmapSubtitleFrame?
         get() = bitmapSubtitleView.frame
@@ -142,6 +164,7 @@ class IjkPlayerView(
     }
 
     override fun onDetachedFromWindow() {
+        displayManager.unregisterDisplayListener(displayListener)
         onVideoSurfaceChanged(surfaceView.holder, false)
         super.onDetachedFromWindow()
     }

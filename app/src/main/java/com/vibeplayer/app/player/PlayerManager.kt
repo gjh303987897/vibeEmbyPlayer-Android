@@ -2,6 +2,8 @@ package com.vibeplayer.app.player
 
 import android.content.Context
 import android.net.Uri
+import android.hardware.display.DisplayManager
+import android.view.Display
 import android.util.Log
 import androidx.annotation.MainThread
 import android.view.SurfaceHolder
@@ -55,6 +57,7 @@ data class PlayerState(
     val bitmapSubtitleFrame: BitmapSubtitleFrame? = null,
     val error: String? = null,
     val playbackSpeed: Float = 1f,
+    val speedAdjustment: PlaybackSpeedAdjustment? = null,
     val volume: Float = 1f,
     val subtitleTracks: List<SubtitleTrack> = emptyList(),
     val selectedSubtitleKey: String? = null,
@@ -124,6 +127,19 @@ class PlayerManager @Inject constructor(
     private var surfaceGeneration = 0L
     private var surfaceReady: CompletableDeferred<Unit>? = null
     val player = IjkMediaPlayer()
+    private var requestedSpeed = 1f
+    private val speedGovernor = PlaybackSpeedGovernor()
+    private var displayRefreshRate = (context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
+        ?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate?.takeIf { it.isFinite() && it in 1f..1000f } ?: 60f
+
+    fun setDisplayRefreshRate(hz: Float) {
+        if (!hz.isFinite() || hz !in 1f..1000f) return
+        displayRefreshRate = hz
+        runCatching { NativePlaybackTiming.setDisplayRefreshRate(player, hz) }
+            .onFailure { Log.w("PlayerManager", "Unable to update display refresh rate (${it.javaClass.simpleName})") }
+    }
+
+    fun dismissSpeedAdjustment() { _state.update { it.copy(speedAdjustment = null) } }
     private var boundHolder: SurfaceHolder? = null
     // Native reset does not release a CPU renderer's BufferQueue connection.
     // Retain its owner across beginLoading(), including repeated resets.
@@ -228,6 +244,7 @@ class PlayerManager @Inject constructor(
         subtitleSelectionInitialized = false
         clearVisibleSubtitles()
         player.reset()
+        setDisplayRefreshRate(displayRefreshRate)
         // reset() creates a new native player whose revision starts again at zero.
         bitmapSubtitleRevision = -1L
         player.setDisplay(boundHolder)
@@ -571,6 +588,8 @@ class PlayerManager @Inject constructor(
         preserveSessionControls: Boolean = preserveManualSubtitles,
         allowInsecureHttp: Boolean = false
     ) {
+        speedGovernor.reset(android.os.SystemClock.elapsedRealtime())
+        if (!preserveSessionControls) lastSpeed = requestedSpeed
         completionDelivered = false
         cancelPausedSurfaceFrame()
         pausedSeekPosition = null
@@ -787,6 +806,7 @@ class PlayerManager @Inject constructor(
     }
 
     fun seekTo(positionMs: Long) {
+        speedGovernor.reset(android.os.SystemClock.elapsedRealtime())
         completionDelivered = false
         clearVisibleSubtitles()
         if (!_state.value.isPrepared) return
@@ -863,7 +883,7 @@ class PlayerManager @Inject constructor(
     fun beginTemporarySpeed(speed: Float) {
         if (temporarySpeedActive) return
         val previous = lastSpeed
-        if (applySpeed(speed)) {
+        if (applySpeed(speed.coerceAtLeast(.25f))) {
             speedBeforeTemporary = previous
             temporarySpeedActive = true
         }
@@ -875,16 +895,26 @@ class PlayerManager @Inject constructor(
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        if (applySpeed(speed)) temporarySpeedActive = false
+        if (applySpeed(speed.coerceAtLeast(.25f))) {
+            temporarySpeedActive = false
+            requestedSpeed = lastSpeed
+            dismissSpeedAdjustment()
+        }
     }
 
-    private fun applySpeed(speed: Float): Boolean {
+    private fun applySpeed(speed: Float, resyncLowRate: Boolean = true): Boolean {
         if (!speed.isFinite()) return false
-        val normalized = speed.coerceIn(.25f, 4f)
+        val normalized = speed.coerceIn(.1f, 4f)
+        val previous = lastSpeed
         return runCatching { player.setSpeed(normalized) }
             .onSuccess {
                 lastSpeed = normalized
+                speedGovernor.reset(android.os.SystemClock.elapsedRealtime())
                 _state.update { it.copy(playbackSpeed = normalized) }
+                if (resyncLowRate && lowRateNeedsResync(previous, normalized) && _state.value.isPrepared &&
+                    _state.value.durationMs > 0) {
+                    seekTo(runCatching { player.currentPosition }.getOrDefault(_state.value.positionMs))
+                }
             }
             .onFailure { Log.w("PlayerManager", "Unable to change playback speed (${it.javaClass.simpleName})") }
             .isSuccess
@@ -1137,6 +1167,7 @@ class PlayerManager @Inject constructor(
         positionTicker = scope.launch {
             while (true) {
                 updateDerived()
+                adaptSpeedToDecoder()
                 updateSubtitleText(_state.value.positionMs)
                 delay(500)
             }
@@ -1147,6 +1178,27 @@ class PlayerManager @Inject constructor(
         diagnosticsJob?.cancel()
         diagnosticsJob = null
         _diagnostics.value = PlaybackDiagnostics()
+    }
+
+    private fun adaptSpeedToDecoder() {
+        val state = _state.value
+        val now = android.os.SystemClock.elapsedRealtime()
+        val decodeFps = runCatching { NativePlaybackTiming.readFloat(player, 10001) }.getOrDefault(Float.NaN)
+        val difference = runCatching { NativePlaybackTiming.readFloat(player, 10005) }.getOrDefault(Float.NaN)
+        val outputFps = runCatching { player.videoOutputFramesPerSecond }.getOrNull()
+        val next = speedGovernor.sample(now, lastSpeed, state.mediaInfo.video?.frameRate, decodeFps, difference,
+            state.isPrepared && state.isPlaying && !state.buffering && !state.videoOutputBlocked &&
+                pausedSeekPosition == null && pausedSurfaceFramePosition == null,
+            outputFps = outputFps, displayHz = displayRefreshRate) ?: return
+        val selected = if (temporarySpeedActive) lastSpeed else requestedSpeed
+        val position = state.positionMs
+        if (applySpeed(next, resyncLowRate = false)) {
+            _state.update { it.copy(speedAdjustment = PlaybackSpeedAdjustment(selected, next)) }
+            // A new sustainable speed cannot erase an already accumulated offset.
+            // Reuse the normal seek pipeline to align both outputs once.
+            if (state.durationMs > 0 && position < state.durationMs - 1_000) seekTo(position)
+            Log.i("PlayerManager", "Playback speed reduced for decoder pressure ($selected -> $next)")
+        }
     }
 
     private fun updateDiagnosticsMonitoring() {
@@ -1162,7 +1214,7 @@ class PlayerManager @Inject constructor(
                 val prepared = _state.value.isPrepared
                 val fps = if (metrics.frameRate && prepared && player.videoWidth > 0) {
                     if (_state.value.isPlaying && !_state.value.buffering)
-                        runCatching { player.videoOutputFramesPerSecond }.getOrNull() else 0f
+                        runCatching { player.videoOutputFramesPerSecond.coerceAtMost(displayRefreshRate) }.getOrNull() else 0f
                 } else null
                 val bytes = if (metrics.networkSpeed)
                     currentRequest?.networkByteCounter?.invoke() ?: httpProxy?.receivedBytes else null

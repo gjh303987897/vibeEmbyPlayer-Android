@@ -82,6 +82,11 @@ const wrapper = path.join(vendor, 'libdav1d.c');
 const wrapperOutput = path.join(ffmpeg, 'libavcodec/libdav1d.c');
 if (!fs.existsSync(wrapperOutput) || sha256(wrapperOutput) !== sha256(wrapper)) fs.copyFileSync(wrapper, wrapperOutput);
 const ijkSource = path.join(source, 'ijkplayer');
+const audioPresentationPatch = path.join(vendor, 'ijkplayer-audio-presentation.patch');
+// This outer overlay uses the PCM timing changes below; unwind it before older layers.
+if (spawnSync('git', ['apply', '--reverse', '--check', audioPresentationPatch], { cwd: ijkSource, stdio: 'ignore' }).status === 0) {
+  run('git', ['apply', '--reverse', audioPresentationPatch], ijkSource);
+}
 const playbackTimingPatch = path.join(vendor, 'ijkplayer-playback-timing.patch');
 // Unwind overlays before checking their underlying context, then reapply in order.
 if (spawnSync('git', ['apply', '--reverse', '--check', playbackTimingPatch], { cwd: ijkSource, stdio: 'ignore' }).status === 0) {
@@ -105,6 +110,7 @@ if (spawnSync('git', ['apply', '--reverse', '--check', subtitleDelayPatch], { cw
   run('git', ['apply', subtitleDelayPatch], ijkSource);
 }
 run('git', ['apply', playbackTimingPatch], ijkSource);
+run('git', ['apply', audioPresentationPatch], ijkSource);
 const abis = {
   armv7a: { android: 'armeabi-v7a', arch: 'arm', target: 'armv7a-linux-androideabi', extra: ['--cpu=armv7-a', '--enable-neon'] },
   arm64: { android: 'arm64-v8a', arch: 'aarch64', target: 'aarch64-linux-android', extra: [] },
@@ -140,6 +146,17 @@ const metadata = {
     patchSha256: sha256(playbackTimingPatch),
     supportSha256: Object.fromEntries(['playback_timing.h', 'playback_soundtouch.cpp']
       .map(file => [file, sha256(path.join(vendor, file))])),
+  },
+  audioPresentation: {
+    patchSha256: sha256(audioPresentationPatch),
+    supportSha256: Object.fromEntries(['audio_presentation_clock.h', 'audio_presentation_jni.h', 'audio_presentation_jni.c']
+      .map(file => [file, sha256(path.join(vendor, file))])),
+    regressionSha256: sha256(path.join(vendor, 'tests/audio_presentation_clock_test.c')),
+    sourceProperty: 10901,
+    mediaDelayProperty: 10902,
+    displayRefreshProperty: 10903,
+    jniExports: ['Java_com_vibeplayer_app_player_NativePlaybackTiming_setDisplayRefreshRate',
+      'Java_com_vibeplayer_app_player_NativePlaybackTiming_readFloat'],
   },
 };
 // Separate metadata files allow independent ABI jobs without sharing writable outputs.
@@ -222,11 +239,16 @@ for (const name of selected) {
   }
   const input = path.join(vendor, `ijkplayer-${name}-0.8.8.aar`);
   const output = path.join(vendor, `ijkplayer-${name}-0.8.8-full.aar`);
-  fs.copyFileSync(input, output);
-  run(jar, ['--update', '--file', output, '--no-manifest', ...entries]);
+  // Gradle can retain a mapped ZipFile on Windows after its build completes.
+  // Publish a complete archive by rename instead of truncating that mapped file.
+  const stagedOutput = path.join(location, path.basename(output));
+  fs.copyFileSync(input, stagedOutput);
+  run(jar, ['--update', '--file', stagedOutput, '--no-manifest', ...entries]);
+  fs.renameSync(stagedOutput, output);
   fs.copyFileSync(path.join(location, 'config.h'), path.join(vendor, `ffmpeg-${name}-config.h`));
   metadata.artifacts[name] = { file: path.basename(output), sha256: sha256(output), upstreamAarSha256: sha256(input), nativeHashes, configureArguments: flags, requiredFeatures: required };
-  fs.writeFileSync(prior, `${JSON.stringify(metadata, null, 2)}\n`);
+  fs.writeFileSync(`${prior}.tmp`, `${JSON.stringify(metadata, null, 2)}\n`);
+  fs.renameSync(`${prior}.tmp`, prior);
 }
 fs.copyFileSync(path.join(source, 'libxml2/Copyright'), path.join(vendor, 'COPYING.libxml2'));
 fs.copyFileSync(path.join(source, 'libyuv/LICENSE'), path.join(vendor, 'COPYING.libyuv'));
